@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas Run",
+  "type": "object",
+  "required": [
+    "schema",
+    "task",
+    "route",
+    "iteration",
+    "status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-run.v1"
+    },
+    "task": {
+      "type": "string"
+    },
+    "route": {
+      "type": "string"
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string"
+    },
+    "quality_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

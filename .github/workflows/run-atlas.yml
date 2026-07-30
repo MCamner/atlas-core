@@ -1,0 +1,76 @@
+name: Run Atlas Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Atlas task to run"
+        required: true
+        default: "granska atlas-core och hitta nästa bästa förbättring"
+      json_output:
+        description: "Return JSON output"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      repo_target:
+        description: "Optional GitHub repo target, for example MCamner/mqobsidian"
+        required: false
+        default: ""
+
+jobs:
+  atlas:
+    name: Atlas loop
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout atlas-core
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Atlas Core
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: |
+          python -m pytest -q
+
+      - name: Run Atlas
+        run: |
+          mkdir -p atlas-runs
+
+          TASK="${{ github.event.inputs.task }}"
+          REPO_TARGET="${{ github.event.inputs.repo_target }}"
+          JSON_OUTPUT="${{ github.event.inputs.json_output }}"
+
+          if [ -n "$REPO_TARGET" ]; then
+            if [ "$JSON_OUTPUT" = "true" ]; then
+              atlas run "$TASK" --repo "$REPO_TARGET" --json | tee atlas-runs/atlas-result.json
+            else
+              atlas run "$TASK" --repo "$REPO_TARGET" | tee atlas-runs/atlas-result.md
+            fi
+          else
+            if [ "$JSON_OUTPUT" = "true" ]; then
+              atlas run "$TASK" --json | tee atlas-runs/atlas-result.json
+            else
+              atlas run "$TASK" | tee atlas-runs/atlas-result.md
+            fi
+          fi
+
+      - name: Upload Atlas result
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-result
+          path: atlas-runs/

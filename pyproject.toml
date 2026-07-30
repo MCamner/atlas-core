@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlas-core"
+version = "0.2.0"
+description = "Standalone Atlas 2.0 loop engine: route, plan, execute, evaluate, retry, finalize."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "MCamner / Atlas Core" }]
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+atlas = "atlas_core.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atlas_core*"]
+
+[tool.setuptools.package-data]
+atlas_core = ["py.typed"]

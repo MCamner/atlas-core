@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas Memory Candidate",
+  "type": "object",
+  "required": [
+    "schema",
+    "task",
+    "route",
+    "quality_score",
+    "summary",
+    "verified",
+    "public_safe"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-memory-candidate.v1"
+    },
+    "task": {
+      "type": "string"
+    },
+    "route": {
+      "type": "string"
+    },
+    "quality_score": {
+      "type": "number"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "verified": {
+      "type": "boolean"
+    },
+    "public_safe": {
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "atlas-core",
+  "version": "0.2.0",
+  "created_at": "2026-07-31T00:01:00+02:00",
+  "description": "Standalone Atlas 2.0 loop engine scaffold",
+  "independent_from_mq": true,
+  "entrypoint": "atlas_core.cli:main",
+  "cli": "atlas",
+  "routes": [
+    "repo_review",
+    "architecture_decision",
+    "root_cause",
+    "decision_tradeoff",
+    "learning",
+    "prompt_improvement",
+    "general"
+  ],
+  "write_mode": "read_only_by_default",
+  "new_in_v0_2": [
+    "--repo",
+    "--repo-path",
+    "GitHubRepoAdapter",
+    "FilesystemRepoAdapter",
+    "run-atlas.yml"
+  ]
+}

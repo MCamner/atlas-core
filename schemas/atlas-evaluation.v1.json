@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas Evaluation",
+  "type": "object",
+  "required": [
+    "schema",
+    "quality_score",
+    "passed",
+    "reasons"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-evaluation.v1"
+    },
+    "quality_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requires_user_approval": {
+      "type": "boolean"
+    }
+  }
+}

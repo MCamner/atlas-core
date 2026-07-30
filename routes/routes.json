@@ -1,0 +1,75 @@
+{
+  "repo_review": {
+    "use_when": [
+      "repository review",
+      "repo improvement",
+      "docs gap analysis",
+      "P0/P1/P2 prioritization"
+    ],
+    "steps": [
+      "observe_repo",
+      "summarize",
+      "find_gaps",
+      "prioritize",
+      "recommend_pr_slices"
+    ]
+  },
+  "architecture_decision": {
+    "use_when": [
+      "target architecture",
+      "technical decision",
+      "risk review",
+      "platform choice"
+    ],
+    "steps": [
+      "requirements",
+      "high_level_design",
+      "risk_review",
+      "options_analysis",
+      "recommendation"
+    ]
+  },
+  "root_cause": {
+    "use_when": [
+      "recurring problem",
+      "failure",
+      "incident",
+      "release blockage"
+    ],
+    "steps": [
+      "problem",
+      "symptoms_vs_causes",
+      "causal_chain",
+      "root_cause",
+      "actions"
+    ]
+  },
+  "decision_tradeoff": {
+    "use_when": [
+      "compare options",
+      "choose path",
+      "recommend decision"
+    ],
+    "steps": [
+      "context",
+      "options",
+      "tradeoffs",
+      "recommendation",
+      "next_step"
+    ]
+  },
+  "learning": {
+    "use_when": [
+      "explain",
+      "teach",
+      "Feynman",
+      "beginner-friendly"
+    ],
+    "steps": [
+      "simple_explanation",
+      "common_confusion",
+      "example",
+      "understanding_check"
+    ]
+  }
+}
