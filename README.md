@@ -71,7 +71,7 @@ This v0.2.0 is a working scaffold:
 
 It does **not** include a live LLM provider by default. Add that as an adapter later.
 
-## Install locally
+## Quick start
 
 ```bash
 git clone https://github.com/MCamner/atlas-core.git
