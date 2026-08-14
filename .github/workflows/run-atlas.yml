@@ -49,12 +49,16 @@ jobs:
           python -m pytest -q
 
       - name: Run Atlas
+        # Inputs reach the shell through env, never through ${{ }} interpolation.
+        # Expressions are substituted into the script before the shell parses it,
+        # so an input containing quotes or a semicolon would otherwise execute as
+        # commands on the runner.
+        env:
+          TASK: ${{ github.event.inputs.task }}
+          REPO_TARGET: ${{ github.event.inputs.repo_target }}
+          JSON_OUTPUT: ${{ github.event.inputs.json_output }}
         run: |
           mkdir -p atlas-runs
-
-          TASK="${{ github.event.inputs.task }}"
-          REPO_TARGET="${{ github.event.inputs.repo_target }}"
-          JSON_OUTPUT="${{ github.event.inputs.json_output }}"
 
           if [ -n "$REPO_TARGET" ]; then
             if [ "$JSON_OUTPUT" = "true" ]; then
