@@ -9,8 +9,7 @@ Adds repo observation support and GitHub Actions runner.
 - `FilesystemRepoAdapter` for local repo context
 - `run-atlas.yml` workflow_dispatch runner
 - GitHub reader adapter docs
-- bootstrap package for `/Users/mansys/atlas-core`
 
-## v0.2.0 — 2026-07-31
+## v0.1.0 — 2026-07-31
 
 Initial standalone Atlas Core MVP.
