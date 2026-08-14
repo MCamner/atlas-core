@@ -12,6 +12,12 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
+<p align="center">
+  <a href="https://mcamner.github.io/atlas-core/">Site</a> ·
+  <a href="https://github.com/MCamner/atlas-core/wiki">Wiki</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
 ---
 
 ## About
@@ -136,6 +142,45 @@ atlas routes
 atlas version
 ```
 
+## Example output
+
+A real run against this repository, abbreviated. The trailer after `---` is the
+loop's own accounting: which route it picked, how many iterations it used
+against the bound, and whether evaluation let it stop.
+
+```text
+$ atlas run "granska atlas-core och hitta nästa bästa förbättring" --repo-path .
+
+# Prompt Improvement
+
+## Goal
+granska atlas-core och hitta nästa bästa förbättring
+
+## Failure modes
+- För lång prompt som blandar policy, minne och output.
+- Router som väljer prompt men inte kör svaret.
+- Otydliga stop-regler.
+- Inga testfall.
+
+## Recommendation
+Gör prompten till ett tunt gränssnitt ovanpå en loop/state-machine.
+
+## Next step
+Skriv routes som data, inte som långa promptstycken.
+
+## Confidence
+High.
+
+---
+Atlas route: prompt_improvement
+Iterations: 1/2
+Quality score: 0.9
+Status: passed
+```
+
+`atlas routes` prints the full route map as JSON, including the keywords each
+route matches and its risk level.
+
 ## GitHub Actions
 
 This repo includes a manual loop runner:
@@ -169,6 +214,26 @@ RUN_ID=$(gh run list \
 gh run download "$RUN_ID" -n atlas-result -D atlas-runs
 cat atlas-runs/atlas-result.md
 ```
+
+## Security and safe sharing
+
+Atlas Core is read-only by default. It ships no LLM provider and no write
+adapter: the only files it writes are local memory candidates under a directory
+you pass with `--memory-dir`.
+
+Before sharing a run log or an artifact from the Actions runner, check it the
+way you would check any output that quotes your filesystem:
+
+- run output embeds observed repo content, including README text and file paths
+- `--repo-path` observations come from your local checkout
+- `--repo` observations come from the public GitHub REST API and carry no token
+- local memory candidates are written as plain JSON, not encrypted
+
+The workflow runner passes its inputs through environment variables rather than
+shell interpolation, and requests only `contents: read` and `actions: read`.
+
+The full model, including where the read-only boundary is enforced and where it
+is only advisory, is in [docs/safety-model.md](docs/safety-model.md).
 
 ## Design principles
 
