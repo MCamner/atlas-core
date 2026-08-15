@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas Core</title>
+<meta name="description" content="Standalone loop engine for routed, evaluated, retryable AI-assisted work.">
+<style>
+  :root {
+    --bg: #faf9f7;
+    --fg: #1c1b19;
+    --muted: #5f5c57;
+    --line: #e2ded7;
+    --accent: #b4571b;
+    --code-bg: #f2efea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16150f;
+      --fg: #e8e4da;
+      --muted: #9a948a;
+      --line: #2e2c24;
+      --accent: #e0932f;
+      --code-bg: #1f1d16;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3.5rem 1.25rem 5rem; }
+  h1 { font-size: 2.1rem; margin: 0 0 .3rem; letter-spacing: -.02em; }
+  .tagline { color: var(--muted); font-size: 1.1rem; margin: 0 0 1.5rem; }
+  h2 { font-size: 1.15rem; margin: 2.5rem 0 .75rem; }
+  a { color: var(--accent); }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    font-size: .875rem;
+    line-height: 1.5;
+  }
+  ul { padding-left: 1.2rem; }
+  li { margin: .3rem 0; }
+  .links { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.5rem 0 0; }
+  .links a {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: .45rem .85rem;
+    text-decoration: none;
+    font-size: .9rem;
+  }
+  .note {
+    border-left: 3px solid var(--accent);
+    padding: .1rem 0 .1rem 1rem;
+    color: var(--muted);
+    margin: 1.5rem 0;
+  }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .875rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Atlas Core</h1>
+<p class="tagline">Standalone loop engine for routed, evaluated, retryable AI-assisted work.</p>
+
+<p>Atlas Core is a bounded task loop. It observes context, chooses a route, plans the next
+action, executes, evaluates the result, retries when that helps, and stops when the answer
+is good enough.</p>
+
+<pre>observe → route → plan → execute → evaluate → retry / replan → finalize</pre>
+
+<p>It is intentionally separate from the MQ stack. MQ, GitHub, Obsidian, ChatGPT Skills, and
+local memory plug in as adapters rather than becoming the core.</p>
+
+<div class="links">
+  <a href="https://github.com/MCamner/atlas-core">Repository</a>
+  <a href="https://github.com/MCamner/atlas-core/wiki">Wiki</a>
+  <a href="https://github.com/MCamner/atlas-core/blob/main/CHANGELOG.md">Changelog</a>
+</div>
+
+<h2>Quick start</h2>
+
+<pre>git clone https://github.com/MCamner/atlas-core.git
+cd atlas-core
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+python -m unittest discover -s tests</pre>
+
+<h2>Example output</h2>
+
+<p>A real run against this repository, abbreviated:</p>
+
+<pre>$ atlas run "granska atlas-core och hitta nästa bästa förbättring" --repo-path .
+
+# Prompt Improvement
+
+## Goal
+granska atlas-core och hitta nästa bästa förbättring
+
+## Recommendation
+Gör prompten till ett tunt gränssnitt ovanpå en loop/state-machine.
+
+## Next step
+Skriv routes som data, inte som långa promptstycken.
+
+---
+Atlas route: prompt_improvement
+Iterations: 1/2
+Quality score: 0.9
+Status: passed</pre>
+
+<h2>Routes</h2>
+
+<p>Routes are data, not prompt prose. Seven ship in <code>routes/routes.json</code>:</p>
+
+<ul>
+  <li><code>repo_review</code> — observe, summarize, find gaps, prioritize</li>
+  <li><code>architecture_decision</code> — requirements, design, risk, options</li>
+  <li><code>root_cause</code> — symptoms vs causes, causal chain, actions</li>
+  <li><code>decision_tradeoff</code> — context, options, trade-offs, recommendation</li>
+  <li><code>learning</code> — plain explanation, common confusion, example</li>
+  <li><code>prompt_improvement</code> — diagnose, failure modes, rewrite, test cases</li>
+  <li><code>general</code> — understand, answer, next step</li>
+</ul>
+
+<div class="note">
+Atlas Core is read-only by default and ships no LLM provider. Model execution is an
+adapter you add; see the safety model in the repository.
+</div>
+
+<footer>
+Apache-2.0 · <a href="https://github.com/MCamner/atlas-core">github.com/MCamner/atlas-core</a>
+</footer>
+
+</div>
+</body>
+</html>
