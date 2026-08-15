@@ -9,7 +9,7 @@ description = "Standalone Atlas 2.0 loop engine: route, plan, execute, evaluate,
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "MCamner / Atlas Core" }]
-license = { text = "Apache-2.0" }
+license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
