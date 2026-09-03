@@ -1,0 +1,4 @@
+interface:
+  display_name: "Atlas Dependency Analysis"
+  short_description: "Analyze Atlas routes and adapter dependencies"
+  default_prompt: "Use -dependency-analysis to map verified Atlas component dependencies and identify cycles or blast radius."

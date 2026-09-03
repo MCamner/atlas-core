@@ -1,0 +1,4 @@
+interface:
+  display_name: "Atlas Markdown & Mermaid"
+  short_description: "Document Atlas flows as verified diagrams"
+  default_prompt: "Use -markdown-mermaid to document an Atlas route, loop, or adapter flow as a concise Mermaid diagram."
