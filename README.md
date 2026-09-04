@@ -142,6 +142,16 @@ atlas routes
 atlas version
 ```
 
+## Agent skills
+
+Repo-local skills are stored in `skills/` and exposed to both Codex and Claude:
+
+- `atlas-evidence-review` — audit run verdicts, quality scores and confidence against evidence
+- `atlas-markdown-mermaid` — document verified loop, route and adapter flows
+- `atlas-dependency-analysis` — map component dependencies, coupling and blast radius
+
+The optional ChatGPT wrapper remains separate under `integrations/chatgpt-skill/`.
+
 ## Example output
 
 A real run against this repository, abbreviated. The trailer after `---` is the
