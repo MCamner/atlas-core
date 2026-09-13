@@ -1,0 +1,4 @@
+interface:
+  display_name: "Atlas Evidence Review"
+  short_description: "Review claims against Atlas run evidence"
+  default_prompt: "Use -evidence-review to review an Atlas run verdict against its observations and evaluation evidence."
