@@ -144,9 +144,14 @@ atlas version
 
 ## Example output
 
-A real run against this repository, abbreviated. The trailer after `---` is the
-loop's own accounting: which route it picked, how many iterations it used
-against the bound, and whether evaluation let it stop.
+A real run against this repository, abbreviated — the body sections and the
+observed file contents under `Sources inspected` are truncated here. The trailer
+after `---` is the loop's own accounting: which route it picked, how many
+iterations it used against the bound, and whether evaluation let it stop.
+
+Note the route: the task says `atlas`, so the router picks `prompt_improvement`,
+not `repo_review`. The `--repo-path` observations still reach the output —
+every route renders what it was given under `Sources inspected`.
 
 ```text
 $ atlas run "granska atlas-core och hitta nästa bästa förbättring" --repo-path .
@@ -170,6 +175,15 @@ Skriv routes som data, inte som långa promptstycken.
 
 ## Confidence
 High.
+
+## Sources inspected
+- Local repo path: /Users/you/atlas-core
+- README.md:
+# Atlas Core
+...
+- pyproject.toml:
+[build-system]
+...
 
 ---
 Atlas route: prompt_improvement

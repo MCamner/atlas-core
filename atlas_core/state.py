@@ -16,6 +16,7 @@ class AtlasEvaluation:
     passed: bool
     reasons: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
+    missing_sections: list[str] = field(default_factory=list)
     requires_user_approval: bool = False
     should_retry: bool = False
     suggested_adjustment: str | None = None
@@ -53,4 +54,4 @@ class AtlasRunState:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {"schema": "atlas-run.v1", **asdict(self)}
