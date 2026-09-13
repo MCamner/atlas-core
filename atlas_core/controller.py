@@ -16,11 +16,13 @@ class AtlasController:
     def run(self, task: str, *, observations: list[str] | None = None, json_mode: bool = False):
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
         state.status = "observing"
-        observations = observations or []
+        # Copy: the caller's list must not grow as a side effect of a run.
+        state.observations.extend(list(observations or []))
         notice = safety_notice(task)
         if notice:
-            observations.append(notice)
-        state.observations.extend(observations)
+            # A warning is not a source, so it stays out of the observation list
+            # the executor renders under "Sources inspected".
+            state.metadata["safety_notice"] = notice
 
         while state.iteration < state.max_iterations:
             state.iteration += 1
@@ -31,9 +33,10 @@ class AtlasController:
             plan = build_plan(task, route)
             state.plan = plan
             state.status = "executing"
-            output = execute_plan(task, plan, state.observations)
-            if state.iteration > 1:
-                output += "\n\n## Loop improvement\nDetta är ett andra varv efter evaluation. Svaret har gjorts mer explicit kring rekommendation, nästa steg och confidence.\n"
+            # The previous evaluation is what makes a retry a replan rather than
+            # a rerun: it tells the executor which gaps to close this time.
+            feedback = state.evaluations[-1] if state.evaluations else None
+            output = execute_plan(task, plan, state.observations, feedback=feedback)
             state.outputs.append(output)
             state.status = "evaluating"
             evaluation = evaluate(task, output, plan.validation_focus, state.iteration, state.max_iterations)

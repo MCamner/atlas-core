@@ -1,17 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Atlas Evaluation",
+  "description": "One evaluation, embedded in the `evaluations` array of an atlas-run.v1 document.",
   "type": "object",
   "required": [
-    "schema",
     "quality_score",
     "passed",
-    "reasons"
+    "reasons",
+    "missing",
+    "missing_sections",
+    "requires_user_approval",
+    "should_retry"
   ],
   "properties": {
-    "schema": {
-      "const": "atlas-evaluation.v1"
-    },
     "quality_score": {
       "type": "number",
       "minimum": 0,
@@ -22,18 +23,30 @@
     },
     "reasons": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": { "type": "string" }
     },
     "missing": {
       "type": "array",
+      "description": "Human-readable gaps.",
+      "items": { "type": "string" }
+    },
+    "missing_sections": {
+      "type": "array",
+      "description": "Machine-readable section codes the executor can close on a retry.",
       "items": {
-        "type": "string"
+        "type": "string",
+        "enum": ["recommendation", "next_step", "confidence"]
       }
     },
     "requires_user_approval": {
       "type": "boolean"
+    },
+    "should_retry": {
+      "type": "boolean",
+      "description": "True only when an actionable gap remains and the iteration budget allows another pass."
+    },
+    "suggested_adjustment": {
+      "type": ["string", "null"]
     }
   }
 }
