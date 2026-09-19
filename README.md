@@ -297,7 +297,11 @@ is only advisory, is in [docs/safety-model.md](docs/safety-model.md).
 
 ## Roadmap
 
-All planned versions through v1.0 are shipped.
+All planned versions through v1.0 are shipped. That froze the loop *API*; it
+did not finish the loop. [docs/ROADMAP-LOOP.md](docs/ROADMAP-LOOP.md) tracks
+the loop's own phases and marks which are done and which are not. The evaluator
+now checks that a review names sources it actually read, but not whether its
+claims are true — citation, not verification.
 
 ```text
 v0.1  Core loop scaffold
