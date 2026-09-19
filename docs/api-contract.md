@@ -70,16 +70,51 @@ Terminal runs expose both `status` and `stop_reason`:
 | `done` | `no_actionable_retry` | Evaluation failed, but another pass cannot close a known gap. |
 | `done` | `max_iterations` | A known gap remains and the iteration bound was reached. |
 | `need_user_approval` | `approval_required` | The task appears to require mutation. |
-| `failed` | `failed` | Reserved for an explicitly handled runtime failure. |
+| `failed` | `failed` | A model adapter raised, or returned a result that breaks the adapter contract. |
 
 Adapters must use `stop_reason`; they must not infer completion semantics from
-prose output.
+prose output. The text form of a run is rendered from the run document by
+`render_run_text`, so it is a view of that document rather than a second source
+of truth.
+
+### CLI exit codes
+
+`atlas run` maps the terminal state to an exit code, so a script can branch
+without parsing output:
+
+| Code | Meaning | Stop reasons |
+| --- | --- | --- |
+| 0 | The answer passed its quality gate. | `passed` |
+| 1 | The run failed, or stopped for an unrecognised reason. | `failed` |
+| 2 | The run finished without passing. | `no_actionable_retry`, `max_iterations` |
+| 3 | A mutation needs explicit approval before anything runs. | `approval_required` |
+
+Exit 2 is not an error. It means the loop stopped honestly rather than
+claiming an answer it could not support — a `repo_review` with no observed
+sources is the common case.
 
 ## Adapter Boundary
 
 Model adapters receive task, route, plan, observations, and optional evaluation
 feedback, and return `ModelResult`. Memory adapters expose `read` and `write`.
 The core remains functional when neither is configured.
+
+A model adapter that raises, or returns anything other than a `ModelResult`
+with non-empty output, ends the run as `failed` / `failed`, with the stage and
+exception type recorded under `metadata.failure`. It does **not** fall back to
+the rule-based executor: reporting a deterministic template as though a model
+had produced it would be a false success. The rule-based executor is the
+default when no adapter is configured, which is a different situation.
+
+**Timeouts are the adapter's responsibility.** `execute()` is a synchronous
+call, and the core cannot cancel one in progress, so it does not pretend to
+impose a deadline. An adapter talking to a network provider must set its own
+timeout and raise on expiry; the core will then record it as a controlled
+failure like any other.
+
+`StubModelAdapter` is exported for tests and CI: it drives the model path
+deterministically with no provider or API key, and records the calls it
+received.
 
 Observations are the evidence base. An adapter that wants its output to count
 as a citable source must label it `<path>:` on its own line, as the filesystem,

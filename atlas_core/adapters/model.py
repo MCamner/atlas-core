@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from atlas_core.state import AtlasEvaluation, AtlasPlan, AtlasRoute
 
@@ -34,3 +34,37 @@ class ModelAdapter(Protocol):
         feedback: AtlasEvaluation | None = None,
     ) -> ModelResult:
         ...
+
+
+class StubModelAdapter:
+    """A deterministic stand-in for a provider, for tests and CI.
+
+    Shipped rather than redefined per test file so the model path has one
+    reference implementation. It records the keyword arguments it was called
+    with, which is what makes "the controller passed the previous evaluation
+    back in" assertable.
+    """
+
+    def __init__(
+        self,
+        output: str,
+        *,
+        provider: str = "stub",
+        model: str = "stub-model",
+        metadata: dict[str, str] | None = None,
+    ):
+        self.output = output
+        self.provider = provider
+        self.model = model
+        self.metadata = metadata or {}
+        # Any, not object: callers assert on route.name and plan.steps.
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, **kwargs: Any) -> ModelResult:
+        self.calls.append(kwargs)
+        return ModelResult(
+            output=self.output,
+            provider=self.provider,
+            model=self.model,
+            metadata=dict(self.metadata),
+        )

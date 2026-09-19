@@ -2,7 +2,7 @@
 
 from .controller import AtlasController
 from .state import AtlasEvaluation, AtlasPlan, AtlasRoute, AtlasRunState
-from .adapters.model import ModelAdapter, ModelResult
+from .adapters.model import ModelAdapter, ModelResult, StubModelAdapter
 
 __all__ = [
     "AtlasController",
@@ -11,6 +11,7 @@ __all__ = [
     "AtlasRoute",
     "AtlasRunState",
     "ModelAdapter",
+    "StubModelAdapter",
     "ModelResult",
 ]
 __version__ = "1.0.0"

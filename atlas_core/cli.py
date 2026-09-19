@@ -7,6 +7,19 @@ from .adapters.filesystem_repo import FilesystemRepoAdapter
 from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
+from .finalizer import render_run_text
+
+# A caller has to be able to tell "passed" from "gave up" without reading prose.
+# Every stop reason declared in state.StopReason must appear here; a test
+# enforces that, so adding a stop reason forces a decision about its code.
+EXIT_CODES: dict[str, int] = {
+    "passed": 0,
+    "failed": 1,
+    "no_actionable_retry": 2,
+    "max_iterations": 2,
+    "approval_required": 3,
+}
+UNKNOWN_STOP_REASON_EXIT = 1
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="atlas", description="Atlas Core loop engine")
@@ -53,12 +66,14 @@ def main(argv: list[str] | None = None) -> int:
             observations.extend(FilesystemRepoAdapter(args.repo_path).observe(args.task))
         if args.repo:
             observations.extend(GitHubRepoAdapter(args.repo, ref=args.repo_ref).observe(args.task))
-        result = controller.run(args.task, observations=observations, json_mode=args.json)
+        # Always take the run document: the exit code comes from stop_reason,
+        # and the text form is rendered from the same document.
+        run = controller.run(args.task, observations=observations, json_mode=True)
         if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            print(json.dumps(run, ensure_ascii=False, indent=2))
         else:
-            print(result)
-        return 0
+            print(render_run_text(run))
+        return EXIT_CODES.get(run.get("stop_reason") or "", UNKNOWN_STOP_REASON_EXIT)
     return 1
 
 if __name__ == "__main__":

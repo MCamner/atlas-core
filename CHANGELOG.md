@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+Terminal states are now legible to callers.
+
+- A model adapter that raises, or returns anything other than a `ModelResult`
+  with non-empty output, ends the run as `failed` / `failed` instead of
+  propagating an unhandled exception. The stage and exception type are recorded
+  under `metadata.failure`, with the provider message truncated to 512
+  characters.
+- A failing adapter does **not** fall back to the rule-based executor. Serving
+  a deterministic template as though a model produced it would be a false
+  success. The rule-based default still applies when no adapter is configured.
+- **Behaviour change:** `atlas run` no longer exits `0` for every terminal
+  state. 0 passed, 1 failed, 2 finished without passing
+  (`no_actionable_retry`, `max_iterations`), 3 approval required. A test
+  asserts every declared stop reason has a code, so adding one forces the
+  decision.
+- The text output is now rendered from the run document by `render_run_text`,
+  so text and `--json` cannot drift. It also surfaces evidence gaps and the
+  failing stage in the trailer.
+- Added `StubModelAdapter`, exported from the package root: drives the model
+  path deterministically in CI with no provider or API key.
+- Documented that timeouts are the adapter's responsibility. `execute()` is
+  synchronous and the core cannot cancel one in progress, so it does not
+  pretend to impose a deadline.
+
 Roadmap phase P1: the evaluator grades evidence, not formatting.
 
 - Added a per-route evaluator contract (`RouteEvaluator`). Routes without one
