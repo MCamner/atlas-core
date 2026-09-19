@@ -99,6 +99,50 @@ class TestModelAdapterFailureIsATerminalState(unittest.TestCase):
         self.assertEqual(state["evaluations"], [])
         self.assertEqual(state["outputs"], [])
 
+    def test_failure_is_never_a_passing_verdict(self):
+        """`failed` is a runtime outcome. It must not look like a graded one.
+
+        ROADMAP.md P0.3: "Skilj runtime-fel från saklig evaluering."
+        """
+        state = AtlasController(model_adapter=BoomAdapter(RuntimeError("boom"))).run(
+            "hej", json_mode=True
+        )
+
+        self.assertEqual(state["stop_reason"], "failed")
+        self.assertFalse(
+            any(e["passed"] for e in state["evaluations"]),
+            "a failed run must not carry a passing evaluation",
+        )
+
+    def test_failure_on_a_later_iteration_does_not_salvage_a_success(self):
+        """The dangerous shape: pass 1 produced output, pass 2 died."""
+
+        class FailsOnSecondCall:
+            def __init__(self) -> None:
+                self.n = 0
+
+            def execute(self, **kwargs: object) -> ModelResult:
+                self.n += 1
+                if self.n == 1:
+                    return ModelResult(output="# Svar\n\nKort.\n", provider="p", model="m")
+                raise RuntimeError("provider died on pass 2")
+
+        state = AtlasController(max_iterations=2, model_adapter=FailsOnSecondCall()).run(
+            "hej", json_mode=True
+        )
+
+        self.assertEqual(state["status"], "failed")
+        self.assertEqual(state["stop_reason"], "failed")
+        self.assertEqual(len(state["outputs"]), 1, "pass 1's output is kept, not promoted")
+        self.assertFalse(state["evaluations"][-1]["passed"])
+
+    def test_a_keyboard_interrupt_is_not_swallowed_as_a_failed_run(self):
+        """Ctrl-C is the operator stopping the run, not the provider failing."""
+        adapter = BoomAdapter(KeyboardInterrupt())
+
+        with self.assertRaises(KeyboardInterrupt):
+            AtlasController(model_adapter=adapter).run("hej", json_mode=True)
+
     def test_the_run_still_serialises(self):
         state = AtlasController(model_adapter=BoomAdapter(RuntimeError("boom"))).run(
             "hej", json_mode=True
@@ -173,6 +217,23 @@ class TestCliExitCodes(unittest.TestCase):
 
         for reason in get_args(StopReason):
             self.assertIn(reason, EXIT_CODES, f"{reason} has no documented exit code")
+
+    def test_exit_codes_match_the_documented_table(self):
+        """A published exit code is a contract. Drift here breaks callers."""
+        import re
+        from pathlib import Path
+
+        doc = (Path(__file__).parents[1] / "docs" / "api-contract.md").read_text(
+            encoding="utf-8"
+        )
+        table = doc.split("### CLI exit codes", 1)[1]
+        documented = {
+            reason: int(code)
+            for code, reasons in re.findall(r"^\| (\d) \|[^|]*\|([^|]*)\|", table, re.M)
+            for reason in re.findall(r"`(\w+)`", reasons)
+        }
+
+        self.assertEqual(documented, EXIT_CODES)
 
 
 if __name__ == "__main__":
