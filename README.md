@@ -177,7 +177,7 @@ Skriv routes som data, inte som långa promptstycken.
 High.
 
 ## Sources inspected
-- Local repo path: /Users/you/atlas-core
+- Local repo path: /path/to/atlas-core
 - README.md:
 # Atlas Core
 ...
