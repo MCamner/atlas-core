@@ -142,6 +142,18 @@ atlas routes
 atlas version
 ```
 
+## Editor and MCP configuration
+
+Atlas Core needs no MCP server, editor plugin or agent configuration. It
+declares no dependencies, and `pip install -e .` plus the test suite is the
+whole setup.
+
+Any such configuration is therefore local and untracked. `.mcp.json`,
+`.cursor/` and `.vscode/` are in `.gitignore`: keep your own copies if you use
+them — for example an `.mcp.json` pointing at the NotebookLM VS Code extension —
+and they will stay out of commits. They name absolute paths on one machine, so
+they describe a workstation rather than this repository.
+
 ## Example output
 
 A real run against this repository, abbreviated — the body sections and the
@@ -177,7 +189,7 @@ Skriv routes som data, inte som långa promptstycken.
 High.
 
 ## Sources inspected
-- Local repo path: /Users/you/atlas-core
+- Local repo path: /path/to/atlas-core
 - README.md:
 # Atlas Core
 ...

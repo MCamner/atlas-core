@@ -10,3 +10,10 @@ atlas-runs/
 .DS_Store
 .env
 .env.*
+
+# Local editor and agent configuration. These are generated per machine and
+# name absolute paths on it, so they describe a workstation rather than this
+# repository. Atlas Core needs no MCP server to build, test or run.
+.mcp.json
+.cursor/
+.vscode/
