@@ -310,16 +310,9 @@ is only advisory, is in [docs/safety-model.md](docs/safety-model.md).
 
 ## Roadmap
 
-All planned versions through v1.0 are shipped.
-
-```text
-v0.1  Core loop scaffold
-v0.2  Repo observations + GitHub Actions runner
-v0.3  LLM adapter contract
-v0.4  mqobsidian adapter
-v0.5  ChatGPT Skill package generator
-v1.0  Stable Atlas Loop API
-```
+Atlas Core v1.0.0 stabilises the loop API. Continued work on evidence
+verification, robust execution and integrations is tracked in
+[ROADMAP.md](ROADMAP.md).
 
 ## Project position
 
