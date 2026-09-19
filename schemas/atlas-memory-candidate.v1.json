@@ -2,8 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Atlas Memory Candidate",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "schema",
+    "created_at",
     "task",
     "route",
     "quality_score",
@@ -14,6 +16,9 @@
   "properties": {
     "schema": {
       "const": "atlas-memory-candidate.v1"
+    },
+    "created_at": {
+      "type": "string"
     },
     "task": {
       "type": "string"
@@ -32,6 +37,9 @@
     },
     "public_safe": {
       "type": "boolean"
+    },
+    "saved_path": {
+      "type": "string"
     }
   }
 }

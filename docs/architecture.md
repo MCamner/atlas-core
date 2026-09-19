@@ -30,3 +30,6 @@ Core components:
 - finalizer.py — final response
 
 Adapter rule: Atlas Core does not depend on MQ, GitHub, Obsidian, or ChatGPT.
+
+The stable public types, schemas, stop reasons, and adapter boundaries are
+defined in [api-contract.md](api-contract.md).

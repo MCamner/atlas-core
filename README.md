@@ -59,7 +59,7 @@ The engine is state + routes + tools + evaluation + stop rules.
 
 ## What it can do now
 
-This v0.2.0 is a working scaffold:
+This v1.0.0 release provides a stable loop scaffold:
 
 - deterministic route selection
 - route map
@@ -73,9 +73,13 @@ This v0.2.0 is a working scaffold:
 - JSON schemas
 - tests
 - GitHub Actions runner
-- optional ChatGPT Skill wrapper
+- optional model and mqobsidian adapters
+- ChatGPT Skill package generator
+- versioned run, route, evaluation, and memory-candidate schemas
+- explicit terminal stop reasons
 
-It does **not** include a live LLM provider by default. Add that as an adapter later.
+It does **not** include a live LLM provider by default. Add one through the
+stable model adapter contract.
 
 ## Quick start
 
@@ -134,13 +138,32 @@ Use both local repo and remote repo context:
 atlas run "jämför atlas-core mot mqobsidian-adapterbehov" --repo-path . --repo MCamner/mqobsidian
 ```
 
+## Run with mqobsidian memory
+
+Read compact project context and write the resulting memory candidate to the
+vault inbox:
+
+```bash
+atlas run "granska nästa arkitekturbeslut" \
+  --mqobsidian-path /path/to/mqobsidian \
+  --mq-project atlas-core
+```
+
+mqobsidian observations are durable memory, not current runtime truth. Combine
+them with `--repo-path` or `--repo` when the task depends on current code or CI.
+
 ## Core commands
 
 ```bash
 atlas run "<task>"
 atlas routes
+atlas generate-skill ./generated-skills
 atlas version
 ```
+
+`generate-skill` creates `atlas-core-loop/SKILL.md` plus a route reference from
+the current route map. It refuses to overwrite an existing package unless
+`--force` is passed.
 
 ## Editor and MCP configuration
 
@@ -272,7 +295,9 @@ is only advisory, is in [docs/safety-model.md](docs/safety-model.md).
 7. Memory is optional and adapter-driven.
 8. No hidden repo or runtime assumptions.
 
-## Recommended roadmap
+## Roadmap
+
+All planned versions through v1.0 are shipped.
 
 ```text
 v0.1  Core loop scaffold

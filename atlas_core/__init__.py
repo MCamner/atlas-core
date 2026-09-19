@@ -1,7 +1,16 @@
 """Atlas Core: standalone loop engine."""
 
 from .controller import AtlasController
-from .state import AtlasRunState
+from .state import AtlasEvaluation, AtlasPlan, AtlasRoute, AtlasRunState
+from .adapters.model import ModelAdapter, ModelResult
 
-__all__ = ["AtlasController", "AtlasRunState"]
-__version__ = "0.2.0"
+__all__ = [
+    "AtlasController",
+    "AtlasEvaluation",
+    "AtlasPlan",
+    "AtlasRoute",
+    "AtlasRunState",
+    "ModelAdapter",
+    "ModelResult",
+]
+__version__ = "1.0.0"

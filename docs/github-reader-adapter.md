@@ -1,6 +1,6 @@
 # GitHub Reader Adapter
 
-Atlas Core v0.2 adds a small GitHub reader adapter.
+Atlas Core ships a small GitHub reader adapter.
 
 It can observe a public GitHub repository before running the loop:
 

@@ -10,6 +10,10 @@ Status = Literal[
     "replanning", "need_user_approval", "done", "failed",
 ]
 
+StopReason = Literal[
+    "passed", "approval_required", "no_actionable_retry", "max_iterations", "failed",
+]
+
 @dataclass
 class AtlasEvaluation:
     quality_score: float
@@ -43,6 +47,7 @@ class AtlasRunState:
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     status: Status = "new"
+    stop_reason: StopReason | None = None
     iteration: int = 0
     max_iterations: int = 2
     route: AtlasRoute | None = None

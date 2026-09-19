@@ -1,4 +1,6 @@
 from __future__ import annotations
+from typing import Any, Literal, overload
+
 from .state import AtlasRunState
 from .router import select_route
 from .planner import build_plan
@@ -7,17 +9,68 @@ from .evaluator import evaluate
 from .finalizer import finalize
 from .memory import build_memory_candidate, save_local_memory
 from .safety import safety_notice
+from .adapters.model import ModelAdapter
+from .adapters.base import MemoryAdapter
 
 class AtlasController:
-    def __init__(self, max_iterations: int = 2, memory_dir: str | None = None):
+    def __init__(
+        self,
+        max_iterations: int = 2,
+        memory_dir: str | None = None,
+        model_adapter: ModelAdapter | None = None,
+        memory_adapter: MemoryAdapter | None = None,
+    ):
+        if (
+            isinstance(max_iterations, bool)
+            or not isinstance(max_iterations, int)
+            or max_iterations < 1
+        ):
+            raise ValueError("max_iterations must be a positive integer")
         self.max_iterations = max_iterations
         self.memory_dir = memory_dir
+        self.model_adapter = model_adapter
+        self.memory_adapter = memory_adapter
 
-    def run(self, task: str, *, observations: list[str] | None = None, json_mode: bool = False):
+    @overload
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = ...,
+        json_mode: Literal[False] = ...,
+    ) -> str: ...
+
+    @overload
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = ...,
+        json_mode: Literal[True],
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = ...,
+        json_mode: bool,
+    ) -> str | dict[str, Any]: ...
+
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = None,
+        json_mode: bool = False,
+    ) -> str | dict[str, Any]:
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
         state.status = "observing"
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
+        if self.memory_adapter:
+            state.observations.extend(self.memory_adapter.read(task))
         notice = safety_notice(task)
         if notice:
             # A warning is not a source, so it stays out of the observation list
@@ -36,16 +89,41 @@ class AtlasController:
             # The previous evaluation is what makes a retry a replan rather than
             # a rerun: it tells the executor which gaps to close this time.
             feedback = state.evaluations[-1] if state.evaluations else None
-            output = execute_plan(task, plan, state.observations, feedback=feedback)
+            if self.model_adapter:
+                model_result = self.model_adapter.execute(
+                    task=task,
+                    route=route,
+                    plan=plan,
+                    observations=state.observations,
+                    feedback=feedback,
+                )
+                output = model_result.output
+                state.metadata["model_result"] = {
+                    "provider": model_result.provider,
+                    "model": model_result.model,
+                    "metadata": model_result.metadata,
+                }
+            else:
+                output = execute_plan(task, plan, state.observations, feedback=feedback)
             state.outputs.append(output)
             state.status = "evaluating"
             evaluation = evaluate(task, output, plan.validation_focus, state.iteration, state.max_iterations)
             state.evaluations.append(evaluation)
             if evaluation.requires_user_approval:
                 state.status = "need_user_approval"
+                state.stop_reason = "approval_required"
                 break
-            if evaluation.passed or not evaluation.should_retry:
+            if evaluation.passed:
                 state.status = "done"
+                state.stop_reason = "passed"
+                break
+            if not evaluation.should_retry:
+                state.status = "done"
+                state.stop_reason = (
+                    "max_iterations"
+                    if evaluation.missing_sections and state.iteration >= state.max_iterations
+                    else "no_actionable_retry"
+                )
                 break
             state.status = "replanning"
 
@@ -56,7 +134,10 @@ class AtlasController:
                 output=state.outputs[-1] if state.outputs else "",
                 quality_score=state.evaluations[-1].quality_score,
             )
-            saved_path = save_local_memory(self.memory_dir, candidate)
+            if self.memory_adapter:
+                saved_path = self.memory_adapter.write(candidate)
+            else:
+                saved_path = save_local_memory(self.memory_dir, candidate)
             if saved_path:
                 candidate["saved_path"] = saved_path
             state.memory_candidates.append(candidate)

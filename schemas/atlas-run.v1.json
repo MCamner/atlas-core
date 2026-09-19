@@ -3,19 +3,23 @@
   "title": "Atlas Run",
   "description": "The document emitted by `atlas run --json` and by AtlasRunState.to_dict().",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "schema",
     "task",
     "run_id",
     "created_at",
     "status",
+    "stop_reason",
     "iteration",
     "max_iterations",
     "route",
     "plan",
     "observations",
     "outputs",
-    "evaluations"
+    "evaluations",
+    "memory_candidates",
+    "metadata"
   ],
   "properties": {
     "schema": {
@@ -45,27 +49,29 @@
         "failed"
       ]
     },
+    "stop_reason": {
+      "type": ["string", "null"],
+      "enum": [null, "passed", "approval_required", "no_actionable_retry", "max_iterations", "failed"]
+    },
     "iteration": {
       "type": "integer",
       "minimum": 0
     },
     "max_iterations": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 1
     },
     "route": {
-      "type": ["object", "null"],
       "description": "Null only when the loop never ran an iteration.",
-      "properties": {
-        "name": { "type": "string" },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "reason": { "type": "string" },
-        "steps": { "type": "array", "items": { "type": "string" } },
-        "risk_level": { "type": "string" }
-      }
+      "oneOf": [
+        { "$ref": "atlas-route.v1.json" },
+        { "type": "null" }
+      ]
     },
     "plan": {
       "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["goal", "route_name", "steps", "stop_conditions", "validation_focus"],
       "properties": {
         "goal": { "type": "string" },
         "route_name": { "type": "string" },
@@ -85,7 +91,7 @@
     "evaluations": {
       "type": "array",
       "description": "Each item conforms to atlas-evaluation.v1.",
-      "items": { "type": "object" }
+      "items": { "$ref": "atlas-evaluation.v1.json" }
     },
     "memory_candidates": {
       "type": "array",

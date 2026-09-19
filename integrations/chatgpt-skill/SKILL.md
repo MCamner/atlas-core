@@ -1,21 +1,33 @@
 ---
 name: atlas-core-loop
-description: Use Atlas Core loop behavior: understand, route, plan, execute, evaluate, retry once if needed, then finalize. Use when the user writes /atlas or asks for structured analysis, decision support, root cause analysis, repo review, architecture, or prompt improvement.
-version: 0.1.0
+description: Run bounded Atlas Core analysis for repo reviews, architecture decisions, root-cause analysis, comparisons, learning, or prompt improvement.
 ---
 
-# Atlas Core Loop Skill
+# Atlas Core Loop
 
-When the user writes `/atlas`:
+Use the installed `atlas` command as the execution authority. Do not imitate the
+loop from this document when the command is available.
 
-1. Understand the task.
-2. Select the simplest strong route.
-3. Plan the steps.
-4. Execute the answer.
-5. Evaluate whether it is useful, grounded, and actionable.
-6. If weak, improve once.
-7. Finalize with recommendation, next step, and confidence.
+## Workflow
 
-Do not only say which route to use. Execute the selected route.
+1. Run `atlas run "<task>"`.
+2. Add `--repo-path <path>` or `--repo <owner/name>` when current repository
+   evidence is needed.
+3. Read [references/routes.md](references/routes.md) only when route selection or
+   route-specific behavior needs inspection.
+4. Return the executed result, including its recommendation, next step, and
+   confidence. Execute the selected route; do not merely name it.
 
-Read-only by default. Ask for explicit approval before file changes, GitHub issues, PRs, commits, pushes, merges, or deletes.
+For structured state, run:
+
+```bash
+atlas run "<task>" --json
+```
+
+## Safety boundary
+
+Atlas Core is read-only except for explicitly configured memory-candidate
+output. Obtain explicit approval immediately before file changes, commits,
+pushes, pull requests, issues, merges, deletes, or other external mutations.
+Treat mqobsidian context as durable memory, not current runtime truth; verify
+runtime-sensitive claims against the source repository or service.

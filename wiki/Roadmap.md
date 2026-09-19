@@ -13,9 +13,9 @@ v0.5  ChatGPT Skill package generator
 v1.0  Stable Atlas Loop API
 ```
 
-## v0.2 — current scaffold
+## v0.2 — shipped scaffold
 
-Current capabilities:
+Capabilities:
 
 - deterministic routing
 - route map
@@ -28,7 +28,7 @@ Current capabilities:
 - public GitHub repo observations
 - GitHub Actions runner
 
-## v0.3 — LLM adapter contract
+## v0.3 — shipped scaffold
 
 Goal:
 
@@ -44,7 +44,14 @@ Expected work:
 - test fixtures for model outputs
 - safety checks before write-like tool use
 
-## v0.4 — mqobsidian adapter
+Status:
+
+- implemented as optional `ModelAdapter`
+- rule-based executor remains default
+- controller records provider-neutral model metadata in run metadata
+- tests cover adapter output, fallback, and write approval gating
+
+## v0.4 — shipped scaffold
 
 Goal:
 
@@ -60,7 +67,15 @@ Expected work:
 - preserve source-of-truth boundaries
 - no direct runtime truth from memory alone
 
-## v0.5 — ChatGPT Skill package generator
+Status:
+
+- optional `MQObsidianMemoryAdapter` with no MQ package dependency
+- bounded reads follow mqobsidian's compact context-surface order
+- observations are labelled as durable memory, not runtime truth
+- writes accept memory candidates only
+- controller and CLI integration covered by tests
+
+## v0.5 — shipped scaffold
 
 Goal:
 
@@ -76,7 +91,15 @@ Expected work:
 - safety boundaries
 - regression tests for route-and-execute behavior
 
-## v1.0 — stable loop API
+Status:
+
+- `atlas generate-skill <output-dir>` creates an installable skill package
+- generated `SKILL.md` delegates execution to the Atlas CLI
+- route reference is generated from the live route map
+- command examples and mutation approval boundaries are included
+- tests cover generation, overwrite protection, CLI use, and checked-in drift
+
+## v1.0 — shipped scaffold
 
 Goal:
 
@@ -92,6 +115,14 @@ Expected guarantees:
 - clear adapter contract
 - consistent stop rules
 - documented write boundary
+
+Status:
+
+- public controller, state, route, plan, evaluation, and model types exported
+- versioned closed schemas for runs, routes, evaluations, and memory candidates
+- terminal runs expose explicit, tested stop reasons
+- positive iteration bounds are enforced
+- adapter and write boundaries are documented as the 1.x compatibility contract
 
 ## Non-goals
 
