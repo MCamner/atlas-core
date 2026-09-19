@@ -25,6 +25,12 @@ Makes the engine do what the README describes.
 - `AtlasController.run` no longer appends to the caller's `observations` list.
 - `docs/safety-model.md` now states where the read-only boundary is enforced and
   where it is only advisory, as the README claims it does.
+- Added the v0.3 model adapter scaffold: optional `ModelAdapter`,
+  provider-neutral `ModelResult`, rule-based fallback, and tests for model
+  output plus write-approval gating.
+- Added the v0.4 mqobsidian adapter scaffold: bounded compact-context reads,
+  explicit durable-memory labelling, candidate-only writes, and optional
+  controller/CLI integration without an MQ package dependency.
 
 ## v0.2.0 — 2026-07-31
 

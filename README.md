@@ -134,6 +134,20 @@ Use both local repo and remote repo context:
 atlas run "jämför atlas-core mot mqobsidian-adapterbehov" --repo-path . --repo MCamner/mqobsidian
 ```
 
+## Run with mqobsidian memory
+
+Read compact project context and write the resulting memory candidate to the
+vault inbox:
+
+```bash
+atlas run "granska nästa arkitekturbeslut" \
+  --mqobsidian-path /path/to/mqobsidian \
+  --mq-project atlas-core
+```
+
+mqobsidian observations are durable memory, not current runtime truth. Combine
+them with `--repo-path` or `--repo` when the task depends on current code or CI.
+
 ## Core commands
 
 ```bash

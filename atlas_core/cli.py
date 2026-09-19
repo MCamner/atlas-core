@@ -5,6 +5,7 @@ from .controller import AtlasController
 from .router import list_routes
 from .adapters.filesystem_repo import FilesystemRepoAdapter
 from .adapters.github_reader import GitHubRepoAdapter
+from .adapters.mqobsidian import MQObsidianMemoryAdapter
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="atlas", description="Atlas Core loop engine")
@@ -17,6 +18,8 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--repo", default=None, help="Optional GitHub repo in owner/name form to observe before running")
     run_p.add_argument("--repo-ref", default=None, help="Optional branch/ref for --repo")
     run_p.add_argument("--repo-path", default=None, help="Optional local repo path to observe before running")
+    run_p.add_argument("--mqobsidian-path", default=None, help="Optional mqobsidian vault path")
+    run_p.add_argument("--mq-project", default=None, help="Project name for mqobsidian context")
     sub.add_parser("routes", help="List available routes")
     sub.add_parser("version", help="Show version")
     args = parser.parse_args(argv)
@@ -27,7 +30,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(list_routes(), ensure_ascii=False, indent=2))
         return 0
     if args.command == "run":
-        controller = AtlasController(max_iterations=args.max_iterations, memory_dir=args.memory_dir)
+        if bool(args.mqobsidian_path) != bool(args.mq_project):
+            run_p.error("--mqobsidian-path and --mq-project must be used together")
+        memory_adapter = None
+        if args.mqobsidian_path:
+            memory_adapter = MQObsidianMemoryAdapter(args.mqobsidian_path, project=args.mq_project)
+        controller = AtlasController(
+            max_iterations=args.max_iterations,
+            memory_dir=args.memory_dir,
+            memory_adapter=memory_adapter,
+        )
         observations = []
         if args.repo_path:
             observations.extend(FilesystemRepoAdapter(args.repo_path).observe(args.task))

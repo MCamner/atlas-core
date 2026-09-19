@@ -7,13 +7,13 @@ actually enforced by code, and where it is only advisory.
 
 The read-only boundary is enforced by absence, not by a permission check.
 
-- The package ships no LLM provider, no shell adapter, no network write path,
-  and no write adapter. Nothing in `atlas_core/` can commit, push, merge, create
-  a branch, open a PR, create an issue, or edit a file in your repository.
-- The only code in the package that writes to disk is
-  [`save_local_memory`](../atlas_core/memory.py), and it writes nothing unless
-  you pass `--memory-dir`. It then creates that directory and one JSON file per
-  run inside it. It writes nowhere else.
+- The package ships no LLM provider, shell adapter, network write path, or
+  repository write adapter. Nothing in `atlas_core/` can commit, push, merge,
+  create a branch, open a PR, create an issue, or edit source files.
+- Local memory writes occur only when `--memory-dir` or `--mqobsidian-path`
+  plus `--mq-project` is passed. The mqobsidian adapter accepts only
+  `atlas-memory-candidate.v1` and writes it under
+  `inbox/atlas-memory-candidates/` in the selected vault.
 
 ## Read paths
 
@@ -30,6 +30,9 @@ Reading is broader than writing, and it is worth knowing what each adapter touch
   with no validation beyond requiring a `/` in the repo name.
 - Every observation an adapter returns is rendered into the run output under
   `## Sources inspected`, and into the JSON run log under `observations`.
+- `MQObsidianMemoryAdapter` reads at most five compact project surfaces. It
+  labels them as durable memory and explicitly requires runtime-sensitive
+  claims to be verified against source.
 
 ## Advisory only
 

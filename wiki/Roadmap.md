@@ -13,9 +13,9 @@ v0.5  ChatGPT Skill package generator
 v1.0  Stable Atlas Loop API
 ```
 
-## v0.2 — current scaffold
+## v0.2 — shipped scaffold
 
-Current capabilities:
+Capabilities:
 
 - deterministic routing
 - route map
@@ -28,7 +28,7 @@ Current capabilities:
 - public GitHub repo observations
 - GitHub Actions runner
 
-## v0.3 — LLM adapter contract
+## v0.3 — shipped scaffold
 
 Goal:
 
@@ -44,7 +44,14 @@ Expected work:
 - test fixtures for model outputs
 - safety checks before write-like tool use
 
-## v0.4 — mqobsidian adapter
+Status:
+
+- implemented as optional `ModelAdapter`
+- rule-based executor remains default
+- controller records provider-neutral model metadata in run metadata
+- tests cover adapter output, fallback, and write approval gating
+
+## v0.4 — current scaffold
 
 Goal:
 
@@ -59,6 +66,14 @@ Expected work:
 - write memory candidates only
 - preserve source-of-truth boundaries
 - no direct runtime truth from memory alone
+
+Status:
+
+- optional `MQObsidianMemoryAdapter` with no MQ package dependency
+- bounded reads follow mqobsidian's compact context-surface order
+- observations are labelled as durable memory, not runtime truth
+- writes accept memory candidates only
+- controller and CLI integration covered by tests
 
 ## v0.5 — ChatGPT Skill package generator
 
