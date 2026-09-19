@@ -46,13 +46,13 @@ def _refinement_section(
 
 
 def _evidence_section(feedback: AtlasEvaluation, observations: list[str]) -> str:
-    """State what was actually read, and nothing beyond it.
+    """Record which sources were read, and claim nothing beyond that.
 
     The deterministic executor cannot confirm the template's claims about a
-    repository. What it can do honestly is report which sources it held this
-    run, cited by name, and move any claim it could not tie to one into an
-    explicitly unverified list. That is the P1 separation of verified findings
-    from hypotheses, not a verification of the hypotheses.
+    repository. What it can state honestly is which sources it held this run.
+    That is an attestation of reading, not a verification of any finding, so
+    the section is named for what it is. Claims it could not tie to a source
+    move into an explicitly unverified list rather than being dressed up.
     """
     if not any(code in _EVIDENCE_GAPS for code in feedback.evidence_gaps):
         return ""
@@ -60,12 +60,15 @@ def _evidence_section(feedback: AtlasEvaluation, observations: list[str]) -> str
     if not sources:
         return ""
 
-    lines = [
-        f"- `{source}` — observerad denna körning; innehållet återges under "
-        "'Sources inspected'."
-        for source in sources[:MAX_SOURCES]
-    ]
-    section = "\n## Verified findings\n" + "\n".join(lines) + "\n"
+    lines = [f"- `{source}`" for source in sources[:MAX_SOURCES]]
+    section = (
+        "\n## Observed sources\n"
+        "Filerna nedan lästes denna körning; innehållet återges under "
+        "'Sources inspected'. Detta intygar att de observerades — inte att "
+        "någon brist eller förbättring i repot är sakligt verifierad.\n"
+        + "\n".join(lines)
+        + "\n"
+    )
     if feedback.unverified_claims:
         claims = "\n".join(f"- {claim}" for claim in feedback.unverified_claims)
         section += (
@@ -76,7 +79,7 @@ def _evidence_section(feedback: AtlasEvaluation, observations: list[str]) -> str
     return section
 
 
-_EVIDENCE_GAPS = ("no_findings_cited", "uncited_findings")
+_EVIDENCE_GAPS = ("sources_not_documented", "uncited_findings")
 
 
 def _gap_recommendation(plan: AtlasPlan) -> str:

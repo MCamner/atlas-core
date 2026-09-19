@@ -48,10 +48,17 @@ collapse them:
 | `evidence_gaps` | Are the claims in it supported by something that was read? |
 
 `unverified_claims` lists findings that cite no observed source — hypotheses,
-not findings. `evidence_coverage` is the share of findings that do cite one, or
-`null` for routes with no evidence contract. All three are optional additions
-to the existing schema; a consumer written against 1.0 that ignores them still
-reads a valid document.
+not findings. `evidence_coverage` is the share of findings that do name one, or
+`null` when the route has no evidence contract or the output asserts no finding.
+All three are optional additions to the existing schema; a consumer written
+against 1.0 that ignores them still reads a valid document.
+
+The check is **citation, not verification**. A finding counts as covered when it
+names a source that was read. Nothing compares the claim against that source's
+contents, so a factually wrong statement that mentions `README.md` still passes
+the gate. `evidence_gaps` being empty means "this output is grounded in
+something it read", not "this output is correct". Verifying the claim itself
+needs a model adapter and is not part of this contract.
 
 ## Stop Semantics
 

@@ -18,6 +18,10 @@ class RouteEvaluator:
     and therefore has to show its sources.
     """
 
+    # Where the output attests which sources it read. That attestation says the
+    # files were observed — nothing about whether any claim is factually right.
+    evidence_heading: str
+    # Where the output makes claims that must cite a source to count.
     finding_headings: tuple[str, ...]
     requires_sources: bool
     min_coverage: float = 1.0
@@ -27,6 +31,7 @@ class RouteEvaluator:
 # is graded on formatting alone, exactly as it was before.
 ROUTE_EVALUATORS: dict[str, RouteEvaluator] = {
     "repo_review": RouteEvaluator(
+        evidence_heading="## Observed sources",
         finding_headings=("## Verified findings",),
         requires_sources=True,
     ),
@@ -37,7 +42,9 @@ EVIDENCE_PROSE = {
         "No verifiable source was observed, so no finding about the repository "
         "can be supported."
     ),
-    "no_findings_cited": "Sources were read but no finding cites one.",
+    "sources_not_documented": (
+        "Sources were read but the output does not record which ones."
+    ),
     "uncited_findings": "Some findings cite no observed source.",
 }
 
@@ -154,7 +161,13 @@ class _Evidence:
 def _grade_evidence(
     contract: RouteEvaluator | None, output: str, sources: list[str]
 ) -> _Evidence:
-    """Grade support for the claims, or stay silent when the route makes none."""
+    """Grade support for the claims, or stay silent when the route makes none.
+
+    Two different things can be wrong, and they are not ranked the same. A
+    finding that cites nothing is a claim without backing. An output with no
+    findings at all is not wrong, but it still has to say which sources it read
+    before its review can be taken as grounded in anything.
+    """
     if contract is None:
         return _Evidence(
             gaps=[], unverified=[], coverage=None, reasons=[], actionable=False
@@ -173,34 +186,48 @@ def _grade_evidence(
         )
 
     findings = findings_in(output, contract.finding_headings)
-    if not findings:
+    if findings:
+        unverified = [f for f in findings if not cites_a_source(f, sources)]
+        coverage = round((len(findings) - len(unverified)) / len(findings), 2)
+        if coverage < contract.min_coverage:
+            return _Evidence(
+                gaps=["uncited_findings"],
+                unverified=unverified,
+                coverage=coverage,
+                reasons=[],
+                actionable=True,
+                factor=_coverage_factor(coverage),
+            )
         return _Evidence(
-            gaps=["no_findings_cited"],
+            gaps=[],
             unverified=[],
-            coverage=0.0,
+            coverage=coverage,
+            reasons=[
+                f"All {len(findings)} finding(s) name an observed source. "
+                "Citation only: the source was read, the claim is not checked "
+                "against its contents."
+            ],
+            actionable=False,
+        )
+
+    if contract.evidence_heading not in output:
+        return _Evidence(
+            gaps=["sources_not_documented"],
+            unverified=[],
+            coverage=None,
             reasons=[],
             actionable=True,
             factor=_EVIDENCE_FLOOR,
         )
 
-    unverified = [f for f in findings if not cites_a_source(f, sources)]
-    coverage = round((len(findings) - len(unverified)) / len(findings), 2)
-    if coverage < contract.min_coverage:
-        return _Evidence(
-            gaps=["uncited_findings"],
-            unverified=unverified,
-            coverage=coverage,
-            reasons=[],
-            actionable=True,
-            factor=_coverage_factor(coverage),
-        )
+    # Nothing claimed, so there is nothing to cover. coverage stays None rather
+    # than 1.0: a review that asserts no finding has not verified anything.
     return _Evidence(
         gaps=[],
         unverified=[],
-        coverage=coverage,
-        reasons=[f"All {len(findings)} finding(s) cite an observed source."],
+        coverage=None,
+        reasons=["Output records the sources it read and asserts no finding of its own."],
         actionable=False,
-        factor=_coverage_factor(coverage),
     )
 
 

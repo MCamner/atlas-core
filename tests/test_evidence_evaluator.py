@@ -1,10 +1,16 @@
-"""P1: the evaluator grades whether findings are supported, not how they look.
+"""P1: the evaluator grades whether findings are sourced, not how they look.
 
-Roadmap docs/ROADMAP-LOOP.md phase P1, Definition of Done:
+Roadmap docs/ROADMAP-LOOP.md phase P1, Definition of Done, and what these tests
+actually establish against it:
 
-- A well-formatted but incorrect response cannot receive PASS.
-- A claim without evidence is marked as unverified.
-- The evaluator can explain exactly why another iteration is needed.
+- "A well-formatted but incorrect response cannot receive PASS."
+  Partly. What is verified here is narrower: a well-formatted but *unsourced*
+  response cannot pass. Factual incorrectness is not detected. `cites_a_source`
+  checks that a finding names a file that was read — not that the file's
+  contents support the claim. A wrong statement that mentions `README.md` still
+  passes this gate.
+- "A claim without evidence is marked as unverified." Yes.
+- "The evaluator can explain exactly why another iteration is needed." Yes.
 
 The formatting checks that used to be the whole evaluation stay, but as a
 separate secondary signal — `missing_sections` — so a route can still be told
@@ -80,7 +86,10 @@ class TestObservedSources(unittest.TestCase):
 
 class TestEvidenceGate(unittest.TestCase):
     def test_wellformatted_repo_review_without_sources_cannot_pass(self):
-        """DoD 1. The old evaluator passed this output at 0.9."""
+        """The old evaluator passed this same output at 0.9.
+
+        Note the scope: unsourced, not incorrect. See the module docstring.
+        """
         state = AtlasController(max_iterations=2).run(REPO_TASK, json_mode=True)
         evaluation = state["evaluations"][-1]
 
@@ -146,7 +155,7 @@ class TestEvidenceGate(unittest.TestCase):
         evaluation = _evaluate(output, [README_OBS])
 
         self.assertTrue(evaluation.should_retry)
-        self.assertIn("no_findings_cited", evaluation.evidence_gaps)
+        self.assertIn("sources_not_documented", evaluation.evidence_gaps)
         adjustment = evaluation.suggested_adjustment
         self.assertIsNotNone(adjustment)
         assert adjustment is not None  # narrows for the type checker
@@ -179,35 +188,47 @@ class TestJustifiedSecondIteration(unittest.TestCase):
         first, second = state["evaluations"]
 
         # The first pass names a gap it can actually close, and says so.
-        self.assertIn("no_findings_cited", first["evidence_gaps"])
+        self.assertIn("sources_not_documented", first["evidence_gaps"])
         self.assertTrue(first["should_retry"])
         self.assertFalse(first["passed"])
 
         # The second pass closes it with the sources it was actually given.
         self.assertEqual(second["evidence_gaps"], [])
-        self.assertEqual(second["evidence_coverage"], 1.0)
         self.assertTrue(second["passed"])
         self.assertEqual(state["stop_reason"], "passed")
 
+        # Coverage stays None, not 1.0: the pass records what it read and
+        # asserts no finding, so there is nothing to have covered.
+        self.assertIsNone(second["evidence_coverage"])
+
         # "Improves the result" must mean the output changed, not just the score.
         self.assertGreater(second["quality_score"], first["quality_score"])
-        self.assertNotIn("## Verified findings", state["outputs"][0])
-        self.assertIn("## Verified findings", state["outputs"][1])
+        self.assertNotIn("## Observed sources", state["outputs"][0])
+        self.assertIn("## Observed sources", state["outputs"][1])
 
-        # And the new evidence is the observed files, cited by name.
-        final = state["outputs"][1]
-        self.assertIn("README.md", final.split("## Verified findings", 1)[1])
-        self.assertIn("pyproject.toml", final.split("## Verified findings", 1)[1])
+        # And what it records is the observed files, named.
+        final = state["outputs"][1].split("## Observed sources", 1)[1]
+        self.assertIn("README.md", final)
+        self.assertIn("pyproject.toml", final)
 
     def test_the_retry_does_not_claim_more_than_it_read(self):
-        """A verified finding may assert that a file was read, nothing more."""
+        """The section attests reading, and says so in as many words."""
         state = AtlasController(max_iterations=2).run(
             REPO_TASK, observations=[README_OBS], json_mode=True
         )
-        section = state["outputs"][-1].split("## Verified findings", 1)[1]
+        section = state["outputs"][-1].split("## Observed sources", 1)[1]
 
         self.assertNotIn("pyproject.toml", section)
-        self.assertIn("observerad", section.lower())
+        self.assertIn("lästes denna körning", section)
+        # It must disclaim the stronger reading rather than imply it.
+        self.assertIn("inte att", section)
+
+    def test_naming_does_not_promise_verification(self):
+        """The heading says what the section proves: files were observed."""
+        state = AtlasController(max_iterations=2).run(
+            REPO_TASK, observations=[README_OBS], json_mode=True
+        )
+        self.assertNotIn("## Verified findings", state["outputs"][-1])
 
 
 class TestOtherRoutesUnchanged(unittest.TestCase):

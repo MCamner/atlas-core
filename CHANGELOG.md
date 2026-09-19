@@ -17,9 +17,15 @@ Roadmap phase P1: the evaluator grades evidence, not formatting.
 - **Behaviour change:** `repo_review` with no observed sources no longer
   passes. It stops at one iteration with `no_actionable_retry`, because no
   further pass over an empty observation list could cite anything.
-- A retry can now close an evidence gap: the executor emits `## Verified
-  findings` citing the sources it actually held, and moves claims it could not
-  tie to a source into `## Unverified claims`.
+- A retry can now close an evidence gap: the executor emits `## Observed
+  sources` recording the sources it actually held, and moves claims it could
+  not tie to one into `## Unverified claims`. The section is named for what it
+  proves — that the files were read — not for a verification it does not
+  perform.
+- The evidence check is citation, not verification. A finding counts as
+  supported when it names a source that was read; nothing compares the claim
+  against that source's contents. A wrong statement mentioning `README.md`
+  still passes.
 - Renamed the static `repo_review` heading `## Key findings` to
   `## Review method`. Those three bullets describe how to assess a repo; they
   were never findings about one.

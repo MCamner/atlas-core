@@ -67,7 +67,7 @@
         "type": "string",
         "enum": [
           "no_sources_observed",
-          "no_findings_cited",
+          "sources_not_documented",
           "uncited_findings"
         ]
       }
@@ -86,7 +86,7 @@
       ],
       "minimum": 0,
       "maximum": 1,
-      "description": "Share of findings citing an observed source, or null when the route has no evidence contract."
+      "description": "Share of findings that name an observed source. Null when the route has no evidence contract, or when the output asserts no finding. Citation only: a covered finding names a source that was read, it is not checked against that source's contents."
     }
   }
 }
