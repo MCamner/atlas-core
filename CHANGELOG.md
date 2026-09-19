@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+Roadmap phase P1: the evaluator grades evidence, not formatting.
+
+- Added a per-route evaluator contract (`RouteEvaluator`). Routes without one
+  are graded on formatting exactly as before; `repo_review` is the first route
+  that must also show its sources.
+- `AtlasEvaluation` gained `evidence_gaps`, `unverified_claims` and
+  `evidence_coverage`, declared as optional fields in `atlas-evaluation.v1`.
+  They are deliberately separate from `missing_sections`: a heading being
+  present says nothing about whether the claim under it is supported.
+- Evidence now moves `quality_score`, so the gate is arithmetic rather than a
+  boolean override. A `repo_review` that cites nothing scores 0.71 against a
+  0.78 threshold.
+- **Behaviour change:** `repo_review` with no observed sources no longer
+  passes. It stops at one iteration with `no_actionable_retry`, because no
+  further pass over an empty observation list could cite anything.
+- A retry can now close an evidence gap: the executor emits `## Observed
+  sources` recording the sources it actually held, and moves claims it could
+  not tie to one into `## Unverified claims`. The section is named for what it
+  proves — that the files were read — not for a verification it does not
+  perform.
+- The evidence check is citation, not verification. A finding counts as
+  supported when it names a source that was read; nothing compares the claim
+  against that source's contents. A wrong statement mentioning `README.md`
+  still passes.
+- Renamed the static `repo_review` heading `## Key findings` to
+  `## Review method`. Those three bullets describe how to assess a repo; they
+  were never findings about one.
+- `tests/test_evidence_evaluator.py` covers the P1 Definition of Done and adds
+  the end-to-end second-iteration test the loop never had: a run that scores
+  0.71, names an actionable gap, and reaches 0.95 on the second pass with new
+  evidence.
+
 ## v1.0.0 — 2026-09-19
 
 First stable release. Makes the engine do what the README describes.

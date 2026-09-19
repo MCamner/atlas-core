@@ -24,6 +24,12 @@ class AtlasEvaluation:
     requires_user_approval: bool = False
     should_retry: bool = False
     suggested_adjustment: str | None = None
+    # Evidence signals. Separate from missing_sections on purpose: a heading
+    # that is present says nothing about whether the claim under it is backed
+    # by something that was actually read.
+    evidence_gaps: list[str] = field(default_factory=list)
+    unverified_claims: list[str] = field(default_factory=list)
+    evidence_coverage: float | None = None
 
 @dataclass
 class AtlasRoute:

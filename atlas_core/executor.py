@@ -1,5 +1,6 @@
 from __future__ import annotations
 from .state import AtlasEvaluation, AtlasPlan
+from .evidence import observed_sources
 
 MAX_SOURCES = 8
 
@@ -18,7 +19,7 @@ def execute_plan(
     if observations:
         output += _sources_section(observations)
     if feedback is not None:
-        output += _refinement_section(plan, feedback)
+        output += _refinement_section(plan, feedback, observations)
     return output
 
 
@@ -27,18 +28,58 @@ def _sources_section(observations: list[str]) -> str:
     return f"\n## Sources inspected\n{body}\n"
 
 
-def _refinement_section(plan: AtlasPlan, feedback: AtlasEvaluation) -> str:
+def _refinement_section(
+    plan: AtlasPlan, feedback: AtlasEvaluation, observations: list[str]
+) -> str:
     """Close the gaps the evaluator named. Claims nothing when there are none."""
     gaps = [code for code in feedback.missing_sections if code in _GAP_BUILDERS]
+    evidence = _evidence_section(feedback, observations)
     if not gaps:
-        return ""
+        return evidence
     note = (
         "\n## Loop improvement\n"
         f"Nytt varv efter evaluation. Evalueringen saknade: {', '.join(gaps)}. "
         "Sektionerna nedan lades till i detta varv och är härledda från route-planen, "
         "inte från nya observationer.\n"
     )
-    return note + "".join(_GAP_BUILDERS[code](plan) for code in gaps)
+    return evidence + note + "".join(_GAP_BUILDERS[code](plan) for code in gaps)
+
+
+def _evidence_section(feedback: AtlasEvaluation, observations: list[str]) -> str:
+    """Record which sources were read, and claim nothing beyond that.
+
+    The deterministic executor cannot confirm the template's claims about a
+    repository. What it can state honestly is which sources it held this run.
+    That is an attestation of reading, not a verification of any finding, so
+    the section is named for what it is. Claims it could not tie to a source
+    move into an explicitly unverified list rather than being dressed up.
+    """
+    if not any(code in _EVIDENCE_GAPS for code in feedback.evidence_gaps):
+        return ""
+    sources = observed_sources(observations)
+    if not sources:
+        return ""
+
+    lines = [f"- `{source}`" for source in sources[:MAX_SOURCES]]
+    section = (
+        "\n## Observed sources\n"
+        "Filerna nedan lästes denna körning; innehållet återges under "
+        "'Sources inspected'. Detta intygar att de observerades — inte att "
+        "någon brist eller förbättring i repot är sakligt verifierad.\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+    if feedback.unverified_claims:
+        claims = "\n".join(f"- {claim}" for claim in feedback.unverified_claims)
+        section += (
+            "\n## Unverified claims\n"
+            "Följande påståenden kunde inte knytas till någon observerad källa "
+            "och står kvar som hypoteser:\n" + claims + "\n"
+        )
+    return section
+
+
+_EVIDENCE_GAPS = ("sources_not_documented", "uncited_findings")
 
 
 def _gap_recommendation(plan: AtlasPlan) -> str:
@@ -68,7 +109,7 @@ _GAP_BUILDERS = {
 }
 
 def _repo_review(task: str) -> str:
-    return f"""# Repo Review\n\n## Goal\n{task}\n\n## Key findings\n- Repoet bör bedömas utifrån roll, boundaries, docs, tester, public-safe-regler och nästa minsta PR-slice.\n- Live kodsanning ska inte gissas. Den måste verifieras i repo, CI eller relevanta verktyg.\n- Förbättringar bör delas i P0/P1/P2 så att arbetet inte blir en stor blandad PR.\n\n## P0 — fixa först\n- Bekräfta repoets read-order och source-of-truth boundary.\n- Identifiera stale docs eller instruktioner som kan få agenten att läsa för mycket.\n- Lägg till eller uppdatera validation commands om de saknas.\n\n## P1 — fixa sedan\n- Förbättra exempel, screenshots eller demo-output där det hjälper repoets publika förståelse.\n- Lägg till tydligare issue/PR-mallar om repoet saknar styrning.\n- Dela övervuxna docs i små context surfaces.\n\n## P2 — polish\n- Gör README kortare om den duplicerar djupare docs.\n- Lägg till mer kompakta testprompter för Codex/Claude/ChatGPT.\n- Skapa en liten roadmap med nästa 3 PR-slices.\n\n## Suggested PR slices\n1. docs: tighten read-order and truth-boundary section\n2. tests: add/verify context budget and public-safe validation\n3. examples: add one sanitized end-to-end context-pack example\n\n## Recommendation\nTa P0-listan först och kör varje post som en egen PR-slice. Blanda inte in P1 eller P2 i samma diff.\n\n## Next step\nVerifiera P0-listan mot repots faktiska innehåll innan någon ändring görs.\n\n## Confidence\nMedium. This MVP did not perform a full live GitHub scan unless observations were provided by an adapter.\n"""
+    return f"""# Repo Review\n\n## Goal\n{task}\n\n## Review method\n- Repoet bör bedömas utifrån roll, boundaries, docs, tester, public-safe-regler och nästa minsta PR-slice.\n- Live kodsanning ska inte gissas. Den måste verifieras i repo, CI eller relevanta verktyg.\n- Förbättringar bör delas i P0/P1/P2 så att arbetet inte blir en stor blandad PR.\n\n## P0 — fixa först\n- Bekräfta repoets read-order och source-of-truth boundary.\n- Identifiera stale docs eller instruktioner som kan få agenten att läsa för mycket.\n- Lägg till eller uppdatera validation commands om de saknas.\n\n## P1 — fixa sedan\n- Förbättra exempel, screenshots eller demo-output där det hjälper repoets publika förståelse.\n- Lägg till tydligare issue/PR-mallar om repoet saknar styrning.\n- Dela övervuxna docs i små context surfaces.\n\n## P2 — polish\n- Gör README kortare om den duplicerar djupare docs.\n- Lägg till mer kompakta testprompter för Codex/Claude/ChatGPT.\n- Skapa en liten roadmap med nästa 3 PR-slices.\n\n## Suggested PR slices\n1. docs: tighten read-order and truth-boundary section\n2. tests: add/verify context budget and public-safe validation\n3. examples: add one sanitized end-to-end context-pack example\n\n## Recommendation\nTa P0-listan först och kör varje post som en egen PR-slice. Blanda inte in P1 eller P2 i samma diff.\n\n## Next step\nVerifiera P0-listan mot repots faktiska innehåll innan någon ändring görs.\n\n## Confidence\nMedium. This MVP did not perform a full live GitHub scan unless observations were provided by an adapter.\n"""
 
 def _architecture_decision(task: str) -> str:
     return f"""# Architecture Decision\n\n## Goal\n{task}\n\n## Requirements\n- Säker styrning\n- Tydliga trust boundaries\n- Stegvis införande\n- Mätbar kvalitet och kostnad\n- Möjlighet att byta komponenter senare\n\n## High-level design\nBygg runt ett kontrollplan: identitet, policy, gateway, observability och tydlig datagräns.\nLåt implementationer/modeller vara utbytbara bakom stabila kontrakt.\n\n## Risks\n- För brett scope i första versionen\n- Oklara informationsklasser\n- Leverantörslåsning\n- Otillräcklig logging eller för innehållsrik logging\n- Ingen exit-plan\n\n## Options\n1. Köp färdig tjänst — snabbast, men mest låsning.\n2. Bygg själv — mest kontroll, men dyrast och långsammast.\n3. Hybrid — bäst balans när säkerhet och snabb nytta båda spelar roll.\n\n## Recommendation\nVälj hybrid som default om kraven innehåller både snabb införing och stark kontroll.\n\n## Next step\nDefiniera en 6–12 veckors pilot med tydliga go/no-go-kriterier.\n\n## Confidence\nMedium. Faktiska krav, juridik och produktdetaljer måste verifieras.\n"""

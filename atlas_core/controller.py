@@ -107,7 +107,15 @@ class AtlasController:
                 output = execute_plan(task, plan, state.observations, feedback=feedback)
             state.outputs.append(output)
             state.status = "evaluating"
-            evaluation = evaluate(task, output, plan.validation_focus, state.iteration, state.max_iterations)
+            evaluation = evaluate(
+                task,
+                output,
+                plan.validation_focus,
+                state.iteration,
+                state.max_iterations,
+                route_name=route.name,
+                observations=state.observations,
+            )
             state.evaluations.append(evaluation)
             if evaluation.requires_user_approval:
                 state.status = "need_user_approval"

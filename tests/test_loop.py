@@ -35,8 +35,16 @@ class TestLoop(unittest.TestCase):
 
         Every shipped route must be able to satisfy the evaluator it is graded
         by, otherwise the loop burns its whole iteration budget on every run.
+
+        repo_review is excluded deliberately. Since the P1 evidence evaluator it
+        is graded on sources as well as shape, and a review of a repository
+        nobody read cannot be "good enough" — it stops at one iteration, but as
+        `no_actionable_retry` rather than `passed`. That case is covered by
+        tests/test_evidence_evaluator.py.
         """
         for name, task in ROUTE_TASKS.items():
+            if name == "repo_review":
+                continue
             with self.subTest(route=name):
                 state = AtlasController(max_iterations=2).run(task, json_mode=True)
                 self.assertEqual(state["route"]["name"], name)
@@ -47,6 +55,14 @@ class TestLoop(unittest.TestCase):
                 )
                 self.assertEqual(state["iteration"], 1)
                 self.assertEqual(evaluation["missing_sections"], [])
+
+    def test_repo_review_still_stops_on_the_first_pass_without_sources(self):
+        """It must not burn the iteration budget either — just not by passing."""
+        state = AtlasController(max_iterations=2).run(ROUTE_TASKS["repo_review"], json_mode=True)
+
+        self.assertEqual(state["iteration"], 1)
+        self.assertEqual(state["stop_reason"], "no_actionable_retry")
+        self.assertFalse(state["evaluations"][-1]["passed"])
 
     def test_observations_reach_every_route(self):
         """README: run output embeds observed repo content."""
