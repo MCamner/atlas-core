@@ -24,19 +24,27 @@
     },
     "reasons": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "missing": {
       "type": "array",
       "description": "Human-readable gaps.",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "missing_sections": {
       "type": "array",
       "description": "Machine-readable section codes the executor can close on a retry.",
       "items": {
         "type": "string",
-        "enum": ["recommendation", "next_step", "confidence"]
+        "enum": [
+          "recommendation",
+          "next_step",
+          "confidence"
+        ]
       }
     },
     "requires_user_approval": {
@@ -47,7 +55,38 @@
       "description": "True only when an actionable gap remains and the iteration budget allows another pass."
     },
     "suggested_adjustment": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_gaps": {
+      "type": "array",
+      "description": "Machine-readable evidence gap codes. Separate from missing_sections: a heading being present says nothing about whether the claim under it is supported.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "no_sources_observed",
+          "no_findings_cited",
+          "uncited_findings"
+        ]
+      }
+    },
+    "unverified_claims": {
+      "type": "array",
+      "description": "Findings that cite no observed source. Hypotheses, not findings.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_coverage": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Share of findings citing an observed source, or null when the route has no evidence contract."
     }
   }
 }

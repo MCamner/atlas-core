@@ -39,6 +39,20 @@ These schemas are closed to undeclared top-level fields. New optional fields may
 be added compatibly; removing fields, changing their meaning, or changing types
 requires a new schema version.
 
+`atlas-evaluation.v1` carries two independent verdicts, and adapters should not
+collapse them:
+
+| Field | Question it answers |
+| --- | --- |
+| `missing_sections` | Does the output have the shape the route promised? |
+| `evidence_gaps` | Are the claims in it supported by something that was read? |
+
+`unverified_claims` lists findings that cite no observed source — hypotheses,
+not findings. `evidence_coverage` is the share of findings that do cite one, or
+`null` for routes with no evidence contract. All three are optional additions
+to the existing schema; a consumer written against 1.0 that ignores them still
+reads a valid document.
+
 ## Stop Semantics
 
 Terminal runs expose both `status` and `stop_reason`:
@@ -59,6 +73,12 @@ prose output.
 Model adapters receive task, route, plan, observations, and optional evaluation
 feedback, and return `ModelResult`. Memory adapters expose `read` and `write`.
 The core remains functional when neither is configured.
+
+Observations are the evidence base. An adapter that wants its output to count
+as a citable source must label it `<path>:` on its own line, as the filesystem,
+GitHub and mqobsidian adapters do. Durable memory is excluded by design: it is
+context, not current runtime truth, so it cannot support a claim about how a
+repository looks now.
 
 Adapters may add observations or produce output, but they do not change route,
 evaluation, or stop semantics. Memory writes accept candidates; memory is not a
