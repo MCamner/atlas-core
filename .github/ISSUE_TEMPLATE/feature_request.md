@@ -22,5 +22,5 @@ what it would break.
 
 ## Roadmap fit
 
-See the roadmap in the wiki. Note the version it fits, or say if it does not
-fit the current plan.
+See [ROADMAP.md](../../ROADMAP.md). Note the phase it fits, or say if it does
+not fit the current plan.

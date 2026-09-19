@@ -58,17 +58,13 @@ Source truth is current reality.
 
 For code behavior, CI status, and current file content, use the live repository and workflow state. Use memory for prior decisions, notes, and context packs.
 
-## What is already shipped in 1.0?
+## What is already shipped, and what is not?
 
-The full v0.1–v1.0 roadmap:
-
-```text
-core loop, repo observations, model adapter contract,
-mqobsidian adapter, ChatGPT Skill generator, stable loop API
-```
-
-See [[Roadmap]] for what each version added.
+See [ROADMAP.md](../ROADMAP.md). It is the single source for both, and it
+separates what is implemented from what is merely documented.
 
 ## What should be built next?
 
-Nothing is required for the loop contract itself; 1.x is a compatibility promise, not a feature backlog. The open work is concrete adapters on top of it — a shipped provider binding for `ModelAdapter`, and severity-aware write approval instead of the current keyword check.
+ROADMAP.md sets the order. The headline item is P0.2, "verifiering ≠ citering":
+the evaluator currently checks that a finding *names* a source that was read,
+not that the source supports the claim.
