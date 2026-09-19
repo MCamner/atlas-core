@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas Observation",
+  "description": "One thing that was read, with its provenance. A field that could not be verified carries the literal string \"unknown\"; it is never filled with a plausible default, because P0.2 verifies claims against exactly these fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "source_id",
+    "source_type",
+    "path",
+    "collected_at",
+    "content_sha256",
+    "excerpt",
+    "line_start",
+    "line_end"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-observation.v1"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Stable id for this source within this snapshot, derived from snapshot_id, source_type and path. Identifies the source, not the content version: re-reading a changed file keeps the same source_id."
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "local_file",
+        "github_file",
+        "ci",
+        "memory"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "collected_at": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601 timestamp of the read."
+    },
+    "content_sha256": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "const": "unknown"
+        }
+      ],
+      "description": "Digest of the full content read, not of the excerpt. Authoritative identity of the bytes, independent of whether any provenance field is known. \"unknown\" means the observation can be cited but never confirmed."
+    },
+    "excerpt": {
+      "type": "string",
+      "description": "The bounded slice kept for review. Hashing covers the full content, so trimming or later redaction of this field cannot change what verification compares."
+    },
+    "line_start": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "1-based first line of the excerpt; 0 when the excerpt is empty."
+    },
+    "line_end": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "1-based last line of the excerpt; 0 when the excerpt is empty."
+    },
+    "snapshot_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "const": "unknown"
+        }
+      ],
+      "description": "Identity of the read session this observation belongs to."
+    },
+    "repo": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "const": "unknown"
+        }
+      ]
+    },
+    "ref": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "const": "unknown"
+        }
+      ],
+      "description": "Branch or ref. Never defaulted to \"main\" when unverified."
+    },
+    "commit": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "const": "unknown"
+        }
+      ],
+      "description": "What was committed. Does NOT identify the bytes read unless worktree_state is \"clean\" — a dirty worktree serves different bytes from the same path."
+    },
+    "worktree_state": {
+      "type": "string",
+      "enum": [
+        "clean",
+        "dirty",
+        "unknown"
+      ],
+      "description": "Whether the worktree had uncommitted changes at read time."
+    },
+    "confidentiality": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "secret",
+        "unknown"
+      ]
+    }
+  }
+}

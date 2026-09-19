@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Roadmap P0.1a: `Observation.v1`.
+
+- Added `atlas_core/observation.py` and `schemas/atlas-observation.v1.json`:
+  provenance for one thing that was read — `source_id`, source type, path,
+  collection time, content hash, excerpt with line range, repo/ref/commit or
+  snapshot id, worktree state and confidentiality class.
+- A field that cannot be verified carries the literal `"unknown"`. Blank and
+  whitespace are rejected, so an absent value cannot be smuggled in looking
+  like a present one, and a malformed digest is refused rather than stored.
+- `commit` and content identity are kept apart. A dirty worktree serves
+  different bytes from the same path, so `commit_identifies_content()` is true
+  only for a clean worktree, and `content_sha256` — taken over the full content
+  read, never over the excerpt — stays authoritative on its own.
+- Validation lives in `__post_init__`, so `dataclasses.replace` cannot write a
+  malformed digest or a blank commit into an already-validated object.
+  `source_id` is re-derived and a mismatch is refused, so an observation cannot
+  be re-pointed at a different path while keeping the old id.
+- Nothing is wired into the controller. Collection and snapshots are P0.1b.
+
 Terminal states are now legible to callers.
 
 - A model adapter that raises, or returns anything other than a `ModelResult`
