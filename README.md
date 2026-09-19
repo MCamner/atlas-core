@@ -165,6 +165,19 @@ atlas version
 the current route map. It refuses to overwrite an existing package unless
 `--force` is passed.
 
+`atlas run` exits with the terminal state, so a script does not have to read
+the output to know what happened:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Passed its quality gate. |
+| 1 | The run failed. |
+| 2 | Finished without passing — for example a repo review with no sources. |
+| 3 | A mutation needs approval first. |
+
+Exit 2 is not an error. It is the loop stopping honestly instead of claiming an
+answer it cannot support.
+
 ## Editor and MCP configuration
 
 Atlas Core needs no MCP server, editor plugin or agent configuration. It

@@ -47,9 +47,16 @@ Expected work:
 Status:
 
 - implemented as optional `ModelAdapter`
-- rule-based executor remains default
+- rule-based executor remains default when no adapter is configured
 - controller records provider-neutral model metadata in run metadata
-- tests cover adapter output, fallback, and write approval gating
+- a raising or malformed adapter ends the run as `failed`, and does not fall
+  back to the rule-based executor — that would report a template as a model
+  answer
+- `StubModelAdapter` ships for tests and CI without a provider
+- timeouts stay the adapter's responsibility; `execute()` is synchronous and
+  the core cannot cancel one in progress
+- tests cover adapter output, fallback, failure handling, and write approval
+  gating
 
 ## v0.4 — shipped scaffold
 

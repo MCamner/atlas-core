@@ -9,8 +9,27 @@ from .evaluator import evaluate
 from .finalizer import finalize
 from .memory import build_memory_candidate, save_local_memory
 from .safety import safety_notice
-from .adapters.model import ModelAdapter
+from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
+
+# Provider messages are unbounded and may embed request content, so the run
+# record keeps a bounded excerpt rather than whatever the provider returned.
+MAX_FAILURE_MESSAGE = 512
+
+
+def _check_model_result(result: object) -> None:
+    """Reject a result that does not meet the adapter contract.
+
+    A malformed result must fail the run rather than pass through as output. A
+    provider returning None or an empty string is not a cheap success.
+    """
+    if not isinstance(result, ModelResult):
+        raise TypeError(
+            f"ModelAdapter.execute must return ModelResult, got {type(result).__name__}"
+        )
+    if not isinstance(result.output, str) or not result.output.strip():
+        raise ValueError("ModelAdapter.execute returned empty output")
+
 
 class AtlasController:
     def __init__(
@@ -90,13 +109,28 @@ class AtlasController:
             # a rerun: it tells the executor which gaps to close this time.
             feedback = state.evaluations[-1] if state.evaluations else None
             if self.model_adapter:
-                model_result = self.model_adapter.execute(
-                    task=task,
-                    route=route,
-                    plan=plan,
-                    observations=state.observations,
-                    feedback=feedback,
-                )
+                try:
+                    model_result = self.model_adapter.execute(
+                        task=task,
+                        route=route,
+                        plan=plan,
+                        observations=state.observations,
+                        feedback=feedback,
+                    )
+                    _check_model_result(model_result)
+                except Exception as exc:
+                    # A provider that fails is a terminal state, not a crash and
+                    # not a silent fallback to the rule-based executor. Falling
+                    # back would report an answer the caller did not ask for as
+                    # though the model had produced it.
+                    state.status = "failed"
+                    state.stop_reason = "failed"
+                    state.metadata["failure"] = {
+                        "stage": "model_adapter",
+                        "error": type(exc).__name__,
+                        "message": str(exc)[:MAX_FAILURE_MESSAGE],
+                    }
+                    break
                 output = model_result.output
                 state.metadata["model_result"] = {
                     "provider": model_result.provider,
