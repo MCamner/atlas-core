@@ -21,6 +21,27 @@ Roadmap P0.1a: `Observation.v1`.
   be re-pointed at a different path while keeping the old id.
 - Nothing is wired into the controller. Collection and snapshots are P0.1b.
 
+Roadmap P0.1b: snapshots, collection and drift detection.
+
+- Added `atlas_core/snapshot.py`. `take_snapshot()` establishes commit, ref and
+  worktree state from git, and says `unknown` for anything it cannot establish
+  rather than guessing. Snapshot ids are derived, so the same unchanged
+  checkout is recognisably the same snapshot.
+- `collect_observation()` reads one file into an `Observation.v1`, hashing the
+  full content and keeping a bounded excerpt with its line range. A missing
+  file raises instead of producing an observation with an `unknown` digest.
+- `verify_observation()` re-reads a source and returns `fresh`, `stale`,
+  `missing` or `unverifiable`. Both the content digest and the quoted line
+  range are checked, so an excerpt that no longer matches the lines it claims
+  is stale even when the digest would pass.
+- `Verification.is_evidence()` is the single place deciding what may back a
+  claim, and only `fresh` qualifies.
+- `detect_drift()` answers "did HEAD or a file move during the read". It pairs
+  the state check with a per-source content check, because `has_moved()` alone
+  cannot see an already-dirty worktree changing again.
+- Still not wired into the controller; the loop keeps its `list[str]`
+  observations.
+
 Terminal states are now legible to callers.
 
 - A model adapter that raises, or returns anything other than a `ModelResult`
