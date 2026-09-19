@@ -1,7 +1,22 @@
 from __future__ import annotations
+from typing import Any, Literal, overload
+
 from .state import AtlasRunState
 
-def finalize(state: AtlasRunState, json_mode: bool = False) -> str | dict:
+
+@overload
+def finalize(state: AtlasRunState, json_mode: Literal[False] = ...) -> str: ...
+
+
+@overload
+def finalize(state: AtlasRunState, json_mode: Literal[True]) -> dict[str, Any]: ...
+
+
+@overload
+def finalize(state: AtlasRunState, json_mode: bool) -> str | dict[str, Any]: ...
+
+
+def finalize(state: AtlasRunState, json_mode: bool = False) -> str | dict[str, Any]:
     if json_mode:
         return state.to_dict()
     latest_output = state.outputs[-1] if state.outputs else "No output."

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from typing import Any, Literal, overload
+
 from .state import AtlasRunState
 from .router import select_route
 from .planner import build_plan
@@ -29,7 +31,40 @@ class AtlasController:
         self.model_adapter = model_adapter
         self.memory_adapter = memory_adapter
 
-    def run(self, task: str, *, observations: list[str] | None = None, json_mode: bool = False):
+    @overload
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = ...,
+        json_mode: Literal[False] = ...,
+    ) -> str: ...
+
+    @overload
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = ...,
+        json_mode: Literal[True],
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = ...,
+        json_mode: bool,
+    ) -> str | dict[str, Any]: ...
+
+    def run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = None,
+        json_mode: bool = False,
+    ) -> str | dict[str, Any]:
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
         state.status = "observing"
         # Copy: the caller's list must not grow as a side effect of a run.

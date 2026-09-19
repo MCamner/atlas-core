@@ -1,4 +1,5 @@
 import unittest
+from typing import Any
 
 from atlas_core.adapters import ModelResult
 from atlas_core.controller import AtlasController
@@ -7,9 +8,9 @@ from atlas_core.controller import AtlasController
 class FixtureModelAdapter:
     def __init__(self, output: str):
         self.output = output
-        self.calls = []
+        self.calls: list[dict[str, Any]] = []
 
-    def execute(self, **kwargs):
+    def execute(self, **kwargs: Any) -> ModelResult:
         self.calls.append(kwargs)
         return ModelResult(
             output=self.output,
