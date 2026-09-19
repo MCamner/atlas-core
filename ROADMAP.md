@@ -35,6 +35,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ## P0 — v1.1 Evidensintegritet och säker kärna
 
 ### P0.1 Observationer med proveniens
+
 - [x] Definiera `Observation.v1`: `source_id`, typ (local-file/GitHub/CI/memory), repo/ref/commit eller lokal snapshot-id, sökväg, insamlad tid, content hash, läst utdrag + line range och sekretessklass. Använd explicit `unknown` där fält inte kan verifieras.
   - Stängd av [#15](https://github.com/MCamner/atlas-core/pull/15). `atlas_core/observation.py`, `schemas/atlas-observation.v1.json`, `tests/test_observation.py` (24 tester). Overifierade fält blir `unknown`; tomt och blanksteg avvisas, liksom trasig digest och okänd enum. Validering ligger i `__post_init__`, så `dataclasses.replace` inte kan skriva förbi den, och `source_id` omderiveras så en observation inte kan riktas om till en annan sökväg.
 - [ ] Läs en konsekvent snapshot för en run; upptäck ändrad HEAD/fil under läsning och märk `stale` eller avbryt; blanda inte `main` och arbetsgren utan tydlig separation.
@@ -48,12 +49,14 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - **Återstår:** persondata utöver e-post och hemkatalog upptäcks inte. Det finns ingen klassificering av personuppgifter, och `confidentiality` sätts aldrig automatiskt — den är `unknown` om ingen anger den.
 
 ### P0.2 Verifiering ≠ citering
+
 - [ ] Definiera `Finding.v1`: claim, scope, severity med motivering, evidence IDs, verifieringsmetod, verifieringsresultat (`verified`/`contradicted`/`insufficient_evidence`), begränsningar och reproducerbart kommando om relevant.
 - [ ] Låt evaluator kontrollera att refererade ID:n existerar i denna run, att utdrag och line range matchar snapshot och att påståendets kontrollerbara del stöds av källan/testet. Om semantisk verifiering inte kan göras: `insufficient_evidence`, aldrig `verified` på enbart filnamn.
 - [ ] Separera fakta, hypotes och rekommendation. En modellbaserad verifierare måste kompletteras med deterministiska kontroller/tester; modellens eget självomdöme får inte ensamt ge PASS.
 - [ ] Testa falskt fynd som citerar en verkligt läst README, fel SHA/linje, cherry-pickat utdrag, stale CI, tomma källor och saknat resultat. Alla ska bli FAIL/INSUFFICIENT_EVIDENCE.
 
 ### P0.3 Terminalsäkerhet och resurser
+
 - [ ] Versionera explicit state machine och stopporsaker: `passed`, `insufficient_evidence`, `blocked`, `approval_required`, `budget_exhausted`, `max_iterations`, `no_progress`, `tool_error`, `cancelled`. Skilj runtime-fel från saklig evaluering.
 - [ ] Inför max iterationer, wall-clock, modell-/verktygsanrop, tokenkostnad och outputstorlek. Alla gränser ska gälla även nested verktyg och retries.
 - [ ] Fail-closed för skrivning: inga verktyg med sidoeffekter i read-only mode; mänskligt godkännande knyts senare till exakt diff/kommando/repo/ref och upphör när underlaget ändras.
@@ -66,6 +69,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ## P1 — v1.2 Första verkliga uppgiftsloopen
 
 ### P1.1 Repo-review som vertikal slice
+
 - [ ] Inför en begränsad `repo_review`-plan: välj snapshot → identifiera konkret fråga → läs relevanta filer/tester/CI → samla fynd → verifiera → föreslå nästa *skrivskyddade* undersökning eller avsluta.
 - [ ] Välj ett litet, fast fixture-repo med kända defekter och ett utan defekter. Mät precision mot facit, andel evidensbelagda findings, falskt positiva, iterationsantal, kostnad och stopporsak.
 - [ ] Sätt explicit exit criteria per task i stället för generell textlängd/rubriker. Ingen finding med okänd täckning får tilldelas verifierad severity.
@@ -73,6 +77,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 - [ ] Verifiera med ett aktuellt publikt repo vid pinad commit och jämför med fixture; dokumentera manuellt kontrollerade fynd och kända missar.
 
 ### P1.2 Live modellprovider som valfri adapter
+
 - [ ] Implementera minst en riktig provider bakom befintlig `ModelAdapter`; stöd lokal Ollama eller extern leverantör som separat konfiguration. Saknad nyckel får inte bryta deterministic fallback.
 - [ ] Schemalägg och validera strukturerad modelloutput; begränsa prompt/context, logga provider/model/config och versions-ID utan hemligheter; hantera rate limits, timeout och okänt svar.
 - [ ] Kör kontraktstester med fake provider i CI och opt-in live smoke test utanför obligatorisk CI. Resultat från nätverksmodell markeras icke-deterministiskt.
@@ -94,11 +99,13 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ## P1 — v1.4 Integration utan tight coupling
 
 ### Atlas One (äger UI-arbetet i `MCamner/atlas-one`)
+
 - [ ] Publicera Core API/CLI-kontrakt för create/run/status/cancel/inspect, inklusive schema-version och streaming av progress-events. Anpassning i Atlas One görs i *dess* repo med separat PR.
 - [ ] Visa observerade källor, faktiska iterationer, budget, verifieringsstatus och `approval_required` i UI. Märk prompt-preview separat från exekverad/verifierad run.
 - [ ] Kontraktstest med mock Core och lokal smoke-test från Atlas One till Core; frontend får inte bli en alternativ evaluator.
 
 ### MQ (adaptrar, inte Core-importer)
+
 - [ ] `mq-agent`: adapter för tillåtna read-only operations och eventuell orchestration handoff; undvik två konkurrerande ägare av samma loop/state.
 - [ ] `mq-mcp`: adapter för explicit utvalda tools; respektera receiver-gates och befintliga evidence/memory-kontrakt. Ingen direkt write-around från Core.
 - [ ] `mqobsidian`: mappa memory candidates till befintligt inbox-/scoringflöde; historiskt minne är inte aktuell repo-/runtime-sanning. Deduplicering, provenance och fail-closed vid felaktigt schema.
