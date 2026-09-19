@@ -59,7 +59,7 @@ The engine is state + routes + tools + evaluation + stop rules.
 
 ## What it can do now
 
-This v0.2.0 is a working scaffold:
+This v1.0.0 release provides a stable loop scaffold:
 
 - deterministic route selection
 - route map
@@ -73,9 +73,13 @@ This v0.2.0 is a working scaffold:
 - JSON schemas
 - tests
 - GitHub Actions runner
-- optional ChatGPT Skill wrapper
+- optional model and mqobsidian adapters
+- ChatGPT Skill package generator
+- versioned run, route, evaluation, and memory-candidate schemas
+- explicit terminal stop reasons
 
-It does **not** include a live LLM provider by default. Add that as an adapter later.
+It does **not** include a live LLM provider by default. Add one through the
+stable model adapter contract.
 
 ## Quick start
 

@@ -31,6 +31,11 @@ class SchemaAssertions(unittest.TestCase):
     """
 
     def assert_matches(self, schema: dict, doc: dict, label: str) -> None:
+        if schema.get("additionalProperties") is False:
+            self.assertEqual(
+                set(doc) - set(schema.get("properties", {})), set(),
+                f"{label}: document contains undeclared properties",
+            )
         for key in schema.get("required", []):
             self.assertIn(key, doc, f"{label}: missing required key {key!r}")
         for key, spec in schema.get("properties", {}).items():
@@ -38,6 +43,8 @@ class SchemaAssertions(unittest.TestCase):
                 continue
             if "const" in spec:
                 self.assertEqual(doc[key], spec["const"], f"{label}.{key}")
+            if "enum" in spec:
+                self.assertIn(doc[key], spec["enum"], f"{label}.{key}")
             declared = spec.get("type")
             if not declared:
                 continue
@@ -65,6 +72,10 @@ class TestEmittedDocuments(SchemaAssertions):
         self.assertTrue(state["evaluations"])
         for index, evaluation in enumerate(state["evaluations"]):
             self.assert_matches(schema, evaluation, f"evaluations[{index}]")
+
+    def test_route_matches_atlas_route_v1(self):
+        state = AtlasController().run("hej", json_mode=True)
+        self.assert_matches(load("atlas-route.v1.json"), state["route"], "route")
 
     def test_memory_candidate_matches_schema(self):
         candidate = build_memory_candidate(

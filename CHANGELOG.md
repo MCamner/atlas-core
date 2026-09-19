@@ -34,6 +34,9 @@ Makes the engine do what the README describes.
 - Added the v0.5 ChatGPT Skill package generator with live route summaries,
   CLI examples, safety boundaries, overwrite protection, and drift tests for
   the checked-in integration package.
+- Stabilized the v1.0 loop API with public type exports, explicit stop reasons,
+  positive iteration bounds, closed versioned schemas, and a documented 1.x
+  adapter and write-boundary contract.
 
 ## v0.2.0 — 2026-07-31
 

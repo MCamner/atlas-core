@@ -75,7 +75,7 @@ Status:
 - writes accept memory candidates only
 - controller and CLI integration covered by tests
 
-## v0.5 — current scaffold
+## v0.5 — shipped scaffold
 
 Goal:
 
@@ -99,7 +99,7 @@ Status:
 - command examples and mutation approval boundaries are included
 - tests cover generation, overwrite protection, CLI use, and checked-in drift
 
-## v1.0 — stable loop API
+## v1.0 — shipped scaffold
 
 Goal:
 
@@ -115,6 +115,14 @@ Expected guarantees:
 - clear adapter contract
 - consistent stop rules
 - documented write boundary
+
+Status:
+
+- public controller, state, route, plan, evaluation, and model types exported
+- versioned closed schemas for runs, routes, evaluations, and memory candidates
+- terminal runs expose explicit, tested stop reasons
+- positive iteration bounds are enforced
+- adapter and write boundaries are documented as the 1.x compatibility contract
 
 ## Non-goals
 

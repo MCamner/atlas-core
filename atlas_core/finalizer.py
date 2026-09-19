@@ -9,6 +9,7 @@ def finalize(state: AtlasRunState, json_mode: bool = False) -> str | dict:
     meta = [
         f"Atlas route: {state.route.name if state.route else 'unknown'}",
         f"Iterations: {state.iteration}/{state.max_iterations}",
+        f"Stop reason: {state.stop_reason or 'unknown'}",
     ]
     if latest_eval:
         meta.append(f"Quality score: {latest_eval.quality_score}")

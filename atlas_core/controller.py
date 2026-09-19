@@ -18,6 +18,12 @@ class AtlasController:
         model_adapter: ModelAdapter | None = None,
         memory_adapter: MemoryAdapter | None = None,
     ):
+        if (
+            isinstance(max_iterations, bool)
+            or not isinstance(max_iterations, int)
+            or max_iterations < 1
+        ):
+            raise ValueError("max_iterations must be a positive integer")
         self.max_iterations = max_iterations
         self.memory_dir = memory_dir
         self.model_adapter = model_adapter
@@ -70,9 +76,19 @@ class AtlasController:
             state.evaluations.append(evaluation)
             if evaluation.requires_user_approval:
                 state.status = "need_user_approval"
+                state.stop_reason = "approval_required"
                 break
-            if evaluation.passed or not evaluation.should_retry:
+            if evaluation.passed:
                 state.status = "done"
+                state.stop_reason = "passed"
+                break
+            if not evaluation.should_retry:
+                state.status = "done"
+                state.stop_reason = (
+                    "max_iterations"
+                    if evaluation.missing_sections and state.iteration >= state.max_iterations
+                    else "no_actionable_retry"
+                )
                 break
             state.status = "replanning"
 

@@ -4,6 +4,10 @@ Adapters may provide observations, memory reads/writes, repo reads, tool calls, 
 
 Core must remain usable without any adapter.
 
+This interface is part of the Atlas Core 1.x compatibility contract. Additive,
+optional result metadata is allowed; changing method inputs or return types
+requires a new major contract. See [api-contract.md](api-contract.md).
+
 ```python
 class MemoryAdapter:
     def read(self, query: str) -> list[str]: ...

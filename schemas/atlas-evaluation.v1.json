@@ -3,6 +3,7 @@
   "title": "Atlas Evaluation",
   "description": "One evaluation, embedded in the `evaluations` array of an atlas-run.v1 document.",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "quality_score",
     "passed",

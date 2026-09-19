@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-route.v1.json",
+  "title": "Atlas Route",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "confidence", "reason", "steps", "risk_level"],
+  "properties": {
+    "name": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason": { "type": "string" },
+    "steps": { "type": "array", "items": { "type": "string" } },
+    "risk_level": { "type": "string", "enum": ["low", "medium", "high"] }
+  }
+}

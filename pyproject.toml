@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atlas-core"
-version = "0.2.0"
+version = "1.0.0"
 description = "Standalone Atlas 2.0 loop engine: route, plan, execute, evaluate, retry, finalize."
 readme = "README.md"
 requires-python = ">=3.10"

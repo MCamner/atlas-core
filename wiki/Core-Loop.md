@@ -46,7 +46,8 @@ A good plan is short, concrete, and testable.
 
 Run the selected method.
 
-In v0.2.0, execution is rule-based. Live model execution belongs in a future model adapter.
+In v1.0.0, execution is rule-based by default. A `ModelAdapter` can provide live
+model execution without changing the loop contract.
 
 ### 5. Evaluate
 
@@ -75,11 +76,10 @@ Return the best current answer with caveats and next action.
 
 Atlas Core should stop when:
 
-- the result satisfies the task
-- max iterations are reached
-- a write action needs explicit approval
-- required context is missing
-- the task is outside the available adapter surface
+- the result satisfies the task (`passed`)
+- max iterations are reached (`max_iterations`)
+- a write action needs explicit approval (`approval_required`)
+- another pass cannot close a known gap (`no_actionable_retry`)
 
 ## Design principle
 
