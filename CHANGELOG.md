@@ -42,6 +42,31 @@ Roadmap P0.1b: snapshots, collection and drift detection.
 - Still not wired into the controller; the loop keeps its `list[str]`
   observations.
 
+Roadmap P0.1c: source integrity and safe handling of observation data.
+
+- Added `atlas_core/integrity.py`. `resolve_within()` refuses absolute paths,
+  `..` escapes, a sibling directory sharing a prefix, and symlinks pointing out
+  of the snapshot. A symlink that stays inside is allowed — the rule is about
+  where bytes come from, not about links. Refusal, not clamping: reading a
+  different file than the one requested is worse than failing.
+- `redact_text()` masks credential formats, home directories and email
+  addresses. Deliberately narrow, so hex digests, commit ids, versions and
+  in-repo paths survive — masking the context needed to check a claim would
+  defeat the point. Verified against this repo's own files: no false positives.
+- `redacted_manifest()` is the exportable record: masked excerpts, snapshot
+  provenance, and per-entry verification status. It keeps `content_sha256`
+  unmasked so the manifest still points at what was verified, and omits
+  `snapshot.root`, which is an absolute path naming a user and a machine. An
+  entry built without re-verification reports `unknown`, never `is_evidence`.
+- Redaction is a view, not storage. Collected excerpts stay raw, because
+  verification compares the excerpt against the lines it claims — masking at
+  collection made an untouched source verify as `stale`, which a test caught.
+- Negative tests cover tampering that preserves length, trailing-whitespace
+  edits, a commit that does not make a changed file fresh again, path
+  traversal, symlink escape, and secret leakage into the manifest.
+- `ROADMAP.md` P0.1 status updated. Only the `Observation.v1` box is ticked;
+  the other three stay open with what each PR covers and what remains.
+
 Terminal states are now legible to callers.
 
 - A model adapter that raises, or returns anything other than a `ModelResult`

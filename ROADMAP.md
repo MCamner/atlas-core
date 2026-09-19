@@ -35,10 +35,17 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ## P0 — v1.1 Evidensintegritet och säker kärna
 
 ### P0.1 Observationer med proveniens
-- [ ] Definiera `Observation.v1`: `source_id`, typ (local-file/GitHub/CI/memory), repo/ref/commit eller lokal snapshot-id, sökväg, insamlad tid, content hash, läst utdrag + line range och sekretessklass. Använd explicit `unknown` där fält inte kan verifieras.
+- [x] Definiera `Observation.v1`: `source_id`, typ (local-file/GitHub/CI/memory), repo/ref/commit eller lokal snapshot-id, sökväg, insamlad tid, content hash, läst utdrag + line range och sekretessklass. Använd explicit `unknown` där fält inte kan verifieras.
+  - Stängd av [#15](https://github.com/MCamner/atlas-core/pull/15). `atlas_core/observation.py`, `schemas/atlas-observation.v1.json`, `tests/test_observation.py` (24 tester). Overifierade fält blir `unknown`; tomt och blanksteg avvisas, liksom trasig digest och okänd enum. Validering ligger i `__post_init__`, så `dataclasses.replace` inte kan skriva förbi den, och `source_id` omderiveras så en observation inte kan riktas om till en annan sökväg.
 - [ ] Läs en konsekvent snapshot för en run; upptäck ändrad HEAD/fil under läsning och märk `stale` eller avbryt; blanda inte `main` och arbetsgren utan tydlig separation.
+  - **Delvis.** [#16](https://github.com/MCamner/atlas-core/pull/16) ger `take_snapshot`, `verify_observation` (`fresh`/`stale`/`missing`/`unverifiable`) och `detect_drift`, som parar HEAD-kontroll med innehållskontroll per källa — `has_moved()` ensam ser inte en redan smutsig worktree ändras igen. Grenbyte ger ett annat snapshot.
+  - **Återstår:** ingen körning *avbryts* vid drift, och inget av detta är inkopplat i `AtlasController`. Loopen tar fortfarande `list[str]`-observationer, så en route som får stale källor mitt i en körning märker det inte.
 - [ ] Lagra begränsade, sanitiserade utdrag i observationsmanifest; koppla varje finding till `source_id` och exakt utdrag. Klipp inte bort just den kontext som behövs för att kontrollera påståendet.
+  - **Delvis.** PR C ger `redacted_manifest()` med begränsade och maskerade utdrag, snapshot-proveniens och per-post verifieringsstatus. Manifestet utelämnar `snapshot.root`, som är en absolut sökväg med användarnamn. Maskeringen är smal och verifierad mot repots egna filer: 0 falska positiva.
+  - **Återstår:** kopplingen finding → `source_id` finns inte. `Finding.v1` är P0.2, och inget i P0.1 kan därför knyta ett påstående till ett utdrag.
 - [ ] Redigera tokens, privata paths och persondata före run-artifact/export; råa källor förblir lokala. Negativa tester för injicerade hemligheter och symlänkar/path traversal.
+  - **Delvis.** PR C: `redact_text()` maskerar nyckelformat, hemkataloger och e-post vid export medan råa utdrag stannar lokalt. `resolve_within()` avvisar absoluta sökvägar, `..`-flykt, syskonkatalog med delat prefix och symlänkar som pekar ut ur snapshotet. Negativa tester finns för alla dessa samt för manipulerat innehåll av samma längd.
+  - **Återstår:** persondata utöver e-post och hemkatalog upptäcks inte. Det finns ingen klassificering av personuppgifter, och `confidentiality` sätts aldrig automatiskt — den är `unknown` om ingen anger den.
 
 ### P0.2 Verifiering ≠ citering
 - [ ] Definiera `Finding.v1`: claim, scope, severity med motivering, evidence IDs, verifieringsmetod, verifieringsresultat (`verified`/`contradicted`/`insufficient_evidence`), begränsningar och reproducerbart kommando om relevant.
@@ -51,6 +58,8 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 - [ ] Inför max iterationer, wall-clock, modell-/verktygsanrop, tokenkostnad och outputstorlek. Alla gränser ska gälla även nested verktyg och retries.
 - [ ] Fail-closed för skrivning: inga verktyg med sidoeffekter i read-only mode; mänskligt godkännande knyts senare till exakt diff/kommando/repo/ref och upphör när underlaget ändras.
 - [ ] Testa prompt injection i README och verktygsoutput, nätverksfel, timeout, abort, oändlig förbättring utan progress, felaktigt JSON och samtidiga körningar. Output från repo är *data*, inte instruktion.
+
+> Statusnoteringarna ovan följer regeln i huvudet: en ruta kryssas först när PR är mergad, tester körda och resultatet observerat. En delvis täckt ruta står kvar som öppen med vad som faktiskt återstår — inte som nästan klar.
 
 **P0 exit gate:** en osann verifierbar claim kan inte få `passed`; varje beslut kan följas till snapshot/evidence; read-only-försök att skriva nekas på exekveringsgränsen, inte bara genom prompttext.
 
