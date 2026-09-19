@@ -35,7 +35,9 @@ High.
 class BoomAdapter:
     """A provider that fails the way real ones do: mid-call, with an exception."""
 
-    def __init__(self, exc: Exception):
+    # BaseException, not Exception: one test passes a KeyboardInterrupt to check
+    # the controller does not swallow it.
+    def __init__(self, exc: BaseException):
         self.exc = exc
         self.calls = 0
 
