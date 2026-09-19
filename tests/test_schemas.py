@@ -7,14 +7,14 @@ from atlas_core.memory import build_memory_candidate
 
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
 
-JSON_TYPES = {
-    "object": dict,
-    "array": list,
-    "string": str,
-    "boolean": bool,
-    "integer": int,
+JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "object": (dict,),
+    "array": (list,),
+    "string": (str,),
+    "boolean": (bool,),
+    "integer": (int,),
     "number": (int, float),
-    "null": type(None),
+    "null": (type(None),),
 }
 
 
@@ -45,7 +45,7 @@ class SchemaAssertions(unittest.TestCase):
             expected = tuple(
                 t
                 for name in names
-                for t in (JSON_TYPES[name] if isinstance(JSON_TYPES[name], tuple) else (JSON_TYPES[name],))
+                for t in JSON_TYPES[name]
             )
             self.assertIsInstance(doc[key], expected, f"{label}.{key}")
 
