@@ -1,6 +1,6 @@
 {
   "name": "atlas-core",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "created_at": "2026-07-31T00:01:00+02:00",
   "description": "Standalone Atlas 2.0 loop engine scaffold",
   "independent_from_mq": true,

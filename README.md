@@ -295,7 +295,9 @@ is only advisory, is in [docs/safety-model.md](docs/safety-model.md).
 7. Memory is optional and adapter-driven.
 8. No hidden repo or runtime assumptions.
 
-## Recommended roadmap
+## Roadmap
+
+All planned versions through v1.0 are shipped.
 
 ```text
 v0.1  Core loop scaffold

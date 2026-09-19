@@ -62,7 +62,8 @@ Known limits of the detection:
 - Run output embeds observed repository content verbatim, including README text
   and file paths from your local checkout. Check a run log before sharing it.
 - Local memory candidates are plain JSON, not encrypted.
-- The `public_safe` field on a memory candidate is hardcoded to `true` in v0.2.
+- The `public_safe` field on a memory candidate is hardcoded to `true` by the
+  built-in memory adapter.
   It is a placeholder for a future check, not a verdict. Do not gate sharing on
   it.
 

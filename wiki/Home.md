@@ -22,7 +22,7 @@ Atlas Core is intentionally independent from the MQ stack. MQ, GitHub, Obsidian,
 
 ## Current status
 
-v0.2.0 is a working scaffold:
+v1.0.0 is the first stable release:
 
 - deterministic route selection
 - route map

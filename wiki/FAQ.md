@@ -22,13 +22,13 @@ Atlas Core is intentionally independent. MQ can connect later through an adapter
 
 ## Why is there no live LLM provider by default?
 
-The first job is to make the loop testable and stable.
+The first job was to make the loop testable and stable.
 
-A live model provider should be added as an adapter so the core does not depend on one vendor, one API, or one local setup.
+A live model provider attaches as an adapter (`ModelAdapter`) so the core does not depend on one vendor, one API, or one local setup. No provider binding is shipped in the box; the rule-based executor is the default.
 
 ## Can Atlas Core read GitHub repos?
 
-Yes, v0.2.0 can read public GitHub repo observations through the `--repo` option.
+Yes. Atlas Core reads public GitHub repo observations through the `--repo` option.
 
 Example:
 
@@ -58,12 +58,17 @@ Source truth is current reality.
 
 For code behavior, CI status, and current file content, use the live repository and workflow state. Use memory for prior decisions, notes, and context packs.
 
-## What should be built next?
+## What is already shipped in 1.0?
 
-The most useful next step is v0.3:
+The full v0.1–v1.0 roadmap:
 
 ```text
-LLM adapter contract + provider-neutral model result schema
+core loop, repo observations, model adapter contract,
+mqobsidian adapter, ChatGPT Skill generator, stable loop API
 ```
 
-That gives Atlas Core real execution power without making the core provider-specific.
+See [[Roadmap]] for what each version added.
+
+## What should be built next?
+
+Nothing is required for the loop contract itself; 1.x is a compatibility promise, not a feature backlog. The open work is concrete adapters on top of it — a shipped provider binding for `ModelAdapter`, and severity-aware write approval instead of the current keyword check.

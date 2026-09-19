@@ -6,7 +6,7 @@ A route classifies the task and selects the smallest useful method for the loop.
 
 ## Current route idea
 
-v0.2.0 uses deterministic route selection. That is intentional. The goal is to make the loop testable before adding a live LLM provider.
+Atlas Core uses deterministic route selection by default. That is intentional: the loop stays testable without a live LLM provider. Execution can be delegated to a model adapter; routing stays deterministic.
 
 Expected route families:
 

@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Makes the engine do what the README describes.
+## v1.0.0 — 2026-09-19
+
+First stable release. Makes the engine do what the README describes.
 
 - Retry is now a replan: the previous evaluation is passed into the executor,
   which closes the specific sections the evaluator named as missing. The
