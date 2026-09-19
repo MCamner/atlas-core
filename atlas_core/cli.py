@@ -6,6 +6,7 @@ from .router import list_routes
 from .adapters.filesystem_repo import FilesystemRepoAdapter
 from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
+from .skill_generator import generate_chatgpt_skill
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="atlas", description="Atlas Core loop engine")
@@ -20,6 +21,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--repo-path", default=None, help="Optional local repo path to observe before running")
     run_p.add_argument("--mqobsidian-path", default=None, help="Optional mqobsidian vault path")
     run_p.add_argument("--mq-project", default=None, help="Project name for mqobsidian context")
+    skill_p = sub.add_parser("generate-skill", help="Generate a ChatGPT Skill package")
+    skill_p.add_argument("output_dir", help="Parent directory for the generated skill")
+    skill_p.add_argument("--force", action="store_true", help="Overwrite generated skill files")
     sub.add_parser("routes", help="List available routes")
     sub.add_parser("version", help="Show version")
     args = parser.parse_args(argv)
@@ -28,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "routes":
         print(json.dumps(list_routes(), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "generate-skill":
+        package = generate_chatgpt_skill(args.output_dir, force=args.force)
+        print(str(package))
         return 0
     if args.command == "run":
         if bool(args.mqobsidian_path) != bool(args.mq_project):

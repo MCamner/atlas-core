@@ -153,8 +153,13 @@ them with `--repo-path` or `--repo` when the task depends on current code or CI.
 ```bash
 atlas run "<task>"
 atlas routes
+atlas generate-skill ./generated-skills
 atlas version
 ```
+
+`generate-skill` creates `atlas-core-loop/SKILL.md` plus a route reference from
+the current route map. It refuses to overwrite an existing package unless
+`--force` is passed.
 
 ## Editor and MCP configuration
 

@@ -31,6 +31,9 @@ Makes the engine do what the README describes.
 - Added the v0.4 mqobsidian adapter scaffold: bounded compact-context reads,
   explicit durable-memory labelling, candidate-only writes, and optional
   controller/CLI integration without an MQ package dependency.
+- Added the v0.5 ChatGPT Skill package generator with live route summaries,
+  CLI examples, safety boundaries, overwrite protection, and drift tests for
+  the checked-in integration package.
 
 ## v0.2.0 — 2026-07-31
 

@@ -51,7 +51,7 @@ Status:
 - controller records provider-neutral model metadata in run metadata
 - tests cover adapter output, fallback, and write approval gating
 
-## v0.4 — current scaffold
+## v0.4 — shipped scaffold
 
 Goal:
 
@@ -75,7 +75,7 @@ Status:
 - writes accept memory candidates only
 - controller and CLI integration covered by tests
 
-## v0.5 — ChatGPT Skill package generator
+## v0.5 — current scaffold
 
 Goal:
 
@@ -90,6 +90,14 @@ Expected work:
 - command examples
 - safety boundaries
 - regression tests for route-and-execute behavior
+
+Status:
+
+- `atlas generate-skill <output-dir>` creates an installable skill package
+- generated `SKILL.md` delegates execution to the Atlas CLI
+- route reference is generated from the live route map
+- command examples and mutation approval boundaries are included
+- tests cover generation, overwrite protection, CLI use, and checked-in drift
 
 ## v1.0 — stable loop API
 
