@@ -15,14 +15,27 @@ Roadmap P0.2b: deciding whether the source supports the claim.
   `insufficient_evidence` and does not pass either: a sound citation alone is
   no longer enough for `repo_review`.
 - **`contradicted` and `verified` are reachable for the first time**, and only
-  from `claim_check.py`. `finding.py`'s structural guarantee is unchanged, and
-  the grep test that enforces it now covers both words.
-- The two outcomes are not symmetric, and the module says so. Refutation needs
-  one counterexample. A condition that holds shows only that *that condition*
-  held — nothing checks it is a fair test of the claim, so a producer that
-  declares an easy condition earns an easy `verified`. `verified` therefore
-  means "the falsifiable condition this finding named held", and the reasons
-  say that rather than presenting the claim as established.
+  from a **typed claim** in `claim_check.py`, where the claim *is* the
+  predicate: `source_contains_literal` or `source_lacks_literal` over a cited
+  source, with the human-readable sentence derived from the object rather than
+  written freely. The finding's own `claim` string must equal that derivation,
+  so the sentence a reader sees cannot say more than what was settled.
+  `finding.py`'s structural guarantee is unchanged.
+- An earlier draft let free text pair with a separately chosen predicate. The
+  predicate was deterministic; its relevance to the claim was not checked, and
+  that broke both directions — a false claim earned `verified` because
+  `# Atlas Core` is in the README, and a true one earned `contradicted` for the
+  same reason. Deciding a producer-chosen predicate is not deciding the
+  producer's claim.
+- Free text keeps `insufficient_evidence` and cannot reach `PASS`. A declared
+  `claim_check` survives as a diagnostic and yields `condition_supported` or
+  `condition_refuted`; neither is decisive, and the names are the point.
+  A finding declares a `typed_claim` or a `claim_check`, never both.
+- Claims are settled over the **observed line range**, not the file.
+  `collect_observation` keeps a bounded excerpt, so searching the whole file
+  would let text nobody observed decide a verdict — the same defect
+  `quote_outside_excerpt` refuses on the citation side. The derived sentence
+  names the range.
 - Only a finding with sound citations reaches the claim check. A refutation
   resting on a source the finding cannot point at would be an accusation about
   the wrong file. A stale source settles nothing in either direction.
@@ -33,6 +46,10 @@ Roadmap P0.2b: deciding whether the source supports the claim.
   assigned by whatever checked the finding — and the parser now enforces that
   closed key set, so a smuggled `verdict` refuses the block instead of being
   silently dropped.
+- `atlas-evaluation.v1` also gains the `claim_text_mismatch` gap code, for a
+  finding whose prose says something other than its typed claim. The retry
+  feedback hands back the expected sentence verbatim, since derived text is
+  not guessable.
 - `atlas-evaluation.v1` gains `verification_method` and `claim_check` on each
   `citation_checks` entry, plus `contradicted_findings` and
   `unverified_findings` gap codes. Both gaps are actionable: a refuted finding

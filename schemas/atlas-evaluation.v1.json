@@ -73,7 +73,8 @@
           "uncheckable_findings",
           "unsound_citations",
           "contradicted_findings",
-          "unverified_findings"
+          "unverified_findings",
+          "claim_text_mismatch"
         ]
       }
     },
@@ -95,7 +96,7 @@
     },
     "citation_checks": {
       "type": "array",
-      "description": "Per-finding result of deterministic checking, so a score can be followed back to a source. Empty on a run with no evidence base. `citations_are_sound` is about the pointer; `claim_check` is about the claim. A verdict of `verified` means the condition the finding named held — not that the condition captures the claim; `contradicted` means the source met the finding's own test for being wrong.",
+      "description": "Per-finding result of deterministic checking, so a score can be followed back to a source. Empty on a run with no evidence base. `citations_are_sound` is about the pointer; `claim_check` is about what the finding declared. A verdict of `verified` or `contradicted` comes only from a typed claim, where the claim is the predicate; a settled free condition never produces one.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -171,34 +172,43 @@
               "object",
               "null"
             ],
-            "description": "The outcome of settling the finding's declared refutation condition. Null when the route requires no claim check, or when the citations were unsound — a refutation resting on a source the finding cannot point at would be an accusation about the wrong file, so unsound citations never reach this step.",
+            "description": "The outcome of settling what the finding declared about itself. Null when the route requires no claim check, or when the citations were unsound — a refutation resting on a source the finding cannot point at would be an accusation about the wrong file, so unsound citations never reach this step.",
             "additionalProperties": false,
             "required": [
               "result",
               "reason",
-              "condition"
+              "checked",
+              "is_decisive"
             ],
             "properties": {
               "result": {
                 "type": "string",
                 "enum": [
-                  "supported",
-                  "refuted",
+                  "verified",
+                  "contradicted",
+                  "condition_supported",
+                  "condition_refuted",
                   "not_declared",
+                  "claim_text_mismatch",
                   "unsupported_kind",
                   "source_not_cited",
                   "source_unavailable"
-                ]
+                ],
+                "description": "verified/contradicted come only from a typed claim, where the claim is the predicate. condition_supported/condition_refuted come from a producer's own free-standing test and say that the test passed or failed — not that the claim holds or fails."
               },
               "reason": {
                 "type": "string"
               },
-              "condition": {
+              "is_decisive": {
+                "type": "boolean",
+                "description": "Whether this result may move the finding's verdict. True only for verified and contradicted."
+              },
+              "checked": {
                 "type": [
                   "object",
                   "null"
                 ],
-                "description": "The condition that was evaluated, so a reader can judge whether it was a fair test of the claim."
+                "description": "What was evaluated, including the line range it was settled over, so a reader can see the scope."
               }
             }
           }

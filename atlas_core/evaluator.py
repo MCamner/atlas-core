@@ -27,7 +27,7 @@ from typing import Any
 from .state import AtlasEvaluation
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
-from .claim_check import ClaimVerdict, apply_verdict, check_claim
+from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
     FINDINGS_FENCE,
@@ -99,8 +99,13 @@ EVIDENCE_PROSE = {
         "condition that would make them false, and it is false."
     ),
     "unverified_findings": (
-        "Some findings cite a sound source but name no condition that could "
-        "refute them, so the claim itself was never checked."
+        "Some findings are stated as free text, so their truth was not "
+        "established. A settled condition beside a free-text claim says the "
+        "producer's own test passed, not that the claim holds."
+    ),
+    "claim_text_mismatch": (
+        "Some findings say something other than what their typed claim says, "
+        "so the sentence a reader sees is not the sentence that was settled."
     ),
 }
 
@@ -372,10 +377,10 @@ def _grade_against_evidence(
     # accusation about the wrong file.
     claim_verdicts: dict[str, ClaimVerdict] = {}
     if contract.requires_claim_check:
-        for (finding, check), (_, condition) in zip(checks, parsed.entries):
+        for (finding, check), (_, typed, condition) in zip(checks, parsed.entries):
             if check.citations_are_sound():
                 claim_verdicts[finding.finding_id] = check_claim(
-                    finding, condition, base.observations, base.root
+                    finding, typed, condition, base.observations, base.root
                 )
 
     if not checks and not uncheckable:
@@ -405,22 +410,39 @@ def _grade_against_evidence(
         for finding, check in checks
     ]
 
+    # Only a decisive result moves a finding. A settled condition, however
+    # cleanly settled, is a record of the producer's own test — not of the
+    # claim — so it lands in `unchecked` beside a finding that declared nothing.
     refuted = [
         finding
         for finding, _ in checks
-        if (verdict := claim_verdicts.get(finding.finding_id)) is not None and verdict.refutes()
+        if (verdict := claim_verdicts.get(finding.finding_id)) is not None
+        and verdict.result is ClaimResult.CONTRADICTED
+    ]
+    mismatched = [
+        finding
+        for finding, _ in checks
+        if (verdict := claim_verdicts.get(finding.finding_id)) is not None
+        and verdict.result is ClaimResult.CLAIM_TEXT_MISMATCH
     ]
     unchecked = [
         finding
         for finding, check in checks
         if check.citations_are_sound()
         and (verdict := claim_verdicts.get(finding.finding_id)) is not None
-        and not verdict.refutes()
-        and not verdict.supports()
+        and not verdict.is_decisive()
+        and verdict.result is not ClaimResult.CLAIM_TEXT_MISMATCH
     ]
 
     considered = len(checks) + len(uncheckable)
-    supported = considered - len(unsound) - len(uncheckable) - len(refuted) - len(unchecked)
+    supported = (
+        considered
+        - len(unsound)
+        - len(uncheckable)
+        - len(refuted)
+        - len(mismatched)
+        - len(unchecked)
+    )
     coverage = round(supported / considered, 2)
 
     gaps: list[str] = []
@@ -434,6 +456,9 @@ def _grade_against_evidence(
     if refuted:
         gaps.append("contradicted_findings")
         unverified.extend(finding.claim for finding in refuted)
+    if mismatched:
+        gaps.append("claim_text_mismatch")
+        unverified.extend(finding.claim for finding in mismatched)
     if unchecked:
         gaps.append("unverified_findings")
         unverified.extend(finding.claim for finding in unchecked)
@@ -445,7 +470,9 @@ def _grade_against_evidence(
             unverified=unverified,
             coverage=coverage,
             reasons=[],
-            actionable=_is_requotable(uncheckable, unsound, refuted, unchecked),
+            actionable=_is_requotable(
+                uncheckable, unsound, refuted, unchecked + mismatched
+            ),
             citation_checks=records,
             factor=_coverage_factor(coverage),
             # Why no retry is offered, in the run itself. "The loop gave up"
@@ -462,9 +489,10 @@ def _grade_against_evidence(
 
     if contract.requires_claim_check:
         reason = (
-            f"All {len(checks)} finding(s) cite a source that still holds, and each "
-            "named a condition that would refute it which the source did not meet. "
-            "That is what was checked — not that the condition captures the claim."
+            f"All {len(checks)} finding(s) cite a source that still holds and are "
+            "stated as typed claims, each settled against the lines the run recorded. "
+            "The claim is the predicate, so there is no gap between what was asserted "
+            "and what was tested."
         )
     else:
         reason = (
@@ -571,14 +599,32 @@ def _adjustment(
     refuted = [
         f"{record['claim'][:60]}: {(record['claim_check'] or {}).get('reason', '')}"
         for record in evidence.citation_checks
-        if (record["claim_check"] or {}).get("result") == "refuted"
+        if (record["claim_check"] or {}).get("result") == "contradicted"
     ]
     if refuted:
         parts.append("Drop or correct what the source refutes — " + "; ".join(refuted) + ".")
+
+    # The expected sentence, verbatim. A typed claim's text is derived, so
+    # telling a producer to "match it" without saying what it is would leave
+    # the only fixable part of the failure unstated.
+    expected = [
+        str((record["claim_check"] or {}).get("checked", {}).get("expected_claim"))
+        for record in evidence.citation_checks
+        if (record["claim_check"] or {}).get("result") == "claim_text_mismatch"
+    ]
+    if expected:
+        parts.append(
+            "State each typed claim exactly as it reads: "
+            + "; ".join(repr(text) for text in expected)
+            + "."
+        )
+
     if "unverified_findings" in evidence.gaps:
         parts.append(
-            "Give every finding a `claim_check` naming what would refute it: "
-            "{\"kind\": \"absent\"|\"present\", \"source_id\": ..., \"text\": ...}."
+            "A free-text finding cannot be established. State it as a typed claim "
+            "— {\"kind\": \"source_contains_literal\"|\"source_lacks_literal\", "
+            "\"source_id\": ..., \"text\": ...} — and write its derived sentence as "
+            "the claim, or drop it."
         )
     broken = [
         f"{record['claim'][:60]}: "

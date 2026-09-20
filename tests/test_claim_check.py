@@ -1,15 +1,21 @@
-"""P0.2b: whether the source supports the claim.
+"""P0.2b: deciding whether the source supports the claim.
 
-ROADMAP.md P0.2. Citation integrity established that a pointer holds and said
-nothing about the claim. The gap was demonstrable through the whole loop: a
-README containing `pip install atlas-core` backed a finding asserting it
-"saknar helt installationsinstruktioner och nämner aldrig pip", with a sound
-citation and `passed: True`.
+ROADMAP.md P0.2. The review that shaped this suite found that deciding a
+*producer-chosen predicate* is not deciding the producer's *claim*, and that
+the gap broke both strong verdicts:
 
-The design this suite pins: the producer declares **what would make its claim
-false**, and a deterministic checker settles it. The model is not its own
-judge, and the two outcomes are not treated as equals — `test_a_condition_that
-_holds_does_not_establish_the_claim` states the residual instead of glossing it.
+    1. FALSKT pastaende, latt orelaterat villkor:   passed=True  verdict=verified
+    2. SANT pastaende, orelaterat villkor refuterat: passed=False verdict=contradicted
+    3. villkor uppfyllt av text BORTOM utdraget:     passed=True  verdict=verified
+
+So the only route to `verified` or `contradicted` is a **typed claim**, where
+the claim is the predicate and the human-readable sentence is derived from it.
+Free text keeps `insufficient_evidence`, and a producer's own declared
+condition settles that condition — which is why its results are named
+`condition_supported` and `condition_refuted` and can never reach `PASS`.
+
+Scope is the observed line range, not the file: `collect_observation` keeps a
+bounded excerpt, and text nobody observed must not decide a verdict.
 """
 
 import json
@@ -21,17 +27,32 @@ from typing import Any
 
 from atlas_core import AtlasController, EvidenceBase, StubModelAdapter
 from atlas_core.claim_check import (
+    CLAIM_KINDS,
+    SUPPORTED_KINDS,
     ClaimCondition,
     ClaimKind,
     ClaimResult,
+    ConditionKind,
+    TypedClaim,
     build_condition,
-    check_claim,
+    build_typed_claim,
+    check_typed_claim,
 )
 from atlas_core.evidence import FINDINGS_FENCE, structured_findings
-from atlas_core.finding import EvidenceRef, Finding, check_finding
+from atlas_core.finding import EvidenceRef, Finding
 from atlas_core.snapshot import collect_observation, take_snapshot
 
-README = "# Atlas Core\n\npip install atlas-core\n\nEn avgränsad loop-motor.\n"
+#: Five observed lines out of forty. The tail exists so a claim can be made
+#: about text the run genuinely did not record.
+README = (
+    "# Atlas Core\n"
+    "\n"
+    "pip install atlas-core\n"
+    "\n"
+    "En avgränsad loop-motor.\n"
+    + "".join(f"rad {index}\n" for index in range(6, 40))
+    + "LICENS: MIT\n"
+)
 
 PROSE = """# Repogranskning
 
@@ -57,11 +78,6 @@ Skriv avsnittet.
 Hög.
 """
 
-#: The claim the roadmap names. The README says the opposite, in so many words.
-FALSE_CLAIM = "README.md nämner aldrig pip och saknar installationsinstruktioner."
-TRUE_CLAIM = "README.md dokumenterar installation med pip."
-
-#: Distinguishes "caller said nothing" from "caller said no condition".
 _DEFAULT: Any = object()
 
 
@@ -71,11 +87,29 @@ class _Loop(unittest.TestCase):
         self.root = Path(self.tmp)
         (self.root / "README.md").write_text(README, encoding="utf-8")
         self.snapshot = take_snapshot(self.root)
-        self.observation = collect_observation(self.snapshot, "README.md")
+        self.observation = collect_observation(self.snapshot, "README.md", max_lines=5)
         self.base = EvidenceBase(snapshot=self.snapshot, observations=[self.observation])
+        self.assertEqual(
+            (self.observation.line_start, self.observation.line_end),
+            (1, 5),
+            "the fixture depends on observing a bounded excerpt",
+        )
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _render(self, kind: ClaimKind, text: str) -> str:
+        """The sentence a typed claim derives, which the prose must equal."""
+        return TypedClaim(
+            kind=kind, source_id=self.observation.source_id, text=text
+        ).render("README.md", 1, 5)
+
+    def _typed(self, kind: ClaimKind, text: str) -> dict[str, Any]:
+        return {
+            "kind": kind.value,
+            "source_id": self.observation.source_id,
+            "text": text,
+        }
 
     def _citation(self, **overrides: Any) -> dict[str, Any]:
         fields: dict[str, Any] = {
@@ -88,11 +122,7 @@ class _Loop(unittest.TestCase):
         fields.update(overrides)
         return fields
 
-    def _finding(
-        self,
-        claim: str = FALSE_CLAIM,
-        claim_check: dict[str, Any] | None | Any = _DEFAULT,
-    ) -> dict[str, Any]:
+    def _finding(self, claim: str, **extra: Any) -> dict[str, Any]:
         finding: dict[str, Any] = {
             "claim": claim,
             "scope": "README.md",
@@ -100,144 +130,231 @@ class _Loop(unittest.TestCase):
             "severity_rationale": "Blockerar en ny användare.",
             "evidence": [self._citation()],
         }
-        if claim_check is _DEFAULT:
-            # The condition the false claim implies: if the README never
-            # mentions pip, `pip install` is absent from it.
-            claim_check = {
-                "kind": "absent",
-                "source_id": self.observation.source_id,
-                "text": "pip install",
-            }
-        if claim_check is not None:
-            finding["claim_check"] = claim_check
+        finding.update(extra)
         return finding
 
     def _run(self, findings: list[dict[str, Any]], *, max_iterations: int = 1) -> Any:
         fence = "```" + FINDINGS_FENCE
         output = (
             PROSE.format(claim=findings[0]["claim"])
-            + "\n"
-            + fence
-            + "\n"
-            + json.dumps(findings)
-            + "\n```\n"
+            + "\n" + fence + "\n" + json.dumps(findings) + "\n```\n"
         )
         controller = AtlasController(
             max_iterations=max_iterations, model_adapter=StubModelAdapter(output)
         )
         return controller.run("granska repo", evidence=self.base, json_mode=True)
 
+    def _record(self, run: Any) -> dict[str, Any]:
+        return run["evaluations"][-1]["citation_checks"][0]
 
-class TestTheRoadmapCase(_Loop):
-    """The exact behaviour P0.2b was defined by, through the whole run."""
 
-    def test_a_false_claim_with_a_sound_citation_is_contradicted(self):
-        """Not merely blocked — refuted, by the finding's own test for being wrong."""
-        run = self._run([self._finding()])
+class TestAFreeConditionCannotDecideAnything(_Loop):
+    """The three cases the review reproduced, each asserted through `run()`."""
+
+    def test_a_false_claim_with_an_easy_unrelated_condition_cannot_pass(self):
+        """Review point 1. `# Atlas Core` is in the file; the claim is still false."""
+        run = self._run(
+            [
+                self._finding(
+                    "README.md saknar helt installationsinstruktioner och nämner aldrig pip.",
+                    claim_check=self._typed(ClaimKind.CONTAINS, "# Atlas Core")
+                    | {"kind": "present"},
+                )
+            ]
+        )
         evaluation = run["evaluations"][-1]
-        record = evaluation["citation_checks"][0]
-
-        self.assertIn("pip install", README)
-        self.assertTrue(record["citations_are_sound"])
-        self.assertEqual(record["verdict"], "contradicted")
-        self.assertEqual(record["claim_check"]["result"], "refuted")
-        self.assertFalse(evaluation["passed"])
-        self.assertIn("contradicted_findings", evaluation["evidence_gaps"])
-
-    def test_a_false_claim_that_declares_nothing_is_insufficient_not_passed(self):
-        """The other acceptable outcome: unchecked, and therefore not a pass."""
-        run = self._run([self._finding(claim_check=None)])
-        evaluation = run["evaluations"][-1]
-        record = evaluation["citation_checks"][0]
+        record = self._record(run)
 
         self.assertTrue(record["citations_are_sound"])
+        self.assertEqual(record["claim_check"]["result"], "condition_supported")
+        self.assertFalse(record["claim_check"]["is_decisive"])
         self.assertEqual(record["verdict"], "insufficient_evidence")
         self.assertFalse(evaluation["passed"])
         self.assertIn("unverified_findings", evaluation["evidence_gaps"])
 
-    def test_the_same_answer_passed_before_the_claim_check(self):
-        """What P0.2b is worth, kept visible instead of deleted.
-
-        With the route's claim requirement off, the false finding is graded on
-        citation integrity alone — which it satisfies.
-        """
-        from atlas_core.evaluator import ROUTE_EVALUATORS
-        from dataclasses import replace as _replace
-        from atlas_core.evaluator import evaluate
-
-        contract = _replace(ROUTE_EVALUATORS["repo_review"], requires_claim_check=False)
-        fence = "```" + FINDINGS_FENCE
-        output = (
-            PROSE.format(claim=FALSE_CLAIM)
-            + "\n" + fence + "\n" + json.dumps([self._finding()]) + "\n```\n"
-        )
-        ROUTE_EVALUATORS["repo_review"] = contract
-        try:
-            evaluation = evaluate(
-                "granska repo", output, [], 1, 1,
-                route_name="repo_review", evidence_base=self.base,
-            )
-        finally:
-            ROUTE_EVALUATORS["repo_review"] = _replace(contract, requires_claim_check=True)
-
-        self.assertTrue(evaluation.passed)
-        self.assertEqual(evaluation.evidence_gaps, [])
-
-
-class TestATrueClaimSurvives(_Loop):
-    """Negative control: the gate must not refuse everything."""
-
-    def test_a_declared_condition_that_holds_passes(self):
+    def test_a_true_claim_is_not_refuted_by_an_unrelated_condition(self):
+        """Review point 2. The heading being present says nothing about pip."""
         run = self._run(
             [
                 self._finding(
-                    claim=TRUE_CLAIM,
+                    "README.md dokumenterar installation med pip.",
+                    claim_check={
+                        "kind": "absent",
+                        "source_id": self.observation.source_id,
+                        "text": "# Atlas Core",
+                    },
+                )
+            ]
+        )
+        record = self._record(run)
+
+        self.assertEqual(record["claim_check"]["result"], "condition_refuted")
+        self.assertNotEqual(record["verdict"], "contradicted")
+        self.assertEqual(record["verdict"], "insufficient_evidence")
+
+    def test_a_refuted_condition_is_not_described_as_a_refuted_claim(self):
+        """The wording has to carry the distinction, not only the enum value."""
+        run = self._run(
+            [
+                self._finding(
+                    "README.md dokumenterar installation med pip.",
+                    claim_check={
+                        "kind": "absent",
+                        "source_id": self.observation.source_id,
+                        "text": "# Atlas Core",
+                    },
+                )
+            ]
+        )
+        reason = self._record(run)["claim_check"]["reason"]
+
+        self.assertIn("settles the test and not the claim", reason)
+        self.assertIn("producer's own test", reason)
+
+    def test_a_condition_is_settled_only_over_the_observed_lines(self):
+        """Review point 3. `LICENS: MIT` is at line 40; the run observed 1-5."""
+        run = self._run(
+            [
+                self._finding(
+                    "README.md anger sin licens.",
                     claim_check={
                         "kind": "present",
                         "source_id": self.observation.source_id,
-                        "text": "pip install",
+                        "text": "LICENS: MIT",
                     },
+                )
+            ]
+        )
+        record = self._record(run)
+
+        self.assertIn("LICENS: MIT", README)
+        self.assertNotIn("LICENS: MIT", self.observation.excerpt)
+        self.assertEqual(record["claim_check"]["result"], "condition_refuted")
+        self.assertFalse(run["evaluations"][-1]["passed"])
+
+    def test_free_text_alone_cannot_pass_either(self):
+        run = self._run([self._finding("README.md saknar installationssteg.")])
+        evaluation = run["evaluations"][-1]
+
+        self.assertEqual(self._record(run)["claim_check"]["result"], "not_declared")
+        self.assertFalse(evaluation["passed"])
+        self.assertIn("unverified_findings", evaluation["evidence_gaps"])
+
+
+class TestATypedClaimIsTheOnlyRouteToAStrongVerdict(_Loop):
+    """The claim is the predicate, so relevance is structural, not asserted."""
+
+    def test_a_true_typed_claim_is_verified_and_passes(self):
+        claim = self._render(ClaimKind.CONTAINS, "pip install")
+
+        run = self._run(
+            [self._finding(claim, typed_claim=self._typed(ClaimKind.CONTAINS, "pip install"))]
+        )
+        record = self._record(run)
+
+        self.assertEqual(claim, 'README.md lines 1-5 contain "pip install"')
+        self.assertEqual(record["verdict"], "verified")
+        self.assertEqual(record["verification_method"], "semantic")
+        self.assertTrue(record["claim_check"]["is_decisive"])
+        self.assertTrue(run["evaluations"][-1]["passed"])
+
+    def test_a_false_typed_claim_is_contradicted_and_cannot_pass(self):
+        claim = self._render(ClaimKind.LACKS, "pip install")
+
+        run = self._run(
+            [self._finding(claim, typed_claim=self._typed(ClaimKind.LACKS, "pip install"))]
+        )
+        evaluation = run["evaluations"][-1]
+
+        self.assertEqual(self._record(run)["verdict"], "contradicted")
+        self.assertFalse(evaluation["passed"])
+        self.assertIn("contradicted_findings", evaluation["evidence_gaps"])
+
+    def test_the_derived_sentence_names_the_range_it_was_settled_over(self):
+        """A claim about five lines must not read as a claim about the file."""
+        claim = self._render(ClaimKind.CONTAINS, "pip install")
+
+        self.assertIn("lines 1-5", claim)
+
+    def test_a_typed_claim_about_unobserved_text_is_contradicted_not_verified(self):
+        """Review point 3 on the decisive path.
+
+        `LICENS: MIT` is at line 40. The claim says lines 1-5 contain it, and
+        they do not — so the refutation is correct, and the way to assert
+        something about line 40 is to observe line 40.
+        """
+        claim = self._render(ClaimKind.CONTAINS, "LICENS: MIT")
+
+        run = self._run(
+            [self._finding(claim, typed_claim=self._typed(ClaimKind.CONTAINS, "LICENS: MIT"))]
+        )
+        record = self._record(run)
+
+        self.assertIn("LICENS: MIT", README)
+        self.assertEqual(record["verdict"], "contradicted")
+        self.assertFalse(run["evaluations"][-1]["passed"])
+
+    def test_prose_that_claims_more_than_the_typed_claim_is_refused(self):
+        """The sentence a reader sees must be the sentence that was settled."""
+        run = self._run(
+            [
+                self._finding(
+                    "README.md saknar all dokumentation.",
+                    typed_claim=self._typed(ClaimKind.CONTAINS, "pip install"),
                 )
             ]
         )
         evaluation = run["evaluations"][-1]
-        record = evaluation["citation_checks"][0]
+        record = self._record(run)
 
-        self.assertTrue(evaluation["passed"])
-        self.assertEqual(record["verdict"], "verified")
-        self.assertEqual(record["verification_method"], "semantic")
-        self.assertEqual(record["claim_check"]["result"], "supported")
+        self.assertEqual(record["claim_check"]["result"], "claim_text_mismatch")
+        self.assertFalse(record["claim_check"]["is_decisive"])
+        self.assertEqual(record["verdict"], "insufficient_evidence")
+        self.assertFalse(evaluation["passed"])
+        self.assertIn("claim_text_mismatch", evaluation["evidence_gaps"])
 
-    def test_a_condition_that_holds_does_not_establish_the_claim(self):
-        """The residual, stated in the run rather than left for a reader to find.
-
-        Nothing checks that the declared condition is a fair test of the claim.
-        A producer that declares an easy condition gets an easy `verified`, and
-        the reasons must not read as though the claim were confirmed.
-        """
+    def test_the_expected_sentence_is_handed_back_verbatim(self):
+        """Derived text is unguessable, so the repair has to be stated."""
         run = self._run(
             [
                 self._finding(
-                    claim="README.md är ett mästerverk.",
-                    claim_check={
-                        "kind": "present",
-                        "source_id": self.observation.source_id,
-                        "text": "#",
-                    },
+                    "README.md saknar all dokumentation.",
+                    typed_claim=self._typed(ClaimKind.CONTAINS, "pip install"),
                 )
-            ]
+            ],
+            max_iterations=2,
         )
-        reasons = " ".join(run["evaluations"][-1]["reasons"])
+        adjustment = run["evaluations"][0]["suggested_adjustment"] or ""
 
-        self.assertTrue(run["evaluations"][-1]["passed"])
-        self.assertIn("not that the condition captures the claim", reasons)
+        self.assertIn('README.md lines 1-5 contain "pip install"', adjustment)
+
+    def test_a_typed_claim_and_a_condition_together_are_refused(self):
+        """Two tests of one claim could only disagree."""
+        parsed = structured_findings(
+            "```" + FINDINGS_FENCE + "\n"
+            + json.dumps(
+                [
+                    self._finding(
+                        "x",
+                        typed_claim=self._typed(ClaimKind.CONTAINS, "pip"),
+                        claim_check={
+                            "kind": "present",
+                            "source_id": self.observation.source_id,
+                            "text": "pip",
+                        },
+                    )
+                ]
+            )
+            + "\n```"
+        )
+
+        self.assertIn("not both", parsed.malformed or "")
 
 
 class TestTheModelIsNotItsOwnJudge(_Loop):
     """ROADMAP P0.2: "modellens eget självomdöme får inte ensamt ge PASS"."""
 
     def test_a_producer_cannot_declare_its_own_verdict(self):
-        """`verdict` is not in the producer's input schema at all."""
         block = json.loads(
             (Path(__file__).parents[1] / "schemas" / "atlas-findings-block.v1.json")
             .read_text(encoding="utf-8")
@@ -248,7 +365,7 @@ class TestTheModelIsNotItsOwnJudge(_Loop):
             self.assertNotIn(assigned, properties)
 
     def test_a_smuggled_verdict_is_refused_not_honoured(self):
-        finding = self._finding()
+        finding = self._finding("x")
         finding["verdict"] = "verified"
 
         parsed = structured_findings(
@@ -258,11 +375,7 @@ class TestTheModelIsNotItsOwnJudge(_Loop):
         self.assertIsNotNone(parsed.malformed)
 
     def test_only_the_semantic_module_constructs_the_two_strong_verdicts(self):
-        """`finding.py`'s structural guarantee must still hold after P0.2b.
-
-        Reaching `verified` or `contradicted` requires a declared condition and
-        a source that settled it, so the words stay out of the citation layer.
-        """
+        """`finding.py`'s structural guarantee must still hold."""
         import re
 
         source = (
@@ -271,50 +384,55 @@ class TestTheModelIsNotItsOwnJudge(_Loop):
         constructions = [
             line.strip()
             for line in source.splitlines()
-            if re.search(r'(verdict\s*=\s*"(verified|contradicted)"|return\s+"(verified|contradicted)")', line)
+            if re.search(
+                r'(verdict\s*=\s*"(verified|contradicted)"|return\s+"(verified|contradicted)")',
+                line,
+            )
         ]
 
         self.assertEqual(constructions, [])
 
 
 class TestUnsoundCitationsNeverReachTheClaimCheck(_Loop):
-    """A refutation resting on the wrong file would be an accusation, not a check."""
+    """A refutation resting on the wrong file would be an accusation."""
 
     def test_a_miscited_finding_is_not_refuted(self):
-        run = self._run([{**self._finding(), "evidence": [self._citation(quoted="FEL")]}])
-        record = run["evaluations"][-1]["citation_checks"][0]
+        claim = self._render(ClaimKind.LACKS, "pip install")
+        finding = self._finding(claim, typed_claim=self._typed(ClaimKind.LACKS, "pip install"))
+        finding["evidence"] = [self._citation(quoted="FEL")]
+
+        record = self._record(self._run([finding]))
 
         self.assertFalse(record["citations_are_sound"])
         self.assertIsNone(record["claim_check"])
         self.assertNotEqual(record["verdict"], "contradicted")
 
-    def test_a_condition_about_an_uncited_source_settles_nothing(self):
-        other = collect_observation(self.snapshot, "README.md")
+    def test_a_claim_about_an_uncited_source_settles_nothing(self):
+        claim = self._render(ClaimKind.CONTAINS, "pip install")
         run = self._run(
-            [self._finding(claim_check={"kind": "absent", "source_id": "0" * 16, "text": "x"})]
+            [
+                self._finding(
+                    claim,
+                    typed_claim={
+                        "kind": "source_contains_literal",
+                        "source_id": "0" * 16,
+                        "text": "pip install",
+                    },
+                )
+            ]
         )
-        record = run["evaluations"][-1]["citation_checks"][0]
+        record = self._record(run)
 
         self.assertEqual(record["claim_check"]["result"], "source_not_cited")
         self.assertEqual(record["verdict"], "insufficient_evidence")
-        self.assertEqual(other.source_id, self.observation.source_id)
 
 
 class TestAStaleSourceSettlesNothing(_Loop):
-    """In either direction. Refuting with content never observed is as wrong."""
+    """In either direction. Refuting with unobserved content is as wrong."""
 
-    def _condition(self, **overrides: Any) -> ClaimCondition:
-        fields: dict[str, Any] = {
-            "kind": ClaimKind.ABSENT,
-            "source_id": self.observation.source_id,
-            "text": "pip install",
-        }
-        fields.update(overrides)
-        return ClaimCondition(**fields)
-
-    def _finding_object(self):
+    def _finding_object(self) -> Finding:
         return Finding.create(
-            claim=FALSE_CLAIM,
+            claim=self._render(ClaimKind.LACKS, "pip install"),
             scope="README.md",
             severity="P1",
             severity_rationale="r",
@@ -329,71 +447,78 @@ class TestAStaleSourceSettlesNothing(_Loop):
             ],
         )
 
+    def _claim(self) -> TypedClaim:
+        return TypedClaim(
+            kind=ClaimKind.LACKS,
+            source_id=self.observation.source_id,
+            text="pip install",
+        )
+
     def test_a_changed_file_is_unavailable_not_refuting(self):
         (self.root / "README.md").write_text("helt annat\n", encoding="utf-8")
 
-        verdict = check_claim(
-            self._finding_object(), self._condition(), [self.observation], self.root
+        verdict = check_typed_claim(
+            self._finding_object(), self._claim(), [self.observation], self.root
         )
 
         self.assertEqual(verdict.result, ClaimResult.SOURCE_UNAVAILABLE)
-        self.assertFalse(verdict.refutes())
-        self.assertFalse(verdict.supports())
+        self.assertFalse(verdict.is_decisive())
 
     def test_a_deleted_file_is_unavailable(self):
         (self.root / "README.md").unlink()
 
-        verdict = check_claim(
-            self._finding_object(), self._condition(), [self.observation], self.root
+        verdict = check_typed_claim(
+            self._finding_object(), self._claim(), [self.observation], self.root
         )
 
         self.assertEqual(verdict.result, ClaimResult.SOURCE_UNAVAILABLE)
 
-    def test_an_intact_file_still_refutes(self):
+    def test_an_intact_file_still_settles_the_claim(self):
         """Negative control for the two above."""
-        verdict = check_claim(
-            self._finding_object(), self._condition(), [self.observation], self.root
+        verdict = check_typed_claim(
+            self._finding_object(), self._claim(), [self.observation], self.root
         )
 
-        self.assertEqual(verdict.result, ClaimResult.REFUTED)
+        self.assertEqual(verdict.result, ClaimResult.CONTRADICTED)
+        self.assertTrue(verdict.is_decisive())
 
 
-class TestTheConditionForm(unittest.TestCase):
+class TestTheDeclaredForms(unittest.TestCase):
     def test_an_absent_declaration_is_not_an_error(self):
+        self.assertIsNone(build_typed_claim(None))
         self.assertIsNone(build_condition(None))
 
-    def test_an_unknown_kind_is_refused(self):
-        with self.assertRaises(ValueError) as raised:
-            build_condition({"kind": "regex", "source_id": "a", "text": "x"})
-
-        self.assertIn("absent", str(raised.exception))
+    def test_only_two_claim_kinds_exist(self):
+        self.assertEqual(
+            CLAIM_KINDS, frozenset({"source_contains_literal", "source_lacks_literal"})
+        )
 
     def test_regular_expressions_are_not_accepted(self):
         """A producer-supplied pattern is untrusted input that can hang a checker."""
-        from atlas_core.claim_check import SUPPORTED_KINDS
-
         self.assertEqual(SUPPORTED_KINDS, frozenset({"absent", "present"}))
 
+        with self.assertRaises(ValueError):
+            build_typed_claim({"kind": "regex", "source_id": "a", "text": "x"})
+
     def test_a_pattern_is_matched_literally_not_as_a_regex(self):
-        condition = ClaimCondition(
-            kind=ClaimKind.PRESENT, source_id="a", text="a.*b"
-        )
+        claim = TypedClaim(kind=ClaimKind.CONTAINS, source_id="a", text="a.*b")
 
-        self.assertTrue(condition.holds_for("x a.*b y"))
-        self.assertFalse(condition.holds_for("aXXXb"))
+        self.assertTrue(claim.holds_for("x a.*b y"))
+        self.assertFalse(claim.holds_for("aXXXb"))
 
-    def test_empty_text_is_refused(self):
-        with self.assertRaises(ValueError) as raised:
-            ClaimCondition(kind=ClaimKind.ABSENT, source_id="a", text="")
-
-        self.assertIn("settle nothing", str(raised.exception))
+    def test_empty_text_is_refused_in_both_forms(self):
+        for build in (
+            lambda: TypedClaim(kind=ClaimKind.CONTAINS, source_id="a", text=""),
+            lambda: ClaimCondition(kind=ConditionKind.ABSENT, source_id="a", text=""),
+        ):
+            with self.assertRaises(ValueError) as raised:
+                build()
+            self.assertIn("settle nothing", str(raised.exception))
 
     def test_a_malformed_declaration_is_not_treated_as_none(self):
         """Trying and failing is a producer bug; saying nothing may be honest."""
         parsed = structured_findings(
-            "```"
-            + FINDINGS_FENCE
-            + "\n"
+            "```" + FINDINGS_FENCE + "\n"
             + json.dumps(
                 [
                     {
@@ -409,7 +534,7 @@ class TestTheConditionForm(unittest.TestCase):
                                 "quoted": "q",
                             }
                         ],
-                        "claim_check": {"kind": "absent"},
+                        "typed_claim": {"kind": "source_contains_literal"},
                     }
                 ]
             )
@@ -419,22 +544,25 @@ class TestTheConditionForm(unittest.TestCase):
         self.assertIsNotNone(parsed.malformed)
 
 
-class TestRetryIsOfferedForRepairableClaims(_Loop):
-    def test_a_refuted_finding_is_worth_another_pass(self):
+class TestRetryIsOfferedForRepairableFindings(_Loop):
+    def test_a_contradicted_finding_is_worth_another_pass(self):
         """The producer can drop or correct what the source refutes."""
-        run = self._run([self._finding()], max_iterations=2)
+        claim = self._render(ClaimKind.LACKS, "pip install")
+        run = self._run(
+            [self._finding(claim, typed_claim=self._typed(ClaimKind.LACKS, "pip install"))],
+            max_iterations=2,
+        )
         evaluation = run["evaluations"][0]
 
         self.assertTrue(evaluation["should_retry"])
         self.assertIn("refutes", evaluation["suggested_adjustment"] or "")
 
-    def test_an_undeclared_finding_is_told_what_to_declare(self):
-        run = self._run([self._finding(claim_check=None)], max_iterations=2)
+    def test_a_free_text_finding_is_told_to_state_a_typed_claim(self):
+        run = self._run([self._finding("README.md saknar steg.")], max_iterations=2)
         adjustment = run["evaluations"][0]["suggested_adjustment"] or ""
 
         self.assertTrue(run["evaluations"][0]["should_retry"])
-        self.assertIn("claim_check", adjustment)
-        self.assertIn("absent", adjustment)
+        self.assertIn("source_contains_literal", adjustment)
 
 
 if __name__ == "__main__":

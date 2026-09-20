@@ -75,7 +75,7 @@
       },
       "claim_check": {
         "type": "object",
-        "description": "A condition that would refute this finding: the producer says how it could be wrong, and a deterministic checker decides whether it is. Absent means the claim itself is not checked and the verdict stays insufficient_evidence. The two outcomes are not symmetric — refutation needs one counterexample, while a condition that holds shows only that this condition held, not that it captures the claim.",
+        "description": "A free-standing test of a free-text finding. Settling it settles the TEST, not the claim: nothing checks that the test is a fair test of the sentence, which is why its results are named condition_supported and condition_refuted and can never produce a verdict or reach PASS. A false claim beside a condition that holds stays insufficient_evidence, and a true claim beside a condition that fails is not called contradicted. For a strong verdict, use typed_claim instead.",
         "additionalProperties": false,
         "required": [
           "kind",
@@ -110,6 +110,34 @@
       },
       "reproducible_command": {
         "type": "string"
+      },
+      "typed_claim": {
+        "type": "object",
+        "description": "A claim stated so that settling it settles the claim: text, source and scope are one object, not three independently chosen ones. This is the ONLY route to a verdict of verified or contradicted. The finding's `claim` string must equal the sentence derived from this object — 'PATH lines A-B contain \"TEXT\"' or '... do not contain ...' — so the sentence a reader sees cannot say more than what was tested. Settled against the lines the observation recorded, never the whole file. Mutually exclusive with claim_check: a typed claim is already its own test, and a second one beside it could only disagree.",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "source_id",
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "source_contains_literal",
+              "source_lacks_literal"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "description": "Must be a source this finding cites, and one the run read."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Literal text. A producer-supplied regular expression is untrusted input that can hang the checker; a substring search cannot."
+          }
+        }
       }
     }
   }

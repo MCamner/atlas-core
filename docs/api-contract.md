@@ -101,38 +101,47 @@ those cannot contribute to `passed`.
 
 ### The claim check
 
-A sound citation is no longer enough for `repo_review`. A finding must also
-declare a `claim_check`: a condition over a source it cites that would make the
-finding false.
+A sound citation is not enough for `repo_review`. A finding earns a verdict of
+`verified` or `contradicted` only by stating a **typed claim**, where the claim
+*is* the predicate:
 
 ```json
-{"kind": "absent", "source_id": "...", "text": "pip install"}
+{"kind": "source_contains_literal", "source_id": "...", "text": "pip install"}
 ```
 
-The producer says how it could be wrong; a deterministic checker decides
-whether it is. Nothing asks a model whether it was right, so a self-assessment
-closes nothing. `schemas/atlas-findings-block.v1.json` is the producer's input
-contract, and it has no `verdict`, `verification_method` or `finding_id` —
-those are assigned by whatever checked the finding. A block that supplies one
-is refused, not stripped.
+The finding's `claim` string must equal the sentence derived from that object —
+`README.md lines 1-5 contain "pip install"` — so the sentence a reader sees
+cannot say more than what was tested. The derived sentence names the line
+range, because claims are settled over the lines the observation recorded, not
+the whole file. `collect_observation` keeps a bounded excerpt, and text nobody
+observed must not decide a verdict.
 
-Conditions match literal text. A producer-supplied regular expression is
-untrusted input that can hang the checker; a substring search cannot.
+Free text keeps `insufficient_evidence` and cannot reach `PASS`. A producer may
+still declare a free-standing `claim_check`, which yields `condition_supported`
+or `condition_refuted` — settling the *test*, not the claim. Nothing checks
+that such a test is a fair test of a sentence, so neither result is decisive.
+A finding declares a `typed_claim` or a `claim_check`, never both.
+
+`schemas/atlas-findings-block.v1.json` is the producer's input contract, and it
+has no `verdict`, `verification_method` or `finding_id` — those are assigned by
+whatever checked the finding. A block that supplies one is refused, not
+stripped.
 
 Only a finding whose citations are sound reaches this step: a refutation
 resting on a source the finding cannot point at would be an accusation about
 the wrong file. A source that has moved settles nothing in either direction.
 
-### Refutation is stronger than support
+### What a passing run does and does not mean
 
-`contradicted` needs one counterexample: the finding said the text would be
-absent and it is there. That is a real refutation.
+`evidence_gaps` being empty means every finding was stated in a form this code
+can settle, and settled in its favour, against lines that were actually read.
+It does not mean the review is complete or insightful: a claim that cannot be
+expressed as literal presence or absence over observed lines cannot be verified
+here at all, and stays `insufficient_evidence`. That is the correct answer and
+also the limit of what this phase reaches.
 
-`verified` is weaker. It says the declared condition held — **not** that the
-condition is a fair test of the claim. A producer that declares an easy
-condition earns an easy `verified`, and nothing detects that. So
-`evidence_gaps` being empty means "every finding named a way to be wrong and
-was not wrong in that way", never "this output is correct".
+Text matching is literal. A producer-supplied regular expression is untrusted
+input that can hang the checker; a substring search cannot.
 
 ## Stop Semantics
 

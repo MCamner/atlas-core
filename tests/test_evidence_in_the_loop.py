@@ -97,7 +97,12 @@ class _Loop(unittest.TestCase):
         return fields
 
     def _condition(self, **overrides):
-        """A condition the README genuinely satisfies, unless overridden."""
+        """A condition the README genuinely satisfies, unless overridden.
+
+        A condition alone cannot pass since P0.2b — its relevance to the claim
+        is unchecked. `_passing_finding` is what a finding that may pass looks
+        like.
+        """
         fields = {
             "kind": "absent",
             "source_id": self.observation.source_id,
@@ -105,6 +110,41 @@ class _Loop(unittest.TestCase):
         }
         fields.update(overrides)
         return fields
+
+    def _passing_finding(self):
+        """A finding that may reach PASS: a typed claim, stated as it reads.
+
+        The claim text is derived rather than written, which is the property
+        that closes the gap between what is asserted and what is settled.
+        """
+        from atlas_core.claim_check import ClaimKind, TypedClaim
+
+        typed = TypedClaim(
+            kind=ClaimKind.CONTAINS,
+            source_id=self.observation.source_id,
+            text="pip install",
+        )
+        claim = typed.render(
+            self.observation.path,
+            self.observation.line_start,
+            self.observation.line_end,
+        )
+        return {
+            "claim": claim,
+            "scope": "README.md",
+            "severity": "P1",
+            "severity_rationale": "Blockerar en ny användare.",
+            "evidence": [self._citation()],
+            "typed_claim": {
+                "kind": typed.kind.value,
+                "source_id": typed.source_id,
+                "text": typed.text,
+            },
+        }
+
+    def _passing_output(self):
+        return self._block(PROSE.format(claim=self._passing_finding()["claim"]),
+                           [self._passing_finding()])
 
     def _output(
         self,
@@ -189,8 +229,7 @@ class TestTheGateEndToEnd(_Loop):
     def test_the_score_itself_drops_below_the_threshold(self):
         """The gate is arithmetic as well as boolean, so neither alone carries it."""
         blocked = self._run(self._output(citations=[self._citation(quoted="FEL")]))
-        accepted = self._run(self._output())
-
+        accepted = self._run(self._passing_output())
 
         self.assertLess(blocked["evaluations"][-1]["quality_score"], 0.78)
         self.assertGreaterEqual(accepted["evaluations"][-1]["quality_score"], 0.78)
@@ -292,19 +331,30 @@ class TestSoundIsNotEnough(_Loop):
         self.assertEqual(record["claim_check"]["result"], "not_declared")
         self.assertNotEqual(record["verification_method"], "semantic")
 
-    def test_a_condition_that_holds_is_not_a_confirmed_claim(self):
-        """The residual P0.2b does not close, stated rather than glossed.
+    def test_a_condition_that_holds_is_still_not_a_confirmed_claim(self):
+        """A settled condition beside free text decides nothing.
 
-        Nothing checks that the declared condition is a fair test of the
-        claim, so `verified` means the condition held — no more.
+        This is the case the review caught: the condition holds, and the claim
+        it sits beside is false. Naming the result `condition_supported` is
+        what keeps the two apart.
         """
         run = self._run(self._output())
         evaluation = run["evaluations"][-1]
-        reasons = " ".join(evaluation["reasons"])
+        record = evaluation["citation_checks"][0]
+
+        self.assertEqual(record["claim_check"]["result"], "condition_supported")
+        self.assertFalse(record["claim_check"]["is_decisive"])
+        self.assertEqual(record["verdict"], "insufficient_evidence")
+        self.assertFalse(evaluation["passed"])
+
+    def test_a_typed_claim_is_what_it_takes_to_pass(self):
+        """Negative control: the gate is not shut for everything."""
+        run = self._run(self._passing_output())
+        evaluation = run["evaluations"][-1]
 
         self.assertTrue(evaluation["passed"])
         self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
-        self.assertIn("not that the condition captures the claim", reasons)
+        self.assertIn("The claim is the predicate", " ".join(evaluation["reasons"]))
 
 
 class TestActionableOrStop(_Loop):

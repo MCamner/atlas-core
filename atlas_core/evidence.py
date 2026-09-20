@@ -14,7 +14,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .claim_check import ClaimCondition, build_condition
+from .claim_check import ClaimCondition, TypedClaim, build_condition, build_typed_claim
 from .finding import EvidenceRef, Finding
 
 #: Where an output puts the machine-readable half of its findings. A fenced
@@ -93,9 +93,13 @@ class ParsedFindings:
     would manufacture the very thing the check is supposed to demand.
     """
 
-    #: Each finding with the condition it declared, if any. Paired rather than
-    #: kept in two lists, so a condition can never drift onto another finding.
-    entries: list[tuple[Finding, ClaimCondition | None]] = field(default_factory=list)
+    #: Each finding with what it declared about itself: a typed claim that can
+    #: settle it, a free condition that cannot, or neither. Paired rather than
+    #: kept in parallel lists, so a declaration can never drift onto another
+    #: finding.
+    entries: list[tuple[Finding, TypedClaim | None, ClaimCondition | None]] = field(
+        default_factory=list
+    )
     #: Present but unreadable. Distinct from absent: one is a producer bug the
     #: next pass can fix, the other may mean the route simply claims nothing.
     malformed: str | None = None
@@ -103,7 +107,7 @@ class ParsedFindings:
 
     @property
     def findings(self) -> list[Finding]:
-        return [finding for finding, _ in self.entries]
+        return [finding for finding, _, _ in self.entries]
 
     def claims(self) -> list[str]:
         return [finding.claim for finding in self.findings]
@@ -131,15 +135,35 @@ def structured_findings(output: str) -> ParsedFindings:
             present=True,
         )
 
-    entries: list[tuple[Finding, ClaimCondition | None]] = []
+    entries: list[tuple[Finding, TypedClaim | None, ClaimCondition | None]] = []
     for index, item in enumerate(payload):
         try:
-            entries.append((_build_finding(item), _build_condition(item)))
+            entries.append(
+                (_build_finding(item), _build_typed(item), _build_condition(item))
+            )
         except (TypeError, KeyError, ValueError) as error:
             return ParsedFindings(
                 malformed=f"finding {index} is not usable: {error}", present=True
             )
     return ParsedFindings(entries=entries, present=True)
+
+
+def _build_typed(item: object) -> TypedClaim | None:
+    """Read the finding's typed claim, if it states one.
+
+    This is the only declaration that can earn a strong verdict, because it is
+    the claim rather than a separately chosen test of it.
+    """
+    if not isinstance(item, dict):
+        raise TypeError(f"expected an object, got {type(item).__name__}")
+    typed = build_typed_claim(item.get("typed_claim"))
+    if typed is not None and item.get("claim_check") is not None:
+        raise ValueError(
+            "a finding declares either a typed_claim or a claim_check, not both: a "
+            "typed claim is already its own test, and a second one beside it could "
+            "only disagree"
+        )
+    return typed
 
 
 def _build_condition(item: object) -> ClaimCondition | None:
@@ -166,6 +190,7 @@ _PRODUCER_KEYS: frozenset[str] = frozenset(
         "severity",
         "severity_rationale",
         "evidence",
+        "typed_claim",
         "claim_check",
         "limitations",
         "reproducible_command",
