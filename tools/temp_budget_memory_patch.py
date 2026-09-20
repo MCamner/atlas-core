@@ -18,9 +18,9 @@ p = Path('tests/test_budget_controller.py')
 s = p.read_text(encoding='utf-8')
 anchor = 'class TestBudgetedController(unittest.TestCase):\n'
 newtest = '''class ExplodingMemory:
-    def read(self, task: str) -> list[str]:
+    def read(self, query: str) -> list[str]:
         raise AssertionError("unmetered memory read must not run")
-    def write(self, candidate: dict[str, object]) -> str:
+    def write(self, record: dict) -> str | None:
         raise AssertionError("unmetered memory write must not run")
 
 
