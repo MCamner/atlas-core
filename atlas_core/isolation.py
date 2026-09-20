@@ -1,9 +1,8 @@
-"""Optional hard process boundary for *trusted, serializable* Python adapters.
+"""Optional hard process boundary for trusted, serializable Python adapters.
 
-`AtlasController.run` stays backwards-compatible and cooperative. A host that
-needs a hard deadline must invoke `run_isolated` or provide equivalent external
-process isolation. This is NOT an OS filesystem/network sandbox: worker code
-still has the caller's privileges. Only POSIX process groups are supported.
+`AtlasController.run` stays cooperative. Hosts requiring a hard deadline must
+use `run_isolated` or an equivalent external worker boundary. This is NOT an
+OS filesystem/network sandbox: code retains the caller's privileges.
 """
 from __future__ import annotations
 
@@ -25,18 +24,13 @@ if TYPE_CHECKING:
     from .evidence_base import EvidenceBase
 
 
-class WorkerProtocolError(RuntimeError):
-    """The isolated process did not return a valid run document."""
-
-
 def _run_worker(
     channel: Connection, controller: AtlasController, task: str,
     observations: list[str] | None, evidence: EvidenceBase | None,
     readers: list[Callable[[str, RunBudget], list[str]]] | None,
     limits: RunLimits,
 ) -> None:
-    # Must happen before executing a model adapter or source reader. The parent
-    # can then terminate the whole process group on timeout or cancellation.
+    # Start an independent POSIX session before any model or source reads.
     os.setsid()
     try:
         run = controller.run(
@@ -50,13 +44,15 @@ def _run_worker(
     try:
         channel.send_bytes(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
     except (OSError, ValueError, TypeError):
-        # The parent will report a protocol/runtime failure, never PASS.
+        # Parent reports a runtime failure, never an inferred PASS.
         pass
     finally:
         channel.close()
 
 
-def _kill_worker(process: multiprocessing.Process) -> None:
+def _kill_worker(process: Any) -> None:
+    # Multiprocessing's spawn factory returns SpawnProcess, not the abstract
+    # multiprocessing.Process constructor. Both implement this runtime API.
     if process.pid is not None:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -99,14 +95,13 @@ def run_isolated(
     readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Run a controller under a hard POSIX deadline, never return partial PASS.
+    """Run a controller with a parent-enforced hard POSIX deadline.
 
-    The controller and reader/handler callbacks must be picklable by Python's
-    `spawn` start method (top-level importable definitions, not closures). A
-    rejected callback fails closed. All tool calls/retries within the worker
-    share the child's *single* RunBudget; the parent additionally bounds total
-    wall time including interpreter startup and IPC. Cancellation is checked
-    by the parent, so a stuck Python callback cannot ignore it.
+    Controller, model and reader/handler callbacks must be picklable by the
+    `spawn` start method. All tool calls and retries share one worker RunBudget.
+    The parent bounds the whole run including startup and IPC, and can cancel
+    a stuck callback by terminating its process group. It cannot undo side
+    effects committed before termination. This is not a privilege sandbox.
     """
     if os.name != 'posix':
         return _failure(controller, task, 'tool_error', 'POSIX_process_isolation_required')
@@ -124,7 +119,9 @@ def run_isolated(
     try:
         try:
             process.start()
-        except (OSError, TypeError, ValueError, AttributeError) as exc:
+        except Exception as exc:
+            # Includes pickle.PicklingError for untrusted/non-importable
+            # callbacks; never escape the intended fail-closed run contract.
             return _failure(controller, task, 'tool_error', type(exc).__name__)
         finally:
             send.close()
