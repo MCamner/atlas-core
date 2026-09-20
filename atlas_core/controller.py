@@ -279,6 +279,23 @@ class AtlasController:
             state.evaluations.append(evaluation)
             if expired():
                 break
+            # In bounded runs, two identical unsuccessful model outputs with
+            # no new observation establish that another call is unproductive.
+            # Legacy unbudgeted verdict semantics remain unchanged.
+            if (
+                budget is not None
+                and self.model_adapter is not None
+                and len(state.outputs) >= 2
+                and state.outputs[-1] == state.outputs[-2]
+                and evaluation.retry_is_possible
+                and not evaluation.blocked_by
+            ):
+                state.metadata["no_progress"] = {
+                    "reason": "identical_model_output",
+                    "iterations": [state.iteration - 1, state.iteration],
+                }
+                state.stop("no_progress")
+                break
             if (
                 evaluation.requires_user_approval
                 or evaluation.passed
