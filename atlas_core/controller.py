@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Any, Literal, overload
+from typing import Any, Callable, Literal, Mapping, overload
+import json
 
 from .state import AtlasRunState
 from .router import select_route
@@ -13,7 +14,8 @@ from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
 from .evidence_base import EvidenceBase
 from .machine import classify_stop
-from .budget import BudgetExceeded, RunBudget, RunLimits
+from .budget import BudgetExceeded, RunBudget, RunCancelled, RunLimits
+from .tool_gateway import ToolDefinition, ToolGateway
 
 # Provider messages are unbounded and may embed request content, so the run
 # record keeps a bounded excerpt rather than whatever the provider returned.
@@ -32,6 +34,13 @@ def _check_model_result(result: object) -> None:
         )
     if not isinstance(result.output, str) or not result.output.strip():
         raise ValueError("ModelAdapter.execute returned empty output")
+    # Explicit JSON contract: malformed provider output is a runtime failure,
+    # not prose that the evaluator may accidentally accept.
+    if result.metadata.get("format") == "json":
+        try:
+            json.loads(result.output)
+        except json.JSONDecodeError as exc:
+            raise ValueError("ModelAdapter.execute returned malformed JSON") from exc
 
 
 class AtlasController:
@@ -41,6 +50,7 @@ class AtlasController:
         memory_dir: str | None = None,
         model_adapter: ModelAdapter | None = None,
         memory_adapter: MemoryAdapter | None = None,
+        tools: Mapping[str, ToolDefinition] | None = None,
     ):
         if (
             isinstance(max_iterations, bool)
@@ -52,6 +62,7 @@ class AtlasController:
         self.memory_dir = memory_dir
         self.model_adapter = model_adapter
         self.memory_adapter = memory_adapter
+        self.tools = dict(tools or {})
 
     @overload
     def run(
@@ -62,6 +73,7 @@ class AtlasController:
         evidence: EvidenceBase | None = ...,
         json_mode: Literal[False] = ...,
         limits: RunLimits | None = ...,
+        cancelled: Callable[[], bool] | None = ...,
     ) -> str: ...
 
     @overload
@@ -73,6 +85,7 @@ class AtlasController:
         evidence: EvidenceBase | None = ...,
         json_mode: Literal[True],
         limits: RunLimits | None = ...,
+        cancelled: Callable[[], bool] | None = ...,
     ) -> dict[str, Any]: ...
 
     @overload
@@ -84,6 +97,7 @@ class AtlasController:
         evidence: EvidenceBase | None = ...,
         json_mode: bool,
         limits: RunLimits | None = ...,
+        cancelled: Callable[[], bool] | None = ...,
     ) -> str | dict[str, Any]: ...
 
     def run(
@@ -94,6 +108,7 @@ class AtlasController:
         evidence: EvidenceBase | None = None,
         json_mode: bool = False,
         limits: RunLimits | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> str | dict[str, Any]:
         """Run the loop.
 
@@ -103,14 +118,22 @@ class AtlasController:
         graded by deterministic citation checking; a run without one keeps the
         citation-only grading it always had.
         """
+        if self.tools and limits is None:
+            raise ValueError("Atlas-managed tools require RunLimits; no unmetered gateway")
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
-        budget = RunBudget(limits) if limits is not None else None
+        budget = RunBudget(limits, cancelled=cancelled) if limits is not None else None
+        gateway = ToolGateway(budget=budget, tools=self.tools) if budget is not None and self.tools else None
 
         def expired() -> bool:
-            if budget is None:
-                return False
             try:
-                budget.check()
+                if budget is None:
+                    if cancelled is not None and cancelled():
+                        raise RunCancelled("cancelled")
+                else:
+                    budget.check()
+            except RunCancelled:
+                state.stop("cancelled")
+                return True
             except BudgetExceeded as exc:
                 state.metadata["budget_exhausted"] = str(exc)
                 state.stop("budget_exhausted")
@@ -160,6 +183,8 @@ class AtlasController:
                     if budget is not None:
                         budget.reserve_model()
                         kwargs["budget"] = budget
+                    if gateway is not None:
+                        kwargs["tools"] = gateway
                     model_result = self.model_adapter.execute(**kwargs)
                     _check_model_result(model_result)
                     if budget is not None:
@@ -167,6 +192,9 @@ class AtlasController:
                         usage = int(raw_usage) if isinstance(raw_usage, str) and raw_usage.isdecimal() else None
                         budget.charge_tokens(usage)
                         budget.charge_output(model_result.output)
+                except RunCancelled:
+                    state.stop("cancelled")
+                    break
                 except BudgetExceeded as exc:
                     state.metadata["budget_exhausted"] = str(exc)
                     state.stop("budget_exhausted")
@@ -194,6 +222,9 @@ class AtlasController:
             if budget is not None and self.model_adapter is None:
                 try:
                     budget.charge_output(output)
+                except RunCancelled:
+                    state.stop("cancelled")
+                    break
                 except BudgetExceeded as exc:
                     state.metadata["budget_exhausted"] = str(exc)
                     state.stop("budget_exhausted")
