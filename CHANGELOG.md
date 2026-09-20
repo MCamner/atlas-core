@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+Roadmap P0.3, box one: a versioned state machine, and a stop reason that says
+which kind of ending it was.
+
+- Added `atlas_core/machine.py` and `schemas/atlas-state-machine.v1.json`. The
+  lifecycle is now a table: statuses, legal transitions, nine stop reasons,
+  and for each reason its terminal status, its class and its exit code. The
+  schema file is the same table as data, for a consumer that cannot import
+  Python, and a test holds the two in step.
+- **A stop reason now names its own terminal status.** `AtlasRunState.stop()`
+  writes both fields from one entry, so a run cannot report a runtime failure
+  while claiming it is done. The controller no longer assigns either field; a
+  test greps it to keep that true.
+- **Transitions are enforced, not documented.** `enter()` refuses a move the
+  table does not allow, including a second terminal move — a failed run being
+  able to report itself passed afterwards was one assignment away.
+- Every run document carries `state_machine` and `stop_class`. `stop_class` is
+  derived from `stop_reason` rather than stored beside it, so the two cannot
+  disagree. `runtime` means the machinery failed and the ending is not a
+  verdict about an answer; `evaluation` means an answer was graded and this is
+  the grade; `control` means a bound, a human or a cancellation stopped the run
+  before it was finished. The text trailer says which, and a runtime failure
+  now states plainly that nothing was graded.
+- `failed` became `tool_error`. The status and the reason had been the same
+  word, so nothing in the pair said the failure was the machinery rather than
+  the answer.
+- `no_actionable_retry` split into `insufficient_evidence`, `blocked` and
+  `no_progress`. One name had covered three situations that ask a reader for
+  opposite things: look again at the evidence, observe the source again, or
+  accept that the loop had nothing left to try. `blocked` is decided from
+  `AtlasEvaluation.blocked_by`, a new list of status codes, rather than from
+  the prose the evaluator already wrote — a stop reason must not depend on how
+  a sentence is worded.
+- **Fixed: the iteration bound is reported only when it bound something.** The
+  previous controller chose `max_iterations` on whether a formatting section
+  was missing, so a run that spent every pass on an evidence gap — a gap
+  another pass could have acted on — reported instead that it had nothing left
+  to try. `AtlasEvaluation` now separates `retry_is_possible` from
+  `should_retry`, which folds the budget in, so the two together say whether
+  the bound was the constraint. This closes the inaccuracy recorded under P0.2
+  below.
+- `schemas/atlas-run.v1.json` widens the `status` and `stop_reason` enums and
+  adds two optional fields. It still accepts `failed` and `no_actionable_retry`
+  so a stored document stays valid; nothing emits them. The mapping is
+  published as `legacy_stop_reasons`, and `docs/api-contract.md` has a
+  migration table. A document without `state_machine` is from before the
+  change.
+- Exit codes are derived from the table instead of kept by hand, so a new stop
+  reason cannot fall through to the failure code and look like a crash. Exit 1
+  now means only `tool_error`; `cancelled` takes the new code 4.
+- `budget_exhausted` and `cancelled` are **declared and not produced by any
+  code path yet** — P0.3 boxes two and four. Declaring them now keeps the
+  contract stable while the limits land; a test names them and sweeps the
+  decision table exhaustively to prove nothing reaches them, so a later PR has
+  to come here and delete a line.
+- `no_progress` here is the a-priori form: the evaluation found nothing another
+  pass could act on. Detecting that two passes produced the *same* output is a
+  separate, stronger check that P1.1 owns.
+- Negative controls: reordering the bound check behind the evidence verdict,
+  classing `tool_error` as an evaluation, dropping the transition check, and
+  emptying `blocked_by` each fail the suite. One of them found a real gap in
+  passing — the text trailer's failure note keyed on the old spelling and had
+  gone silent, with no test to notice.
+- 340 tests pass. `mypy` and `pyright` are clean.
+
 Roadmap P0.2, box four: a CI result that can be cited, and can go stale.
 
 - Added `atlas_core/ci.py`. `ci` had been a declared `SourceType` that nothing
@@ -136,10 +200,10 @@ Roadmap P0.2: the evidence filter is wired into the run.
   any finding lacked a citation, without looking at what the other findings
   required. The run now also records why it did not try again, since "the loop
   gave up" and "observe the sources again" call for different actions.
-- Known and unchanged: a run that exhausts its iterations on an evidence gap
-  reports `no_actionable_retry` rather than `max_iterations`, because that
-  choice keys off `missing_sections`. Pre-existing, and stop-reason semantics
-  belong to P0.3.
+- Known at the time and since fixed: a run that exhausted its iterations on an
+  evidence gap reported `no_actionable_retry` rather than `max_iterations`,
+  because that choice keyed off `missing_sections`. Closed by P0.3 box one,
+  above.
 
 Roadmap P0.2a: `Finding.v1` and deterministic verification.
 

@@ -101,13 +101,17 @@ class TestEvidenceGate(unittest.TestCase):
         """P1: stop if the gap cannot be fixed with the available sources.
 
         Another pass over the same empty observation list cannot cite anything,
-        so burning the second iteration on it would be theatre.
+        so burning the second iteration on it would be theatre. The reason
+        names the evidence rather than the loop: `insufficient_evidence` is a
+        verdict on the answer, and the iteration bound was never the
+        constraint.
         """
         state = AtlasController(max_iterations=2).run(REPO_TASK, json_mode=True)
 
         self.assertEqual(state["iteration"], 1)
-        self.assertEqual(state["stop_reason"], "no_actionable_retry")
+        self.assertEqual(state["stop_reason"], "insufficient_evidence")
         self.assertFalse(state["evaluations"][-1]["should_retry"])
+        self.assertFalse(state["evaluations"][-1]["retry_is_possible"])
 
     def test_uncited_finding_is_marked_unverified(self):
         """DoD 2."""

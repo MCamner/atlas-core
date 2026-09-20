@@ -8,17 +8,13 @@ from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
 from .finalizer import render_run_text
+from .machine import exit_codes
 
 # A caller has to be able to tell "passed" from "gave up" without reading prose.
-# Every stop reason declared in state.StopReason must appear here; a test
-# enforces that, so adding a stop reason forces a decision about its code.
-EXIT_CODES: dict[str, int] = {
-    "passed": 0,
-    "failed": 1,
-    "no_actionable_retry": 2,
-    "max_iterations": 2,
-    "approval_required": 3,
-}
+# Derived from the state machine rather than kept by hand: a stop reason that
+# nobody gave an exit code would otherwise fall through to the failure code and
+# look like a crash.
+EXIT_CODES: dict[str, int] = exit_codes()
 UNKNOWN_STOP_REASON_EXIT = 1
 
 def main(argv: list[str] | None = None) -> int:

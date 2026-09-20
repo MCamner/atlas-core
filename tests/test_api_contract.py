@@ -34,6 +34,9 @@ class TestStableApi(unittest.TestCase):
             "AtlasRunState",
             "ModelAdapter",
             "ModelResult",
+            "STATE_MACHINE_VERSION",
+            "STOP_REASONS",
+            "StopClass",
         ):
             with self.subTest(name=name):
                 self.assertIn(name, atlas_core.__all__)
@@ -61,13 +64,13 @@ class TestStopReasons(unittest.TestCase):
         self.assertEqual(state["status"], "need_user_approval")
         self.assertEqual(state["stop_reason"], "approval_required")
 
-    def test_no_actionable_retry(self):
+    def test_no_progress(self):
         short_complete = "## Recommendation\nx\n## Next step\ny\n## Confidence\nLow."
         state = AtlasController(model_adapter=OutputAdapter(short_complete)).run(
             "hej", json_mode=True
         )
         self.assertEqual(state["status"], "done")
-        self.assertEqual(state["stop_reason"], "no_actionable_retry")
+        self.assertEqual(state["stop_reason"], "no_progress")
 
     def test_iteration_limit(self):
         state = AtlasController(

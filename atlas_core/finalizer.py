@@ -36,7 +36,8 @@ def render_run_text(run: dict[str, Any]) -> str:
     meta = [
         f"Atlas route: {route.get('name') or 'unknown'}",
         f"Iterations: {run.get('iteration', 0)}/{run.get('max_iterations', 0)}",
-        f"Stop reason: {run.get('stop_reason') or 'unknown'}",
+        f"Stop reason: {run.get('stop_reason') or 'unknown'}"
+        + (f" ({stop_class})" if (stop_class := run.get("stop_class")) else ""),
     ]
     if latest_eval:
         meta.append(f"Quality score: {latest_eval['quality_score']}")
@@ -45,10 +46,11 @@ def render_run_text(run: dict[str, Any]) -> str:
             meta.append("Evidence gaps: " + ", ".join(latest_eval["evidence_gaps"]))
         if latest_eval["requires_user_approval"]:
             meta.append("Write approval required before any mutation.")
-    if run.get("stop_reason") == "failed":
+    if run.get("stop_class") == "runtime":
         failure = (run.get("metadata") or {}).get("failure") or {}
         meta.append(
             f"Failure: {failure.get('stage', 'unknown')} raised "
-            f"{failure.get('error', 'an error')}."
+            f"{failure.get('error', 'an error')}. Nothing was graded, so the "
+            "result above is not a verdict on the answer."
         )
     return latest_output.rstrip() + "\n\n---\n" + "\n".join(meta) + "\n"

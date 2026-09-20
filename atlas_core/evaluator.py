@@ -208,7 +208,13 @@ def evaluate(
     # executor knows how to close. Re-running a deterministic executor with
     # identical input cannot improve anything, so never burn an iteration on it.
     actionable = bool(gaps) or evidence.actionable
-    should_retry = (not passed) and (iteration < max_iterations) and not approval and actionable
+    # Split deliberately: what could still be tried, and what will be tried.
+    # A run that stops with something actionable left stopped because of its
+    # bound; one that stops with nothing left had nowhere to go. They are
+    # different stop reasons, and folding the budget into a single boolean
+    # made them indistinguishable.
+    retry_is_possible = (not passed) and not approval and actionable
+    should_retry = retry_is_possible and iteration < max_iterations
     return AtlasEvaluation(
         quality_score=round(min(score, 1.0), 2),
         passed=passed,
@@ -217,6 +223,7 @@ def evaluate(
         missing_sections=gaps,
         requires_user_approval=approval,
         should_retry=should_retry,
+        retry_is_possible=retry_is_possible,
         suggested_adjustment=(
             _adjustment(gaps, evidence, sources, evidence_base) if should_retry else None
         ),
@@ -224,6 +231,7 @@ def evaluate(
         unverified_claims=evidence.unverified,
         evidence_coverage=evidence.coverage,
         citation_checks=evidence.citation_checks,
+        blocked_by=evidence.blocked_by,
     )
 
 
@@ -240,6 +248,10 @@ class _Evidence:
     citation_checks: list[dict[str, Any]] = field(default_factory=list)
     #: Present when a gap exists that no re-citation can close.
     blocking_note: str | None = None
+    #: The same fact as a list of status codes. The note is for a reader; this
+    #: is what the controller branches on, so a stop reason never depends on
+    #: how a sentence was worded.
+    blocked_by: list[str] = field(default_factory=list)
     # What share of the formatting score survives. A route that owes evidence
     # and shows none keeps 0.75 of it, which lands below PASS_THRESHOLD on its
     # own — the gate is arithmetic, not only a boolean override.
@@ -466,6 +478,7 @@ def _grade_against_evidence(
     if gaps:
         blocking = _blocking_statuses(unsound)
         return _Evidence(
+            blocked_by=sorted({status.value for status in blocking}),
             gaps=gaps,
             unverified=unverified,
             coverage=coverage,

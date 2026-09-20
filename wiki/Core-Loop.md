@@ -77,9 +77,18 @@ Return the best current answer with caveats and next action.
 Atlas Core should stop when:
 
 - the result satisfies the task (`passed`)
-- max iterations are reached (`max_iterations`)
+- the claims were not established against what was read (`insufficient_evidence`)
+- a cited source has moved, so it must be observed again (`blocked`)
+- max iterations are reached with something still worth trying (`max_iterations`)
+- nothing is left that another pass could change (`no_progress`)
+- a declared limit other than the iteration bound is reached (`budget_exhausted`)
 - a write action needs explicit approval (`approval_required`)
-- another pass cannot close a known gap (`no_actionable_retry`)
+- the machinery failed (`tool_error`)
+- the run was stopped from outside (`cancelled`)
+
+The reasons are versioned as `atlas-state-machine.v1`, and each carries a class
+saying whether it is a grade, a runtime failure or a bound. See
+`docs/api-contract.md`.
 
 ## Design principle
 
