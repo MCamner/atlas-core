@@ -15,17 +15,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Apply guarded patch, run all tests and type checks
+      - name: Apply guarded patch, migrate test and run quality gates
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           python tools/temp_p03_patch.py
+          python tools/temp_p03_test_migration.py
           python -m pip install -e . mypy pyright
           python -m unittest discover -s tests
           mypy atlas_core tests
           pyright atlas_core tests
-          git add atlas_core/controller.py
+          git add atlas_core/controller.py tests/test_state_machine.py
           git commit -m 'feat(p03): enforce shared tool gateway and cancellation boundaries'
           git push origin HEAD:feat/p03-runtime-safety-gates
