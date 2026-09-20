@@ -46,7 +46,8 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - **Återstår:** kopplingen finding → `source_id` finns inte. `Finding.v1` är P0.2, och inget i P0.1 kan därför knyta ett påstående till ett utdrag.
 - [ ] Redigera tokens, privata paths och persondata före run-artifact/export; råa källor förblir lokala. Negativa tester för injicerade hemligheter och symlänkar/path traversal.
   - **Delvis.** PR C: `redact_text()` maskerar nyckelformat, hemkataloger och e-post vid export medan råa utdrag stannar lokalt. `resolve_within()` avvisar absoluta sökvägar, `..`-flykt, syskonkatalog med delat prefix och symlänkar som pekar ut ur snapshotet. Negativa tester finns för alla dessa samt för manipulerat innehåll av samma längd.
-  - **Återstår:** persondata utöver e-post och hemkatalog upptäcks inte. Det finns ingen klassificering av personuppgifter, och `confidentiality` sätts aldrig automatiskt — den är `unknown` om ingen anger den.
+  - **Återstår:** maskeringen är best-effort. Persondata utöver e-post och hemkatalog upptäcks inte, det finns ingen klassificering av personuppgifter, och `confidentiality` sätts aldrig automatiskt — den är `unknown` om ingen anger den.
+  - **Återstår:** containment gäller inte alla läsvägar. `verify_observation()` läser om `root / observation.path` utan egen kontroll, och `Observation.path` accepterar i dag `../` och absoluta former. En findingkontroll som läser om en källa måste göra sin egen säkra läsning. Även på den säkra vägen är resolve och read två steg: att läsa via den resolvade konkreta sökvägen tar bort symlänkbyte mellan dem, men en fil kan fortfarande ändras mellan vilken kontroll som helst och en senare läsning. Integritet återetableras genom omverifiering, inte genom att lita på en tidigare kontroll.
 
 ### P0.2 Verifiering ≠ citering
 

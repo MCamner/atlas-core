@@ -19,11 +19,13 @@ decides whether a claim is *true*, only whether the source it points at is
 intact and whether what gets exported is safe to export.
 """
 
+import json
 import os
 import shutil
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from atlas_core.integrity import (
@@ -211,6 +213,33 @@ class TestRedaction(unittest.TestCase):
                 self.assertIn("före", redacted)
                 self.assertIn("efter", redacted)
 
+    def test_a_whole_private_key_block_is_masked_not_only_its_header(self):
+        """Masking the BEGIN line alone left the key itself in the clear."""
+        pem = (
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIEowIBAAKCAQEAx7Vn8kL9vQ2mN4pR6sT8uW0yZ1aB3cD5eF7gH9iJ0kL2mN4oP\n"
+            "6qR8sT0uV2wX4yZ6aB8cD0eF2gH4iJ6kL8mN0oP2qR4sT6uV8wX0yZ2aB4cD6eF8g\n"
+            "-----END RSA PRIVATE KEY-----"
+        )
+
+        redacted = redact_text(f"före\n{pem}\nefter")
+
+        self.assertNotIn("MIIEowIBAAKCAQEA", redacted)
+        self.assertNotIn("-----END RSA PRIVATE KEY-----", redacted)
+        self.assertIn("före", redacted)
+        self.assertIn("efter", redacted)
+
+    def test_an_unterminated_key_block_still_masks_its_body(self):
+        """A truncated paste has no END line. The body is still a key."""
+        redacted = redact_text(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            "MIIEowIBAAKCAQEAx7Vn8kL9vQ2mN4pR6sT8uW0yZ1aB3cD5eF7gH9iJ0kL2mN4oP\n"
+            "vanlig text efter\n"
+        )
+
+        self.assertNotIn("MIIEowIBAAKCAQEA", redacted)
+        self.assertIn("vanlig text efter", redacted)
+
     def test_a_home_directory_path_is_masked(self):
         redacted = redact_text("se /Users/mansys/.ssh/id_rsa för detaljer")
 
@@ -307,9 +336,68 @@ class TestManifest(_Dir):
         self.assertEqual(entry["verification"], UNKNOWN)
         self.assertFalse(entry["is_evidence"])
 
-    def test_the_manifest_is_json_serialisable(self):
-        import json
+    def test_a_secret_in_a_path_does_not_leave_in_the_manifest(self):
+        """Metadata leaks a run just as readily as content does."""
+        docs = self.root / "docs"
+        docs.mkdir()
+        (docs / "privat@example.com.md").write_text("ofarligt\n", encoding="utf-8")
+        snapshot = take_snapshot(self.root)
 
+        manifest = redacted_manifest(
+            snapshot, [collect_observation(snapshot, "docs/privat@example.com.md")]
+        )
+
+        self.assertNotIn("privat@example.com", json.dumps(manifest, ensure_ascii=False))
+        self.assertIn(REDACTED, manifest["observations"][0]["path"])
+
+    def test_a_token_shaped_ref_does_not_leave_in_the_manifest(self):
+        """A branch name is exported metadata too."""
+        snapshot = take_snapshot(self.root)
+        leaky = replace(snapshot, ref=f"feature/{SECRETS[1]}")
+
+        manifest = redacted_manifest(leaky, [collect_observation(snapshot, "README.md")])
+
+        self.assertNotIn(SECRETS[1], json.dumps(manifest, ensure_ascii=False))
+
+    def test_a_secret_in_repo_or_ref_metadata_does_not_leave(self):
+        snapshot = take_snapshot(self.root)
+        observation = replace(
+            collect_observation(snapshot, "README.md"),
+            repo=f"org/{SECRETS[2]}",
+            ref=f"refs/heads/{SECRETS[1]}",
+        )
+
+        serialised = json.dumps(
+            redacted_manifest(snapshot, [observation]), ensure_ascii=False
+        )
+
+        self.assertNotIn(SECRETS[1], serialised)
+        self.assertNotIn(SECRETS[2], serialised)
+
+    def test_masking_metadata_never_masks_the_verification_pointer(self):
+        """The digest and ids are what a reader follows back. They stay whole."""
+        snapshot = take_snapshot(self.root)
+        observation = collect_observation(snapshot, "README.md")
+
+        entry = redacted_manifest(snapshot, [observation], root=self.root)[
+            "observations"
+        ][0]
+
+        self.assertEqual(entry["content_sha256"], observation.content_sha256)
+        self.assertEqual(entry["source_id"], observation.source_id)
+        self.assertEqual(entry["snapshot_id"], observation.snapshot_id)
+        self.assertNotIn(REDACTED, entry["content_sha256"])
+
+    def test_an_ordinary_path_is_not_mangled_by_metadata_masking(self):
+        snapshot = take_snapshot(self.root)
+
+        entry = redacted_manifest(snapshot, [collect_observation(snapshot, "README.md")])[
+            "observations"
+        ][0]
+
+        self.assertEqual(entry["path"], "README.md")
+
+    def test_the_manifest_is_json_serialisable(self):
         snapshot = take_snapshot(self.root)
         manifest = redacted_manifest(snapshot, [collect_observation(snapshot, "README.md")])
 
