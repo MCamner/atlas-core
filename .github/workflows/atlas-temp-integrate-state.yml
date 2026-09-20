@@ -36,7 +36,7 @@ jobs:
           final=Path('atlas_core/finalizer.py')
           text=final.read_text(encoding='utf-8')
           old='            f"{failure.get(\'error\', \'an error\')}. Nothing was graded, so the "\n            "result above is not a verdict on the answer."'
-          new='            f"{failure.get(\'error\', \'an error\')}. "\n            + ("The failed iteration was not graded; earlier evaluations are "\n               "history, not this run outcome." if latest_eval else "No answer was graded.")'
+          new='            f"{failure.get(\'error\', \'an error\')}. "\n            + ("The failed iteration was not graded; earlier evaluations are "\n               "history, not this run outcome; not a verdict on the answer."\n               if latest_eval else "No answer was graded; not a verdict on the answer.")'
           assert text.count(old)==1, text.count(old)
           text=text.replace(old,new)
           anchor='    if run.get("stop_class") == "runtime":\n'
