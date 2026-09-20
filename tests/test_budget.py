@@ -45,8 +45,9 @@ class TestBudgetAccounting(unittest.TestCase):
     def test_tokens_are_reported_not_guessed(self):
         budget = RunBudget(limits())
         for usage in (None, -1, '3', True):
+            invalid: Any = usage  # deliberately malformed external adapter data
             with self.subTest(usage=usage), self.assertRaises(UnmeteredUsage):
-                budget.charge_tokens(usage)
+                budget.charge_tokens(invalid)
         budget.charge_tokens(3)
         with self.assertRaisesRegex(BudgetExceeded, 'tokens'):
             budget.charge_tokens(3)
