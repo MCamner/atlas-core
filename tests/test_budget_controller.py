@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from atlas_core.budget import RunLimits
 from atlas_core.adapters.model import StubModelAdapter
@@ -8,7 +9,7 @@ from atlas_core.controller import AtlasController
 
 
 def limits(**kwargs: object) -> RunLimits:
-    params = dict(wall_seconds=20.0, model_calls=3, tool_calls=3, tokens=1000, output_bytes=100000)
+    params: dict[str, Any] = dict(wall_seconds=20.0, model_calls=3, tool_calls=3, tokens=1000, output_bytes=100000)
     params.update(kwargs)
     return RunLimits(**params)
 
