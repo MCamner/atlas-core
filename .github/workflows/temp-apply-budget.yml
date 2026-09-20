@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Unit and type gates
+      - name: Unit and type gates (fixed fixtures)
         shell: bash
         run: |
           set -euo pipefail
