@@ -111,7 +111,15 @@ class AtlasRunState:
         never report a runtime failure while claiming it is done.
         """
         spec = spec_for(reason)
-        self.enter(spec.status)
+        if reason == "budget_exhausted":
+            # A quota may trip at any stage. This is a controlled interruption,
+            # not a new general-purpose enter("done") transition.
+            from .machine import TERMINAL_STATUSES, InvalidTransition
+            if self.status in TERMINAL_STATUSES:
+                raise InvalidTransition("a terminal run cannot stop again")
+            self.status = spec.status
+        else:
+            self.enter(spec.status)
         self.stop_reason = reason
 
     def to_dict(self) -> dict[str, Any]:

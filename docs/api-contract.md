@@ -276,3 +276,22 @@ tasks stop with `need_user_approval` and `approval_required`. An external
 adapter capable of mutation must obtain explicit approval immediately before
 performing that mutation; the core's keyword detection is advisory and does not
 replace adapter-side authorization.
+
+
+### Optional cooperative run budget (P0.3, partial)
+
+`AtlasController.run(..., limits=RunLimits(...))` shares one `RunBudget` with
+its model adapter (`budget` keyword). Model calls, reported *actual* aggregate
+`metadata["usage_tokens"]`, and UTF-8 output bytes are charged across retries.
+An adapter that does not report nonnegative usage fails as `tool_error`, not a
+made-up zero. The same budget exposes `reserve_tool()` for trusted nested tool
+adapters, but no host tool gateway is wired yet; direct calls inside an
+arbitrary Python adapter cannot be metered or sandboxed by Atlas Core.
+
+The monotonic wall deadline is checked before and after synchronous stages.
+**This is not an in-call timeout**: the model adapter itself must enforce the
+passed `budget.deadline` while blocked on network/provider work. With no
+adapter deadline enforcement the work can run past the wall limit before Core
+regains control. A budgeted run does not call the currently unmetered memory
+writer. The limits are explicit opt-in; P0.3 resource and write-safety boxes
+remain open until tool integration and strict default enforcement exist.
