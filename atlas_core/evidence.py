@@ -10,6 +10,21 @@ to have checked that a cited finding is *true*.
 
 from __future__ import annotations
 
+import json
+import re
+from dataclasses import dataclass, field
+
+from .finding import EvidenceRef, Finding
+
+#: Where an output puts the machine-readable half of its findings. A fenced
+#: block with its own info string, so it cannot be confused with any other JSON
+#: an answer happens to contain.
+FINDINGS_FENCE = "atlas-findings"
+
+_FINDINGS_BLOCK = re.compile(
+    r"^```" + FINDINGS_FENCE + r"\s*\n(.*?)\n^```", re.DOTALL | re.MULTILINE
+)
+
 # Adapters emit observations as "<relative path>:\n<content head>". mqobsidian
 # prefixes a provenance line first, so the path line is not always line one.
 _MEMORY_PREFIX = "Durable memory"
@@ -65,3 +80,85 @@ def findings_in(output: str, headings: tuple[str, ...]) -> list[str]:
 
 def cites_a_source(finding: str, sources: list[str]) -> bool:
     return any(source in finding for source in sources)
+
+
+@dataclass(frozen=True)
+class ParsedFindings:
+    """The structured half of an output, and why it is missing if it is.
+
+    Prose and structure are read separately and then matched, rather than one
+    being derived from the other. A bullet can be written without a citation —
+    that is the case worth catching — and deriving the structure from the prose
+    would manufacture the very thing the check is supposed to demand.
+    """
+
+    findings: list[Finding] = field(default_factory=list)
+    #: Present but unreadable. Distinct from absent: one is a producer bug the
+    #: next pass can fix, the other may mean the route simply claims nothing.
+    malformed: str | None = None
+    present: bool = False
+
+    def claims(self) -> list[str]:
+        return [finding.claim for finding in self.findings]
+
+
+def structured_findings(output: str) -> ParsedFindings:
+    """Read the `atlas-findings` block, if the output carries one.
+
+    A malformed block is reported, never skipped. Silently ignoring it would
+    turn a producer's broken citation into "this route asserts nothing", which
+    reads as clean rather than as the failure it is.
+    """
+    match = _FINDINGS_BLOCK.search(output)
+    if match is None:
+        return ParsedFindings()
+
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError as error:
+        return ParsedFindings(malformed=f"block is not valid JSON: {error}", present=True)
+
+    if not isinstance(payload, list):
+        return ParsedFindings(
+            malformed=f"block must be a list of findings, got {type(payload).__name__}",
+            present=True,
+        )
+
+    findings: list[Finding] = []
+    for index, item in enumerate(payload):
+        try:
+            findings.append(_build_finding(item))
+        except (TypeError, KeyError, ValueError) as error:
+            return ParsedFindings(
+                malformed=f"finding {index} is not usable: {error}", present=True
+            )
+    return ParsedFindings(findings=findings, present=True)
+
+
+def _build_finding(item: object) -> Finding:
+    if not isinstance(item, dict):
+        raise TypeError(f"expected an object, got {type(item).__name__}")
+    references = item.get("evidence")
+    if not isinstance(references, list):
+        raise TypeError("evidence must be a list of citations")
+    return Finding.create(
+        claim=str(item["claim"]),
+        scope=str(item["scope"]),
+        severity=str(item.get("severity", "unknown")),
+        severity_rationale=str(item.get("severity_rationale", "")),
+        evidence=[_build_reference(reference) for reference in references],
+        limitations=[str(limit) for limit in item.get("limitations") or []],
+        reproducible_command=str(item.get("reproducible_command", "unknown")),
+    )
+
+
+def _build_reference(reference: object) -> EvidenceRef:
+    if not isinstance(reference, dict):
+        raise TypeError(f"expected a citation object, got {type(reference).__name__}")
+    return EvidenceRef(
+        source_id=str(reference["source_id"]),
+        content_sha256=str(reference["content_sha256"]),
+        line_start=int(reference["line_start"]),
+        line_end=int(reference["line_end"]),
+        quoted=str(reference["quoted"]),
+    )

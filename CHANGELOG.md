@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+Roadmap P0.2: the evidence filter is wired into the run.
+
+- `AtlasController.run` takes `evidence: EvidenceBase | None` beside the
+  existing `observations: list[str]`. They are separate channels for separate
+  things — prose context an adapter formatted, and sources that can be re-read
+  and re-hashed — and there is **no conversion** between them. Building an
+  `Observation` from a formatted string would have to invent a digest, a line
+  range and a snapshot, producing a source that claims to be verifiable while
+  nothing behind it was read.
+- A run without an evidence base is graded exactly as in 1.0. The difference is
+  readable rather than implied: `evidence_base` is `null` in the run document
+  and `citation_checks` is empty, so nobody has to infer which grading ran.
+- The `repo_review` evaluator runs `check_finding()` per structured finding.
+  An unknown `source_id`, a tampered excerpt, a file that changed, a missing
+  observation, an unreadable findings block, and a finding with no
+  machine-readable citation at all can none of them contribute to `passed` —
+  each has a test through `AtlasController`, not only through the evaluator.
+- Before this, a false claim citing a genuinely-read README passed at 0.9 with
+  `evidence_coverage: 1.0`, because the old check asked only whether the
+  filename appeared in the finding's text. `test_the_older_checks_would_have_
+  accepted_the_same_answer` keeps that fact visible rather than deleting it.
+- **A sound citation still does not mean `verified`.** It means the claim is
+  *eligible* for a semantic check that does not exist yet, so a false claim with
+  a correctly quoted source still passes the gate. A test asserts this, so a
+  green run is not mistaken for a verified one. P0.2's boxes stay open.
+- Retry feedback names the failing citation and its status instead of repeating
+  the gap code. A gap a re-quote could close earns another pass; one needing a
+  fresh observation (`stale_source`, `excerpt_mismatch`, `path_refused`,
+  `unsupported_source_type`) stops instead of burning an iteration.
+- `EvidenceBase` refuses observations from another snapshot and duplicate
+  `source_id`s, validated in `__post_init__` so `dataclasses.replace` cannot
+  step around it.
+- Schemas: `atlas-run.v1` gains optional `evidence_base`; `atlas-evaluation.v1`
+  gains optional `citation_checks` and three additive `evidence_gaps` codes
+  (`malformed_findings`, `uncheckable_findings`, `unsound_citations`).
+  Documents written against the earlier code set still validate.
+- The run document exports `evidence_manifest` — a sanitised
+  `atlas-observation-manifest.v1` — and never the evidence base. `asdict` had
+  been walking straight into the base and publishing every excerpt the run read
+  plus the absolute path it read from; the sanitised manifest from P0.1c
+  existed and was not being used. `snapshot.root` is dropped rather than
+  masked, because redaction recognises home directories and credential shapes,
+  not an arbitrary absolute path such as one under `/private/var`. The prose
+  `observations` channel is still exported verbatim, as in 1.0, and a test
+  asserts that so the sanitised manifest does not imply the whole document is
+  safe.
+- One gap that needs a fresh observation now blocks the retry for the whole
+  output. A retry re-runs the producer once, so a pass that fixed the citable
+  findings would still return the stale one unchanged and spend an iteration
+  failing on the same ground. The earlier rule returned "actionable" as soon as
+  any finding lacked a citation, without looking at what the other findings
+  required. The run now also records why it did not try again, since "the loop
+  gave up" and "observe the sources again" call for different actions.
+- Known and unchanged: a run that exhausts its iterations on an evidence gap
+  reports `no_actionable_retry` rather than `max_iterations`, because that
+  choice keys off `missing_sections`. Pre-existing, and stop-reason semantics
+  belong to P0.3.
+
 Roadmap P0.2a: `Finding.v1` and deterministic verification.
 
 - Added `atlas_core/finding.py` and `schemas/atlas-finding.v1.json`: a claim,

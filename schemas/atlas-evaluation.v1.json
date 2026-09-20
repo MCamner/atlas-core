@@ -62,19 +62,22 @@
     },
     "evidence_gaps": {
       "type": "array",
-      "description": "Machine-readable evidence gap codes. Separate from missing_sections: a heading being present says nothing about whether the claim under it is supported.",
+      "description": "Machine-readable evidence gap codes. Separate from missing_sections: a heading being present says nothing about whether the claim under it is supported. The last three codes come from deterministic checking and only occur on a run that carried an evidence base; the enum was widened additively, so documents written against the earlier code set still validate.",
       "items": {
         "type": "string",
         "enum": [
           "no_sources_observed",
           "sources_not_documented",
-          "uncited_findings"
+          "uncited_findings",
+          "malformed_findings",
+          "uncheckable_findings",
+          "unsound_citations"
         ]
       }
     },
     "unverified_claims": {
       "type": "array",
-      "description": "Findings that cite no observed source. Hypotheses, not findings.",
+      "description": "Findings that are not supported: on the citation-only path, findings naming no observed source; on the deterministic path, findings with no machine-readable citation or whose citation did not survive checking. Hypotheses, not findings.",
       "items": {
         "type": "string"
       }
@@ -87,6 +90,70 @@
       "minimum": 0,
       "maximum": 1,
       "description": "Share of findings that name an observed source. Null when the route has no evidence contract, or when the output asserts no finding. Citation only: a covered finding names a source that was read, it is not checked against that source's contents."
+    },
+    "citation_checks": {
+      "type": "array",
+      "description": "Per-finding result of deterministic citation checking, so a score can be followed back to a source. Empty on a run with no evidence base: the citation-only path checks nothing and must not look as though it did. citations_are_sound is about the pointer, never about the claim — verdict is always insufficient_evidence here, because establishing that a source supports a claim is semantic verification and is not performed.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "finding_id",
+          "claim",
+          "verdict",
+          "citations_are_sound",
+          "statuses"
+        ],
+        "properties": {
+          "finding_id": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "contradicted",
+              "insufficient_evidence"
+            ]
+          },
+          "citations_are_sound": {
+            "type": "boolean"
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_id",
+                "status"
+              ],
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "unknown_source",
+                    "digest_mismatch",
+                    "quote_mismatch",
+                    "stale_source",
+                    "unsupported_source_type",
+                    "path_refused",
+                    "excerpt_mismatch",
+                    "quote_outside_excerpt",
+                    "intact"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

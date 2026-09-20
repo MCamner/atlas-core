@@ -15,6 +15,7 @@ from atlas_core import (
     AtlasPlan,
     AtlasRoute,
     AtlasRunState,
+    EvidenceBase,
     ModelAdapter,
     ModelResult,
 )
@@ -22,6 +23,33 @@ from atlas_core import (
 
 `AtlasController.run(..., json_mode=False)` returns the finalized text.
 With `json_mode=True`, it returns an `atlas-run.v1` dictionary.
+
+`run` takes two separate source channels, and they are not interchangeable:
+
+| Parameter | What it is | How it is graded |
+| --- | --- | --- |
+| `observations: list[str]` | Prose context an adapter formatted. | Citation only: does a finding name a source that was read? |
+| `evidence: EvidenceBase \| None` | A snapshot and the `Observation` objects taken against it. | Deterministic: is each citation still sound against the source? |
+
+The run document exports `evidence_manifest`, a sanitised
+`atlas-observation-manifest.v1`, and never the evidence base itself. The base
+holds unmasked excerpts and the absolute path the run read from; the root is
+dropped rather than masked, because redaction recognises home directories and
+credential shapes, not an arbitrary absolute path. The manifest's
+`verification` is `unknown` and `is_evidence` is false by design — exporting is
+not verifying, and disk IO inside serialisation would make a run document
+depend on when it was rendered. What was verified is in `citation_checks`.
+
+This does **not** make the whole document safe. `observations`, the prose
+channel, is still exported verbatim as it has been since 1.0, so an adapter
+that puts file contents there still exports them.
+
+There is deliberately **no conversion** between the two channels. Building an `Observation`
+from a formatted string would require inventing a digest, a line range and a
+snapshot, producing a source that claims to be verifiable while nothing behind
+it was read. Callers that want the stricter gate must collect real
+observations, with `atlas_core.snapshot.take_snapshot` and
+`collect_observation`.
 
 `max_iterations` must be a positive integer. The loop never executes more than
 that number of iterations.
@@ -47,18 +75,39 @@ collapse them:
 | `missing_sections` | Does the output have the shape the route promised? |
 | `evidence_gaps` | Are the claims in it supported by something that was read? |
 
-`unverified_claims` lists findings that cite no observed source — hypotheses,
-not findings. `evidence_coverage` is the share of findings that do name one, or
-`null` when the route has no evidence contract or the output asserts no finding.
-All three are optional additions to the existing schema; a consumer written
-against 1.0 that ignores them still reads a valid document.
+`unverified_claims` lists findings that are not supported — hypotheses, not
+findings. `evidence_coverage` is the share of findings that are supported, or
+`null` when the route has no evidence contract or the output asserts no
+finding. `citation_checks` records, per finding, what the deterministic check
+established. All are optional additions to the existing schema; a consumer
+written against 1.0 that ignores them still reads a valid document.
 
-The check is **citation, not verification**. A finding counts as covered when it
-names a source that was read. Nothing compares the claim against that source's
-contents, so a factually wrong statement that mentions `README.md` still passes
-the gate. `evidence_gaps` being empty means "this output is grounded in
-something it read", not "this output is correct". Verifying the claim itself
-needs a model adapter and is not part of this contract.
+### Which grading ran
+
+A run without an evidence base is graded exactly as it was in 1.0: a finding
+counts as covered when it **names** a source that was read. Nothing compares
+the claim against that source's contents, so a factually wrong statement that
+mentions `README.md` passes that gate. `citation_checks` is empty for such a
+run, and `evidence_base` in the run document is `null`, so a reader can always
+tell a checked run from an unchecked one.
+
+A run with an evidence base is graded against `check_finding`. Every finding
+under the route's finding headings must carry a machine-readable citation in an
+```` ```atlas-findings ```` block, and that citation must survive: the
+`source_id` must have been read this run, the claimed digest must match, the
+observation's own excerpt must still match the lines it names, and the quote
+must sit inside the range the observation recorded. A finding that fails any of
+those cannot contribute to `passed`.
+
+### Sound is still not verified
+
+Surviving that check means the **pointer** holds, not that the source supports
+the claim. `citation_checks[].verdict` is always `insufficient_evidence`;
+`citations_are_sound` is what carries the difference. A false claim with a
+correctly quoted citation therefore still passes the gate. Closing that is
+semantic verification, which this repository does not perform yet — see
+`ROADMAP.md` P0.2. `evidence_gaps` being empty means "every claim here is
+eligible to be verified", never "this output is correct".
 
 ## Stop Semantics
 
