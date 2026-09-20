@@ -426,7 +426,6 @@ class TestDeclaredButNotYetProduced(unittest.TestCase):
     """
 
     NOT_YET_PRODUCED = {
-        "budget_exhausted": "P0.3 box two: wall-clock, call and token limits",
         "cancelled": "P0.3 box four: abort",
     }
 
@@ -438,6 +437,7 @@ class TestDeclaredButNotYetProduced(unittest.TestCase):
             "approval_required",
             "max_iterations",
             "no_progress",
+            "budget_exhausted",
             "tool_error",
         }
 

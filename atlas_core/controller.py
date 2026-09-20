@@ -13,6 +13,7 @@ from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
 from .evidence_base import EvidenceBase
 from .machine import classify_stop
+from .budget import BudgetExceeded, RunBudget, RunLimits
 
 # Provider messages are unbounded and may embed request content, so the run
 # record keeps a bounded excerpt rather than whatever the provider returned.
@@ -60,6 +61,7 @@ class AtlasController:
         observations: list[str] | None = ...,
         evidence: EvidenceBase | None = ...,
         json_mode: Literal[False] = ...,
+        limits: RunLimits | None = ...,
     ) -> str: ...
 
     @overload
@@ -70,6 +72,7 @@ class AtlasController:
         observations: list[str] | None = ...,
         evidence: EvidenceBase | None = ...,
         json_mode: Literal[True],
+        limits: RunLimits | None = ...,
     ) -> dict[str, Any]: ...
 
     @overload
@@ -80,6 +83,7 @@ class AtlasController:
         observations: list[str] | None = ...,
         evidence: EvidenceBase | None = ...,
         json_mode: bool,
+        limits: RunLimits | None = ...,
     ) -> str | dict[str, Any]: ...
 
     def run(
@@ -89,6 +93,7 @@ class AtlasController:
         observations: list[str] | None = None,
         evidence: EvidenceBase | None = None,
         json_mode: bool = False,
+        limits: RunLimits | None = None,
     ) -> str | dict[str, Any]:
         """Run the loop.
 
@@ -99,6 +104,18 @@ class AtlasController:
         citation-only grading it always had.
         """
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
+        budget = RunBudget(limits) if limits is not None else None
+
+        def expired() -> bool:
+            if budget is None:
+                return False
+            try:
+                budget.check()
+            except BudgetExceeded as exc:
+                state.metadata["budget_exhausted"] = str(exc)
+                state.stop("budget_exhausted")
+                return True
+            return False
         state.enter("observing")
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
@@ -111,7 +128,13 @@ class AtlasController:
             # the executor renders under "Sources inspected".
             state.metadata["safety_notice"] = notice
 
+        if expired():
+            if budget is not None:
+                state.metadata["budget_usage"] = budget.usage()
+            return finalize(state, json_mode=json_mode)
         while state.iteration < state.max_iterations:
+            if expired():
+                break
             state.iteration += 1
             state.enter("routing")
             route = select_route(task)
@@ -120,19 +143,31 @@ class AtlasController:
             plan = build_plan(task, route)
             state.plan = plan
             state.enter("executing")
+            if expired():
+                break
             # The previous evaluation is what makes a retry a replan rather than
             # a rerun: it tells the executor which gaps to close this time.
             feedback = state.evaluations[-1] if state.evaluations else None
             if self.model_adapter:
                 try:
-                    model_result = self.model_adapter.execute(
-                        task=task,
-                        route=route,
-                        plan=plan,
-                        observations=state.observations,
-                        feedback=feedback,
+                    kwargs: dict[str, Any] = dict(
+                        task=task, route=route, plan=plan,
+                        observations=state.observations, feedback=feedback,
                     )
+                    if budget is not None:
+                        budget.reserve_model()
+                        kwargs["budget"] = budget
+                    model_result = self.model_adapter.execute(**kwargs)
                     _check_model_result(model_result)
+                    if budget is not None:
+                        raw_usage = model_result.metadata.get("usage_tokens")
+                        usage = int(raw_usage) if isinstance(raw_usage, str) and raw_usage.isdecimal() else None
+                        budget.charge_tokens(usage)
+                        budget.charge_output(model_result.output)
+                except BudgetExceeded as exc:
+                    state.metadata["budget_exhausted"] = str(exc)
+                    state.stop("budget_exhausted")
+                    break
                 except Exception as exc:
                     # A provider that fails is a terminal state, not a crash and
                     # not a silent fallback to the rule-based executor. Falling
@@ -153,8 +188,17 @@ class AtlasController:
                 }
             else:
                 output = execute_plan(task, plan, state.observations, feedback=feedback)
+            if budget is not None and self.model_adapter is None:
+                try:
+                    budget.charge_output(output)
+                except BudgetExceeded as exc:
+                    state.metadata["budget_exhausted"] = str(exc)
+                    state.stop("budget_exhausted")
+                    break
             state.outputs.append(output)
             state.enter("evaluating")
+            if expired():
+                break
             evaluation = evaluate(
                 task,
                 output,
@@ -166,6 +210,8 @@ class AtlasController:
                 evidence_base=state.evidence_base,
             )
             state.evaluations.append(evaluation)
+            if expired():
+                break
             if (
                 evaluation.requires_user_approval
                 or evaluation.passed
@@ -197,8 +243,13 @@ class AtlasController:
             # nothing about whether it may trust the answer.
             state.stop("max_iterations")
 
-        # Only a passing run may promote a memory candidate.
-        if state.evaluations and state.stop_reason in {"passed"}:
+        if budget is not None:
+            state.metadata["budget_usage"] = budget.usage()
+            # The memory writer has no deadline or tool-accounting contract.
+            # A budgeted run refuses to call this unmetered side effect.
+            state.metadata["memory_skipped"] = "budgeted_run_has_no_metered_memory_writer"
+        # Only a passing unbudgeted run may promote a memory candidate.
+        if budget is None and state.evaluations and state.stop_reason in {"passed"}:
             candidate = build_memory_candidate(
                 task=state.task,
                 route_name=state.route.name if state.route else "unknown",
