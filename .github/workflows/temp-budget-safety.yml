@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Guard memory reads and verify all gates
+      - name: Guard memory reads and verify all gates again
         shell: bash
         run: |
           set -euo pipefail
