@@ -61,7 +61,7 @@ class TestLoop(unittest.TestCase):
         state = AtlasController(max_iterations=2).run(ROUTE_TASKS["repo_review"], json_mode=True)
 
         self.assertEqual(state["iteration"], 1)
-        self.assertEqual(state["stop_reason"], "no_actionable_retry")
+        self.assertEqual(state["stop_reason"], "insufficient_evidence")
         self.assertFalse(state["evaluations"][-1]["passed"])
 
     def test_observations_reach_every_route(self):

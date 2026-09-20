@@ -652,7 +652,15 @@ class TestOneBlockingGapStopsTheRetry(_Loop):
         run = self._mixed()
 
         self.assertEqual(run["iteration"], 1)
-        self.assertEqual(run["stop_reason"], "no_actionable_retry")
+        self.assertEqual(run["stop_reason"], "blocked")
+
+    def test_a_moved_source_is_not_reported_as_a_verdict_on_the_answer(self):
+        """`blocked` asks for a fresh observation; `insufficient_evidence`
+        asks for a better answer. Sharing one name sent readers the wrong way."""
+        run = self._mixed()
+
+        self.assertEqual(run["evaluations"][0]["blocked_by"], ["stale_source"])
+        self.assertNotEqual(run["stop_reason"], "insufficient_evidence")
 
     def test_the_run_says_why_it_did_not_try_again(self):
         """"The loop gave up" and "observe again" need different actions."""

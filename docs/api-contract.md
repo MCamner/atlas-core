@@ -145,20 +145,72 @@ input that can hang the checker; a substring search cannot.
 
 ## Stop Semantics
 
-Terminal runs expose both `status` and `stop_reason`:
+The lifecycle is versioned. A run document carries
+`state_machine: "atlas-state-machine.v1"`, and the whole table — statuses,
+legal transitions, stop reasons, classes and exit codes — is published as data
+in `schemas/atlas-state-machine.v1.json` for a consumer that cannot import
+Python. `atlas_core/machine.py` enforces it: a transition outside the table
+raises rather than being recorded, and `status` and `stop_reason` are written
+together from one entry so they cannot disagree.
 
-| Status | Stop reason | Meaning |
-| --- | --- | --- |
-| `done` | `passed` | Evaluation passed the quality gate. |
-| `done` | `no_actionable_retry` | Evaluation failed, but another pass cannot close a known gap. |
-| `done` | `max_iterations` | A known gap remains and the iteration bound was reached. |
-| `need_user_approval` | `approval_required` | The task appears to require mutation. |
-| `failed` | `failed` | A model adapter raised, or returned a result that breaks the adapter contract. |
+Terminal runs expose `status`, `stop_reason` and `stop_class`:
+
+| Status | Stop reason | Class | Meaning |
+| --- | --- | --- | --- |
+| `done` | `passed` | evaluation | The answer was graded and met its gate. |
+| `done` | `insufficient_evidence` | evaluation | The answer was graded and its claims were not established against what the run read. |
+| `done` | `blocked` | control | A cited source has moved or vanished. The ground moved under the run; re-wording cannot repair it. |
+| `done` | `max_iterations` | control | A gap remained that another pass could have acted on, and the bound stopped the run from trying. |
+| `done` | `no_progress` | control | Nothing was left that another pass could change, so a further iteration would fail the same way. |
+| `done` | `budget_exhausted` | control | A declared limit other than the iteration bound was reached. |
+| `need_user_approval` | `approval_required` | control | The task appears to require mutation. |
+| `failed` | `tool_error` | runtime | A model adapter raised, or returned a result that breaks the adapter contract. |
+| `cancelled` | `cancelled` | control | The run was stopped from outside before it reached a verdict. |
+
+`stop_class` is the distinction that matters most, and it is derived from
+`stop_reason` rather than stored beside it:
+
+- `evaluation` — an answer was produced and graded, and this is the grade.
+- `runtime` — the machinery failed, so the run's ending is not a verdict about
+  an answer. An evaluation from an earlier iteration may survive in the record;
+  it was not promoted to the run's result.
+- `control` — a bound, a human or a cancellation ended the run. Any grade it
+  carries is provisional: the loop stopped before it was finished, not because
+  it was.
+
+`budget_exhausted` and `cancelled` are declared and **not yet produced** by any
+code path; they are reserved by the remaining P0.3 work so the vocabulary a
+consumer codes against does not grow every time a limit lands. A test names
+them, so the gap is recorded rather than implied.
+
+`no_progress` here is the a-priori form: the evaluation found nothing another
+pass could act on. Detecting that two passes produced the *same* output is a
+separate, stronger check that P1.1 owns.
 
 Adapters must use `stop_reason`; they must not infer completion semantics from
 prose output. The text form of a run is rendered from the run document by
 `render_run_text`, so it is a view of that document rather than a second source
 of truth.
+
+### Migration from the pre-v1.1 vocabulary
+
+Two spellings changed, and one of them split:
+
+| Was | Is | Why |
+| --- | --- | --- |
+| `failed` | `tool_error` | The status and the reason were the same word, so nothing in the pair said that the failure was the machinery rather than the answer. |
+| `no_actionable_retry` | `insufficient_evidence`, `blocked` or `no_progress` | One name covered three situations that ask a reader for different things: look at the evidence, observe the source again, or accept that the loop had nothing left to try. |
+
+`schemas/atlas-run.v1.json` still accepts both old spellings, so a run document
+stored before the change remains valid; nothing emits them any more. A document
+without a `state_machine` field is from before the change and uses the old
+vocabulary. The mapping is published as `legacy_stop_reasons` in the state
+machine declaration.
+
+The iteration bound is now reported only when it actually bound something. The
+previous controller chose `max_iterations` on whether a formatting section was
+missing, so a run that spent every pass on an evidence gap — a gap another pass
+could have acted on — reported instead that it had nothing left to try.
 
 ### CLI exit codes
 
@@ -168,13 +220,21 @@ without parsing output:
 | Code | Meaning | Stop reasons |
 | --- | --- | --- |
 | 0 | The answer passed its quality gate. | `passed` |
-| 1 | The run failed, or stopped for an unrecognised reason. | `failed` |
-| 2 | The run finished without passing. | `no_actionable_retry`, `max_iterations` |
+| 1 | The machinery failed. | `tool_error` |
+| 2 | The run finished without passing. | `insufficient_evidence`, `blocked`, `max_iterations`, `no_progress`, `budget_exhausted` |
 | 3 | A mutation needs explicit approval before anything runs. | `approval_required` |
+| 4 | The run was stopped from outside before it reached a verdict. | `cancelled` |
 
-Exit 2 is not an error. It means the loop stopped honestly rather than
-claiming an answer it could not support — a `repo_review` with no observed
-sources is the common case.
+The codes are derived from the state machine, not kept by hand, so a new stop
+reason cannot fall through to the failure code and look like a crash. An
+unrecognised stop reason — a document from a newer version, say — still exits
+1.
+
+Exit 1 means the machinery broke and nothing was graded. Exit 2 is not an
+error: the loop stopped honestly rather than claiming an answer it could not
+support, and a `repo_review` with no observed sources is the common case. The
+two must not be collapsed; a script that treats every non-zero code as a crash
+will page someone for an honest `insufficient_evidence`.
 
 ## Adapter Boundary
 

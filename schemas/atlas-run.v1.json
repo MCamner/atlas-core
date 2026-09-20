@@ -46,21 +46,30 @@
         "replanning",
         "need_user_approval",
         "done",
-        "failed"
-      ]
+        "failed",
+        "cancelled"
+      ],
+      "description": "Where the run is in atlas-state-machine.v1. Legal transitions are declared in schemas/atlas-state-machine.v1.json and enforced at runtime."
     },
     "stop_reason": {
       "type": [
         "string",
         "null"
       ],
+      "description": "Why the run ended, from atlas-state-machine.v1. `failed` and `no_actionable_retry` are the pre-v1.1 spellings, kept so a stored document still validates; nothing emits them any more. `failed` became `tool_error`, and `no_actionable_retry` split into `insufficient_evidence`, `blocked` and `no_progress`, which called for different actions while sharing one name.",
       "enum": [
         null,
         "passed",
+        "insufficient_evidence",
+        "blocked",
         "approval_required",
-        "no_actionable_retry",
+        "budget_exhausted",
         "max_iterations",
-        "failed"
+        "no_progress",
+        "tool_error",
+        "cancelled",
+        "failed",
+        "no_actionable_retry"
       ]
     },
     "iteration": {
@@ -209,6 +218,23 @@
           }
         }
       }
+    },
+    "state_machine": {
+      "const": "atlas-state-machine.v1",
+      "description": "Which vocabulary `status` and `stop_reason` are drawn from. Optional rather than required: a document stored before this field existed is still a valid atlas-run.v1, and its absence means the pre-v1.1 spellings."
+    },
+    "stop_class": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "evaluation",
+        "runtime",
+        "control"
+      ],
+      "description": "What kind of thing ended the run, derived from `stop_reason`. `runtime` means the machinery failed and nothing was graded, so a caller must not read a verdict about the answer into it; `evaluation` means an answer was graded and this is the grade; `control` means a bound, a human or a cancellation stopped the run before it finished."
     }
   }
 }

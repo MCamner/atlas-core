@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 import uuid
 
 from .evidence_base import EvidenceBase
+from .machine import (
+    STATE_MACHINE_VERSION,
+    Status,
+    StopReason,
+    check_transition,
+    spec_for,
+    stop_class_of,
+)
 
-Status = Literal[
-    "new", "observing", "routing", "planning", "executing", "evaluating",
-    "replanning", "need_user_approval", "done", "failed",
-]
-
-StopReason = Literal[
-    "passed", "approval_required", "no_actionable_retry", "max_iterations", "failed",
+__all__ = [
+    "Status",
+    "StopReason",
+    "AtlasEvaluation",
+    "AtlasRoute",
+    "AtlasPlan",
+    "AtlasRunState",
 ]
 
 @dataclass
@@ -25,6 +33,11 @@ class AtlasEvaluation:
     missing_sections: list[str] = field(default_factory=list)
     requires_user_approval: bool = False
     should_retry: bool = False
+    # Whether anything remains that another pass could act on, ignoring the
+    # iteration budget. `should_retry` folds the budget in, so the two together
+    # say whether the bound is what stopped the run or whether there was
+    # nothing left to try — which are different stop reasons.
+    retry_is_possible: bool = False
     suggested_adjustment: str | None = None
     # Evidence signals. Separate from missing_sections on purpose: a heading
     # that is present says nothing about whether the claim under it is backed
@@ -36,6 +49,11 @@ class AtlasEvaluation:
     # followed back to a source. Empty when the run carried no evidence base:
     # the citation-only path checks nothing and must not look as though it did.
     citation_checks: list[dict[str, Any]] = field(default_factory=list)
+    # Evidence failures no re-wording can repair, as status codes. The
+    # controller needs this to tell "the answer was not established" from "a
+    # source moved under the run"; reading it out of the prose in `missing`
+    # would make a stop reason depend on how a sentence is worded.
+    blocked_by: list[str] = field(default_factory=list)
 
 @dataclass
 class AtlasRoute:
@@ -76,6 +94,26 @@ class AtlasRunState:
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def enter(self, status: Status) -> None:
+        """Move to `status`, refusing a move the state machine does not allow.
+
+        Raising is the point. An illegal transition means the controller has
+        lost track of where the run is, and the stop reason it reports next
+        would be wrong in a way nothing downstream could detect.
+        """
+        check_transition(self.status, status)
+        self.status = status
+
+    def stop(self, reason: StopReason) -> None:
+        """End the run for `reason`, taking the terminal status from it.
+
+        Status and stop reason are set together, from one table, so a run can
+        never report a runtime failure while claiming it is done.
+        """
+        spec = spec_for(reason)
+        self.enter(spec.status)
+        self.stop_reason = reason
+
     def to_dict(self) -> dict[str, Any]:
         """Render the run as an `atlas-run.v1` document.
 
@@ -91,4 +129,13 @@ class AtlasRunState:
         fields = asdict(replace(self, evidence_base=None))
         fields.pop("evidence_base", None)
         manifest = self.evidence_base.to_manifest() if self.evidence_base else None
-        return {"schema": "atlas-run.v1", **fields, "evidence_manifest": manifest}
+        return {
+            "schema": "atlas-run.v1",
+            **fields,
+            # Which vocabulary the status and stop reason are drawn from, and
+            # which kind of thing ended the run. `stop_class` is derived from
+            # `stop_reason` rather than stored, so it cannot contradict it.
+            "state_machine": STATE_MACHINE_VERSION,
+            "stop_class": stop_class_of(self.stop_reason),
+            "evidence_manifest": manifest,
+        }

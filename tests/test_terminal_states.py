@@ -64,7 +64,8 @@ class TestModelAdapterFailureIsATerminalState(unittest.TestCase):
         )
 
         self.assertEqual(state["status"], "failed")
-        self.assertEqual(state["stop_reason"], "failed")
+        self.assertEqual(state["stop_reason"], "tool_error")
+        self.assertEqual(state["stop_class"], "runtime")
         self.assertEqual(adapter.calls, 1, "a failed provider must not be retried blindly")
 
     def test_the_failure_is_recorded_for_debugging(self):
@@ -92,7 +93,7 @@ class TestModelAdapterFailureIsATerminalState(unittest.TestCase):
                     "hej", json_mode=True
                 )
                 self.assertEqual(state["status"], "failed")
-                self.assertEqual(state["stop_reason"], "failed")
+                self.assertEqual(state["stop_reason"], "tool_error")
 
     def test_a_failed_run_produces_no_evaluation_claiming_quality(self):
         state = AtlasController(model_adapter=BoomAdapter(RuntimeError("boom"))).run(
@@ -102,7 +103,7 @@ class TestModelAdapterFailureIsATerminalState(unittest.TestCase):
         self.assertEqual(state["outputs"], [])
 
     def test_failure_is_never_a_passing_verdict(self):
-        """`failed` is a runtime outcome. It must not look like a graded one.
+        """`tool_error` is a runtime outcome. It must not look like a graded one.
 
         ROADMAP.md P0.3: "Skilj runtime-fel från saklig evaluering."
         """
@@ -110,7 +111,7 @@ class TestModelAdapterFailureIsATerminalState(unittest.TestCase):
             "hej", json_mode=True
         )
 
-        self.assertEqual(state["stop_reason"], "failed")
+        self.assertEqual(state["stop_reason"], "tool_error")
         self.assertFalse(
             any(e["passed"] for e in state["evaluations"]),
             "a failed run must not carry a passing evaluation",
@@ -134,7 +135,7 @@ class TestModelAdapterFailureIsATerminalState(unittest.TestCase):
         )
 
         self.assertEqual(state["status"], "failed")
-        self.assertEqual(state["stop_reason"], "failed")
+        self.assertEqual(state["stop_reason"], "tool_error")
         self.assertEqual(len(state["outputs"]), 1, "pass 1's output is kept, not promoted")
         self.assertFalse(state["evaluations"][-1]["passed"])
 
@@ -188,21 +189,21 @@ class TestCliExitCodes(unittest.TestCase):
         """A repo review with no sources gives up. It must not exit 0."""
         code, out = self._run(["run", "granska repo och hitta P0 P1 P2"])
 
-        self.assertEqual(code, EXIT_CODES["no_actionable_retry"])
+        self.assertEqual(code, EXIT_CODES["insufficient_evidence"])
         self.assertNotEqual(code, 0)
-        self.assertIn("no_actionable_retry", out)
+        self.assertIn("insufficient_evidence", out)
 
     def test_approval_required_has_its_own_code(self):
         code, _ = self._run(["run", "skapa issue och pusha ändringen"])
 
         self.assertEqual(code, EXIT_CODES["approval_required"])
-        self.assertNotIn(code, (0, EXIT_CODES["no_actionable_retry"]))
+        self.assertNotIn(code, (0, EXIT_CODES["insufficient_evidence"]))
 
     def test_json_mode_uses_the_same_codes(self):
         code, out = self._run(["run", "granska repo och hitta P0 P1 P2", "--json"])
 
-        self.assertEqual(code, EXIT_CODES["no_actionable_retry"])
-        self.assertEqual(json.loads(out)["stop_reason"], "no_actionable_retry")
+        self.assertEqual(code, EXIT_CODES["insufficient_evidence"])
+        self.assertEqual(json.loads(out)["stop_reason"], "insufficient_evidence")
 
     def test_text_and_json_describe_the_same_run(self):
         """The text trailer is a rendering of the state, not a second source."""
@@ -217,8 +218,7 @@ class TestCliExitCodes(unittest.TestCase):
         from atlas_core.state import StopReason
         from typing import get_args
 
-        for reason in get_args(StopReason):
-            self.assertIn(reason, EXIT_CODES, f"{reason} has no documented exit code")
+        self.assertEqual(set(get_args(StopReason)), set(EXIT_CODES))
 
     def test_exit_codes_match_the_documented_table(self):
         """A published exit code is a contract. Drift here breaks callers."""

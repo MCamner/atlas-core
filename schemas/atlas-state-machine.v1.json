@@ -1,0 +1,133 @@
+{
+  "title": "Atlas state machine",
+  "version": "atlas-state-machine.v1",
+  "description": "The run lifecycle as data, for a consumer that has to branch on it without importing Python. This file is a declaration, not a JSON Schema: nothing validates a document against it. atlas_core/machine.py is where it is enforced, and a test holds the two in step.",
+  "statuses": [
+    "new",
+    "observing",
+    "routing",
+    "planning",
+    "executing",
+    "evaluating",
+    "replanning",
+    "need_user_approval",
+    "done",
+    "failed",
+    "cancelled"
+  ],
+  "terminal_statuses": [
+    "cancelled",
+    "done",
+    "failed",
+    "need_user_approval"
+  ],
+  "transitions": {
+    "new": [
+      "cancelled",
+      "failed",
+      "observing"
+    ],
+    "observing": [
+      "cancelled",
+      "failed",
+      "routing"
+    ],
+    "routing": [
+      "cancelled",
+      "failed",
+      "planning"
+    ],
+    "planning": [
+      "cancelled",
+      "executing",
+      "failed"
+    ],
+    "executing": [
+      "cancelled",
+      "evaluating",
+      "failed"
+    ],
+    "evaluating": [
+      "cancelled",
+      "done",
+      "failed",
+      "need_user_approval",
+      "replanning"
+    ],
+    "replanning": [
+      "cancelled",
+      "done",
+      "failed",
+      "routing"
+    ],
+    "need_user_approval": [],
+    "done": [],
+    "failed": [],
+    "cancelled": []
+  },
+  "stop_classes": {
+    "evaluation": "An answer was produced and graded, and this is the grade.",
+    "runtime": "The machinery failed, so the run's ending is not a verdict about an answer. An evaluation from an earlier iteration may survive in the record; it was not promoted to the run's result.",
+    "control": "A bound, a human or a cancellation ended the run. Any grade it carries is provisional."
+  },
+  "stop_reasons": {
+    "passed": {
+      "stop_class": "evaluation",
+      "status": "done",
+      "exit_code": 0,
+      "meaning": "The answer was graded and met its gate."
+    },
+    "insufficient_evidence": {
+      "stop_class": "evaluation",
+      "status": "done",
+      "exit_code": 2,
+      "meaning": "The answer was graded and its claims were not established against what the run read. This is a verdict on the answer, not an error."
+    },
+    "blocked": {
+      "stop_class": "control",
+      "status": "done",
+      "exit_code": 2,
+      "meaning": "The run cannot continue without something it cannot obtain by itself: a source it cited has moved or vanished, so the ground moved under the run rather than the answer being wrong."
+    },
+    "approval_required": {
+      "stop_class": "control",
+      "status": "need_user_approval",
+      "exit_code": 3,
+      "meaning": "The task appears to require mutation, which a human authorises before anything runs."
+    },
+    "budget_exhausted": {
+      "stop_class": "control",
+      "status": "done",
+      "exit_code": 2,
+      "meaning": "A declared limit other than the iteration bound was reached."
+    },
+    "max_iterations": {
+      "stop_class": "control",
+      "status": "done",
+      "exit_code": 2,
+      "meaning": "A gap remained that another pass could have acted on, and the iteration bound stopped the run from trying."
+    },
+    "no_progress": {
+      "stop_class": "control",
+      "status": "done",
+      "exit_code": 2,
+      "meaning": "Nothing was left that another pass could change, so a further iteration would produce the same output and fail the same way."
+    },
+    "tool_error": {
+      "stop_class": "runtime",
+      "status": "failed",
+      "exit_code": 1,
+      "meaning": "The machinery failed, so the run's outcome is not a verdict on an answer. An evaluation from an earlier iteration may survive in the record; it was not promoted to the run's result."
+    },
+    "cancelled": {
+      "stop_class": "control",
+      "status": "cancelled",
+      "exit_code": 4,
+      "meaning": "The run was stopped from outside before it reached a verdict."
+    }
+  },
+  "legacy_stop_reasons": {
+    "failed": "tool_error",
+    "no_actionable_retry": "insufficient_evidence"
+  }
+}

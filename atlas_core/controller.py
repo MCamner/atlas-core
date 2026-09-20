@@ -12,6 +12,7 @@ from .safety import safety_notice
 from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
 from .evidence_base import EvidenceBase
+from .machine import classify_stop
 
 # Provider messages are unbounded and may embed request content, so the run
 # record keeps a bounded excerpt rather than whatever the provider returned.
@@ -98,7 +99,7 @@ class AtlasController:
         citation-only grading it always had.
         """
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
-        state.status = "observing"
+        state.enter("observing")
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
         state.evidence_base = evidence
@@ -112,13 +113,13 @@ class AtlasController:
 
         while state.iteration < state.max_iterations:
             state.iteration += 1
-            state.status = "routing"
+            state.enter("routing")
             route = select_route(task)
             state.route = route
-            state.status = "planning"
+            state.enter("planning")
             plan = build_plan(task, route)
             state.plan = plan
-            state.status = "executing"
+            state.enter("executing")
             # The previous evaluation is what makes a retry a replan rather than
             # a rerun: it tells the executor which gaps to close this time.
             feedback = state.evaluations[-1] if state.evaluations else None
@@ -137,8 +138,7 @@ class AtlasController:
                     # not a silent fallback to the rule-based executor. Falling
                     # back would report an answer the caller did not ask for as
                     # though the model had produced it.
-                    state.status = "failed"
-                    state.stop_reason = "failed"
+                    state.stop("tool_error")
                     state.metadata["failure"] = {
                         "stage": "model_adapter",
                         "error": type(exc).__name__,
@@ -154,7 +154,7 @@ class AtlasController:
             else:
                 output = execute_plan(task, plan, state.observations, feedback=feedback)
             state.outputs.append(output)
-            state.status = "evaluating"
+            state.enter("evaluating")
             evaluation = evaluate(
                 task,
                 output,
@@ -166,25 +166,39 @@ class AtlasController:
                 evidence_base=state.evidence_base,
             )
             state.evaluations.append(evaluation)
-            if evaluation.requires_user_approval:
-                state.status = "need_user_approval"
-                state.stop_reason = "approval_required"
-                break
-            if evaluation.passed:
-                state.status = "done"
-                state.stop_reason = "passed"
-                break
-            if not evaluation.should_retry:
-                state.status = "done"
-                state.stop_reason = (
-                    "max_iterations"
-                    if evaluation.missing_sections and state.iteration >= state.max_iterations
-                    else "no_actionable_retry"
+            if (
+                evaluation.requires_user_approval
+                or evaluation.passed
+                or not evaluation.should_retry
+            ):
+                # One table decides, from what the evaluation found. The
+                # earlier version chose between two reasons here on
+                # `missing_sections`, which meant a run that exhausted its
+                # iterations on an evidence gap reported that it had nothing
+                # left to try — while the gap it had was exactly something
+                # another pass could have acted on.
+                state.stop(
+                    classify_stop(
+                        passed=evaluation.passed,
+                        requires_approval=evaluation.requires_user_approval,
+                        blocked_by=evaluation.blocked_by,
+                        evidence_gaps=evaluation.evidence_gaps,
+                        retry_is_possible=evaluation.retry_is_possible,
+                        iterations_left=state.iteration < state.max_iterations,
+                    )
                 )
                 break
-            state.status = "replanning"
+            state.enter("replanning")
 
-        if state.evaluations:
+        if state.stop_reason is None:
+            # The loop condition is the only other way out, so reaching here
+            # means the iteration bound ended the run. A run that fell out
+            # without a reason used to report `null`, which tells a caller
+            # nothing about whether it may trust the answer.
+            state.stop("max_iterations")
+
+        # Only a passing run may promote a memory candidate.
+        if state.evaluations and state.stop_reason in {"passed"}:
             candidate = build_memory_candidate(
                 task=state.task,
                 route_name=state.route.name if state.route else "unknown",

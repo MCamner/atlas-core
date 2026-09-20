@@ -214,6 +214,17 @@
           }
         }
       }
+    },
+    "retry_is_possible": {
+      "type": "boolean",
+      "description": "Whether anything remained that another pass could act on, ignoring the iteration budget. With `should_retry`, which folds the budget in, this says whether the bound stopped the run or whether there was nothing left to try."
+    },
+    "blocked_by": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Evidence failures no re-wording can repair, as atlas-finding status codes. Non-empty means the sources must be observed again; the run then stops `blocked` rather than reporting a verdict on the answer."
     }
   }
 }
