@@ -1,0 +1,29 @@
+name: One-time P0.3 roadmap update
+on:
+  push:
+    branches: [docs/p03-budget-partial]
+    paths: ['.github/workflows/temp-budget-roadmap.yml']
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/p03-budget-partial
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Update roadmap and run standard tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python tools/temp_roadmap_budget.py
+          pip install -e .
+          python -m unittest discover -s tests
+          git add ROADMAP.md
+          git commit -m 'docs(roadmap): record bounded-run work and outstanding P0.3 gates'
+          git push origin HEAD:docs/p03-budget-partial
