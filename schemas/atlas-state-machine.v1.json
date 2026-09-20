@@ -24,26 +24,31 @@
   "transitions": {
     "new": [
       "cancelled",
+      "done",
       "failed",
       "observing"
     ],
     "observing": [
       "cancelled",
+      "done",
       "failed",
       "routing"
     ],
     "routing": [
       "cancelled",
+      "done",
       "failed",
       "planning"
     ],
     "planning": [
       "cancelled",
+      "done",
       "executing",
       "failed"
     ],
     "executing": [
       "cancelled",
+      "done",
       "evaluating",
       "failed"
     ],

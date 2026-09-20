@@ -201,7 +201,10 @@ LEGACY_STOP_REASONS: dict[str, str] = {
 #: every working status. The rest of the loop is a fixed order, and a
 #: transition outside it is a bug in the controller rather than a state a run
 #: can legitimately reach.
-_INTERRUPTIONS: frozenset[str] = frozenset({"failed", "cancelled"})
+# Control bounds can stop while observing, routing or planning, not only
+# after the evaluator. Add done to working-state interruptions; terminal
+# states remain immutable. Both Python and the published table must agree.
+_INTERRUPTIONS: frozenset[str] = frozenset({"done", "failed", "cancelled"})
 
 _LOOP: dict[str, frozenset[str]] = {
     "new": frozenset({"observing"}),
