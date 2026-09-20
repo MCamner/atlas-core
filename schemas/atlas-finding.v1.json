@@ -100,7 +100,7 @@
         "contradicted",
         "insufficient_evidence"
       ],
-      "description": "\"insufficient_evidence\" is the honest default and what intact citations earn on their own. \"verified\" is not reachable from deterministic checking alone."
+      "description": "\"insufficient_evidence\" is the honest default, and what BOTH an unusable citation and an intact-but-unchecked claim earn: a broken pointer says the citation is unusable, never that the claim is false. \"contradicted\" is reserved for a claim a semantic check has actually disproved, and \"verified\" is not reachable from deterministic checking at all."
     },
     "limitations": {
       "type": "array",

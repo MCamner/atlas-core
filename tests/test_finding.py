@@ -38,7 +38,7 @@ from atlas_core.finding import (
     Finding,
     check_finding,
 )
-from atlas_core.observation import UNKNOWN
+from atlas_core.observation import UNKNOWN, Observation
 from atlas_core.snapshot import collect_observation, take_snapshot
 
 ROOT = Path(__file__).parents[1]
@@ -133,6 +133,39 @@ class TestVerifiedIsUnreachable(_Run):
         self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.apply_to(self_asserted).verdict, "insufficient_evidence")
 
+    def test_no_code_path_constructs_a_contradicted_verdict_either(self):
+        """`contradicted` belongs to the semantic layer, not to this one.
+
+        Disproving a claim needs someone to read the source and disagree with
+        it. A deterministic checker that hands out refutations for broken
+        pointers would be making exactly the category error this phase removes,
+        in the opposite direction.
+        """
+        import re
+        from pathlib import Path as _Path
+
+        source = (_Path(__file__).parents[1] / "atlas_core" / "finding.py").read_text(
+            encoding="utf-8"
+        )
+        constructions = [
+            line.strip()
+            for line in source.splitlines()
+            if re.search(r'(verdict\s*=\s*"contradicted"|return\s+"contradicted")', line)
+        ]
+
+        self.assertEqual(constructions, [])
+
+    def test_a_broken_citation_is_distinguishable_without_abusing_the_verdict(self):
+        """Consumers still need to tell the two failures apart."""
+        broken = self._check(self._finding(evidence=[self._ref(content_sha256="f" * 64)]))
+        unchecked = self._check(self._finding())
+
+        self.assertEqual(broken.verdict, unchecked.verdict)
+        self.assertFalse(broken.citations_are_sound())
+        self.assertTrue(unchecked.citations_are_sound())
+        self.assertIn("unusable", broken.reason)
+        self.assertIn("semantic", unchecked.reason)
+
     def test_no_code_path_constructs_a_verified_verdict(self):
         """The guarantee is structural, so assert it structurally.
 
@@ -159,8 +192,18 @@ class TestVerifiedIsUnreachable(_Run):
         self.assertEqual(self._finding().verification_method, "none")
 
 
-class TestRulingOut(_Run):
-    """Box four: each of these must fail, none may pass."""
+class TestBrokenCitationsAreNotRefutations(_Run):
+    """Box four: each of these must fail — and fail as the right kind.
+
+    An unusable citation says the *pointer* is broken, not that the claim is
+    false. A correct finding can cite its source badly. So none of these earn
+    `contradicted`: that word is reserved for a claim the semantic layer has
+    actually disproved, and spending it here would let a typo read as a
+    refutation.
+
+    The discrimination consumers need lives in `citations_are_sound()` and in
+    the per-citation statuses, not in the verdict.
+    """
 
     def test_a_false_claim_citing_a_genuinely_read_readme(self):
         """The headline case. Real source, intact pointer, nonsense claim.
@@ -179,14 +222,16 @@ class TestRulingOut(_Run):
     def test_an_unknown_source_id_is_contradicted(self):
         result = self._check(self._finding(evidence=[self._ref(source_id="0" * 16)]))
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.UNKNOWN_SOURCE)
+        self.assertFalse(result.citations_are_sound())
 
     def test_a_wrong_digest_is_contradicted(self):
         result = self._check(self._finding(evidence=[self._ref(content_sha256="b" * 64)]))
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.DIGEST_MISMATCH)
+        self.assertFalse(result.citations_are_sound())
 
     def test_a_wrong_line_range_is_contradicted(self):
         """The quote is real; the lines it claims are not where it sits."""
@@ -194,8 +239,9 @@ class TestRulingOut(_Run):
             self._finding(evidence=[self._ref(line_start=4, line_end=5)])
         )
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_MISMATCH)
+        self.assertFalse(result.citations_are_sound())
 
     def test_a_cherry_picked_excerpt_is_contradicted(self):
         """Text lifted from the file but not contiguous at the claimed range."""
@@ -203,15 +249,17 @@ class TestRulingOut(_Run):
             self._finding(evidence=[self._ref(quoted="# Demo repo\nRad fem.")])
         )
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_MISMATCH)
+        self.assertFalse(result.citations_are_sound())
 
     def test_a_range_beyond_the_file_is_contradicted(self):
         result = self._check(
             self._finding(evidence=[self._ref(line_start=90, line_end=99)])
         )
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
+        self.assertFalse(result.citations_are_sound())
 
     def test_empty_evidence_is_insufficient_never_verified(self):
         result = self._check(self._finding(evidence=[]))
@@ -227,14 +275,17 @@ class TestRulingOut(_Run):
 
         result = self._check(finding)
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.STALE_SOURCE)
+        self.assertFalse(result.citations_are_sound())
 
     def test_a_deleted_source_is_contradicted(self):
         finding = self._finding()
         (self.root / "README.md").unlink()
 
-        self.assertEqual(self._check(finding).verdict, "contradicted")
+        result = self._check(finding)
+        self.assertEqual(result.verdict, "insufficient_evidence")
+        self.assertFalse(result.citations_are_sound())
 
     def test_one_bad_reference_contradicts_the_whole_finding(self):
         """A finding is only as sound as its weakest citation."""
@@ -242,8 +293,51 @@ class TestRulingOut(_Run):
             self._finding(evidence=[self._ref(), self._ref(content_sha256="c" * 64)])
         )
 
-        self.assertEqual(result.verdict, "contradicted")
+        self.assertEqual(result.verdict, "insufficient_evidence")
+        self.assertFalse(result.citations_are_sound())
         self.assertIn(EvidenceStatus.INTACT, [s for _, s in result.statuses])
+
+
+class TestUnsupportedSourceTypes(_Run):
+    """A source this checker cannot verify must not be checked as a local file."""
+
+    def test_a_non_local_source_is_not_read_off_the_local_disk(self):
+        """A github_file or ci source may share a path with a local file.
+
+        Reading it locally would confirm the wrong artifact. Until an adapter
+        can establish that source's provenance, the honest answer is that this
+        checker cannot say.
+        """
+        for source_type in ("github_file", "ci", "memory"):
+            with self.subTest(source_type=source_type):
+                # Built, not replaced: source_id is derived from the type, and
+                # Observation refuses a mismatch — the guard from P0.1a.
+                foreign = Observation.create(
+                    source_type=source_type,
+                    path=self.observation.path,
+                    collected_at=self.observation.collected_at,
+                    content_sha256=self.observation.content_sha256,
+                    excerpt=self.observation.excerpt,
+                    line_start=self.observation.line_start,
+                    line_end=self.observation.line_end,
+                    snapshot_id=self.observation.snapshot_id,
+                )
+                result = check_finding(
+                    self._finding(
+                        evidence=[self._ref(source_id=foreign.source_id)]
+                    ),
+                    [foreign],
+                    self.root,
+                )
+
+                self.assertEqual(result.verdict, "insufficient_evidence")
+                self.assertEqual(
+                    result.statuses[0][1], EvidenceStatus.UNSUPPORTED_SOURCE_TYPE
+                )
+                self.assertFalse(result.citations_are_sound())
+
+    def test_local_files_remain_checkable(self):
+        self.assertTrue(self._check(self._finding()).citations_are_sound())
 
 
 class TestFindingShape(_Run):
@@ -324,13 +418,13 @@ class TestRecordingAVerdict(_Run):
 
         self.assertNotEqual(result.apply_to(self._finding()).verdict, "verified")
 
-    def test_a_contradicted_finding_records_why(self):
+    def test_a_finding_with_unusable_citations_records_why(self):
         finding = self._finding(evidence=[self._ref(content_sha256="d" * 64)])
 
         recorded = self._check(finding).apply_to(finding)
 
-        self.assertEqual(recorded.verdict, "contradicted")
-        self.assertTrue(recorded.limitations)
+        self.assertEqual(recorded.verdict, "insufficient_evidence")
+        self.assertIn("unusable", recorded.limitations[-1])
 
 
 if __name__ == "__main__":

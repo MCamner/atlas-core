@@ -21,6 +21,25 @@ explicit that a model's own opinion of its output may not close that gap alone.
 A `Finding` never asserts its own verdict either: it is constructed
 `insufficient_evidence` with method `none`, and a checker attaches a result via
 `EvidenceCheck.apply_to`.
+
+`contradicted` is equally out of reach here. A citation being unusable — an
+unknown id, a wrong digest, a quote that is not where it claims — says the
+*pointer* is broken, not that the claim is false. A correct finding can cite
+its source badly. Both outcomes are therefore `insufficient_evidence`, and the
+discrimination consumers need lives in `citations_are_sound()` and the
+per-citation statuses rather than in a verdict word that would read as a
+refutation.
+
+## Scope
+
+This is a standalone deterministic filter. It is **not** wired into
+`AtlasController` or the existing `repo_review` evaluator, so a run today gains
+no new protection against a wrong `PASS` from it. The P0.2 boxes stay open
+until the filter is part of an actual run.
+
+It also reads local files only. A `github_file`, `ci` or `memory` observation
+returns `unsupported_source_type` rather than being checked against a local
+path that happens to match.
 """
 
 from __future__ import annotations
@@ -49,7 +68,13 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class EvidenceStatus(str, Enum):
-    """What a deterministic check could establish about one citation."""
+    """What a deterministic check could establish about one citation.
+
+    Every value except INTACT says the *citation* is unusable. None of them
+    says the claim is false — a finding can be entirely correct and cite its
+    source badly. That distinction is why none of these produce a
+    `contradicted` verdict.
+    """
 
     #: The source_id names nothing this run read.
     UNKNOWN_SOURCE = "unknown_source"
@@ -59,8 +84,16 @@ class EvidenceStatus(str, Enum):
     QUOTE_MISMATCH = "quote_mismatch"
     #: The source has changed or gone since it was read.
     STALE_SOURCE = "stale_source"
+    #: The source is not a kind this checker can verify. See SUPPORTED_SOURCE_TYPES.
+    UNSUPPORTED_SOURCE_TYPE = "unsupported_source_type"
     #: Pointer is sound. Says nothing about whether it supports the claim.
     INTACT = "intact"
+
+
+#: This checker reads local files. A `github_file`, `ci` or `memory`
+#: observation needs its own adapter to establish provenance, and checking one
+#: against a local path that happens to match would be a false confirmation.
+SUPPORTED_SOURCE_TYPES: frozenset[str] = frozenset({"local_file"})
 
 
 @dataclass(frozen=True)
@@ -169,6 +202,19 @@ class EvidenceCheck:
         """
         return self.verdict == "verified"
 
+    def citations_are_sound(self) -> bool:
+        """Whether every citation points at something this run can stand behind.
+
+        This is the discrimination the verdict deliberately does not carry. A
+        broken citation and an unchecked claim are both `insufficient_evidence`,
+        because neither establishes anything — but they need different repairs.
+        A broken citation is the producer's error to fix; an unchecked claim
+        needs a semantic pass.
+        """
+        return bool(self.statuses) and all(
+            status is EvidenceStatus.INTACT for _, status in self.statuses
+        )
+
     def apply_to(self, finding: Finding) -> Finding:
         """Record this outcome on the finding, without upgrading it."""
         limitations = list(finding.limitations)
@@ -211,13 +257,20 @@ def check_finding(
         (ref.source_id, _check_reference(ref, by_id, root)) for ref in finding.evidence
     ]
 
-    broken = [(source_id, status) for source_id, status in statuses if status is not EvidenceStatus.INTACT]
+    broken = [
+        (source_id, status)
+        for source_id, status in statuses
+        if status is not EvidenceStatus.INTACT
+    ]
     if broken:
+        # Not `contradicted`. A citation being unusable says nothing about
+        # whether the claim is false — a correct finding can cite its source
+        # badly. Disproving a claim is the semantic layer's job, and taking
+        # that word here would let a broken pointer read as a refutation.
         return EvidenceCheck(
-            verdict="contradicted",
-            reason="; ".join(
-                f"{source_id}: {status.value}" for source_id, status in broken
-            ),
+            verdict="insufficient_evidence",
+            reason="citations are unusable: "
+            + "; ".join(f"{source_id}: {status.value}" for source_id, status in broken),
             statuses=statuses,
         )
 
@@ -237,6 +290,11 @@ def _check_reference(
     observation = by_id.get(ref.source_id)
     if observation is None:
         return EvidenceStatus.UNKNOWN_SOURCE
+
+    # A github_file, ci or memory observation must not be read off the local
+    # disk: a local path that happens to match would confirm the wrong thing.
+    if observation.source_type not in SUPPORTED_SOURCE_TYPES:
+        return EvidenceStatus.UNSUPPORTED_SOURCE_TYPE
 
     # The finding's claimed digest must match what was observed. This is what
     # stops a citation naming a real source while describing a different
@@ -271,6 +329,7 @@ def _derive_finding_id(claim: str, scope: str) -> str:
 __all__ = [
     "SCHEMA",
     "SEVERITIES",
+    "SUPPORTED_SOURCE_TYPES",
     "EvidenceCheck",
     "EvidenceRef",
     "EvidenceStatus",

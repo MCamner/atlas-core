@@ -7,6 +7,16 @@ Roadmap P0.2a: `Finding.v1` and deterministic verification.
 - Added `atlas_core/finding.py` and `schemas/atlas-finding.v1.json`: a claim,
   its scope, a severity that must carry a rationale, the citations it rests on,
   the verification method, the verdict, limitations and a reproducible command.
+- **`check_finding()` cannot return `verified` or `contradicted`.** A citation
+  being unusable — unknown id, wrong digest, a quote that is not where it
+  claims — says the pointer is broken, not that the claim is false. Both an
+  unusable citation and an intact-but-unchecked claim return
+  `insufficient_evidence`; `citations_are_sound()` carries the discrimination
+  so the verdict does not have to. `contradicted` is reserved for a claim a
+  semantic check has actually disproved.
+- Only `local_file` observations are checked. A `github_file`, `ci` or `memory`
+  source returns `unsupported_source_type` rather than being read off a local
+  path that happens to match, which would confirm the wrong artifact.
 - **`check_finding()` cannot return `verified`.** It establishes that a
   citation is sound — the source was read in this run, the claimed digest
   matches, and the quoted text sits contiguously at the line range it names —
