@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from atlas_core.budget import BudgetExceeded, RunBudget, RunLimits, UnmeteredUsage
 
 
 def limits(**changes: object) -> RunLimits:
-    fields = dict(wall_seconds=10.0, model_calls=2, tool_calls=2, tokens=5, output_bytes=4)
+    fields: dict[str, Any] = dict(wall_seconds=10.0, model_calls=2, tool_calls=2, tokens=5, output_bytes=4)
     fields.update(changes)
     return RunLimits(**fields)
 
