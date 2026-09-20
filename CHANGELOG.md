@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Roadmap P0.2, box three: fact, hypothesis and recommendation kept apart.
+
+- `render_run_text` now carries a **claim ledger**. The run document already
+  separated the three kinds — `citation_checks` gives a verdict per finding,
+  `unverified_claims` lists the rest — but the text a human reads did not: a
+  settled claim and a guess appeared as identical bullets under one heading,
+  and the trailer named an evidence gap without naming the claim.
+- The ledger is derived from the run document, never parsed out of the body, so
+  an output that calls everything verified changes nothing. `FACT` is settled
+  against observed lines, `REFUTED` means the source says otherwise, and
+  `HYPOTHESIS` covers everything else — including prose findings the checker
+  never saw, which are the ones most at risk of reading as established.
+  Recommendations are listed nowhere in it, with a line saying why.
+- `## Findings` is now accepted ahead of `## Verified findings` for
+  `repo_review`. A heading is not a verification, and one that calls its
+  contents verified asserts exactly what the run has to establish. The older
+  heading still works, so existing producers are unaffected.
+- A negative control caught a gap in the new tests rather than in the code:
+  labelling an unchecked claim `FACT` passed, because every hypothesis in the
+  suite arrived through `unverified_claims` and no test exercised a
+  `citation_checks` entry with `insufficient_evidence`. That case is covered
+  now, and the injection fails against it.
+
 Roadmap P0.2b: deciding whether the source supports the claim.
 
 - Added `atlas_core/claim_check.py`. A finding must declare **what would make
