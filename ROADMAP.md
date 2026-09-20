@@ -51,7 +51,15 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ### P0.2 Verifiering ≠ citering
 
-> Ingen ruta kryssad. Filtret är nu inkopplat i körningen (PR F), men **P0.2 stängs inte av det**: ett intakt citat kan fortfarande bära ett falskt påstående, och det är den delen rutorna handlar om. Rutorna kryssas när semantisk verifiering finns, är mergad och observerad.
+> Ingen ruta kryssad. PR E kryssar dem först när den är mergad och resultatet observerat på `main` — inte på en öppen gren.
+>
+> Vad PR E täcker: ett fynd måste deklarera **vad som skulle göra det falskt** — ett villkor över en källa körningen läst — och en deterministisk kontroll avgör. Modellen är alltså inte sin egen domare: den säger hur den kan ha fel, koden bestämmer om den har det. Producentens indata har ett eget schema (`atlas-findings-block.v1`) där `verdict`, `verification_method` och `finding_id` saknas; ett insmugglat `verdict` avvisar hela blocket i stället för att tystas. `contradicted` och `verified` är därmed nåbara för första gången, och konstrueras enbart i `claim_check.py` — `finding.py`:s strukturella garanti står kvar oförändrad.
+>
+> Roadmapfallet, genom hela körningen: en README som innehåller `pip install atlas-core` motbevisar nu ett fynd som påstår att den aldrig nämner pip. Verdict `contradicted`, `passed: False`. Ett fynd utan deklarerat villkor får `insufficient_evidence` och passerar inte heller — ett sunt citat ensamt räcker inte längre för `repo_review`.
+>
+> **Asymmetrin, som är avsiktlig:** en motbevisning behöver ett motexempel och är stark. Ett villkor som håller visar bara att *det villkoret* höll, inte att villkoret fångar påståendet. En producent som deklarerar ett lätt villkor får ett lätt `verified`, och ingenting här upptäcker det. `verified` betyder därför "det falsifierbara villkoret som fyndet självt namngav höll" — inte att påståendet är sant. Att stänga det kräver korrespondens mellan påstående och villkor, vilket inte är ett deterministiskt problem.
+>
+> Kvar öppet i övrigt: villkor matchar literal text, inte reguljära uttryck — ett producentlevererat mönster är otillförlitlig indata som kan hänga kontrollen. En stale källa avgör ingenting i någon riktning.
 >
 > Vad PR F täcker: körningen bär `Observation`-objekt och sitt snapshot i en egen kanal (`AtlasController.run(evidence=...)`), skild från dagens `list[str]` utan någon konvertering åt något håll — en sådan konvertering skulle behöva uppfinna digest, radintervall och snapshot och därmed producera en källa som utger sig för att vara verifierbar utan att något lästs. `repo_review`-evaluatorn kör `check_finding()` per strukturerat fynd; okänt `source_id`, manipulerat utdrag, ändrad fil, saknad observation, oläsbart fyndblock och fynd helt utan maskinläsbart citat kan inget av dem bidra till `PASS`. Ett gap som en omformulering kan stänga ger ett nytt varv med konkret återkoppling; ett gap som kräver en ny observation stoppar i stället för att bränna en iteration.
 >

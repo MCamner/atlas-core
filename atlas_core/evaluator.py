@@ -27,6 +27,7 @@ from typing import Any
 from .state import AtlasEvaluation
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
+from .claim_check import ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
     FINDINGS_FENCE,
@@ -55,6 +56,10 @@ class RouteEvaluator:
     finding_headings: tuple[str, ...]
     requires_sources: bool
     min_coverage: float = 1.0
+    # Whether a sound citation is enough. When true, a finding must also name
+    # a condition that would refute it, and that condition must survive. A
+    # route that only summarises has nothing to refute and leaves this off.
+    requires_claim_check: bool = False
 
 
 # Per P1, read-only repository review comes first. A route with no entry here
@@ -64,6 +69,7 @@ ROUTE_EVALUATORS: dict[str, RouteEvaluator] = {
         evidence_heading="## Observed sources",
         finding_headings=("## Verified findings",),
         requires_sources=True,
+        requires_claim_check=True,
     ),
 }
 
@@ -87,6 +93,14 @@ EVIDENCE_PROSE = {
     "unsound_citations": (
         "Some findings cite a source that does not hold up: unknown id, a "
         "digest or quote that does not match, or a source that has moved."
+    ),
+    "contradicted_findings": (
+        "Some findings are refuted by the source they cite: they named a "
+        "condition that would make them false, and it is false."
+    ),
+    "unverified_findings": (
+        "Some findings cite a sound source but name no condition that could "
+        "refute them, so the claim itself was never checked."
     ),
 }
 
@@ -353,6 +367,17 @@ def _grade_against_evidence(
     ]
     unsound = [(finding, check) for finding, check in checks if not check.citations_are_sound()]
 
+    # Only a finding whose citations hold goes on to the semantic step. A
+    # refutation resting on a source the finding cannot point at would be an
+    # accusation about the wrong file.
+    claim_verdicts: dict[str, ClaimVerdict] = {}
+    if contract.requires_claim_check:
+        for (finding, check), (_, condition) in zip(checks, parsed.entries):
+            if check.citations_are_sound():
+                claim_verdicts[finding.finding_id] = check_claim(
+                    finding, condition, base.observations, base.root
+                )
+
     if not checks and not uncheckable:
         if contract.evidence_heading not in output:
             return _Evidence(
@@ -375,10 +400,28 @@ def _grade_against_evidence(
             citation_checks=[],
         )
 
-    records = [_citation_record(finding, check) for finding, check in checks]
+    records = [
+        _citation_record(finding, check, claim_verdicts.get(finding.finding_id))
+        for finding, check in checks
+    ]
+
+    refuted = [
+        finding
+        for finding, _ in checks
+        if (verdict := claim_verdicts.get(finding.finding_id)) is not None and verdict.refutes()
+    ]
+    unchecked = [
+        finding
+        for finding, check in checks
+        if check.citations_are_sound()
+        and (verdict := claim_verdicts.get(finding.finding_id)) is not None
+        and not verdict.refutes()
+        and not verdict.supports()
+    ]
+
     considered = len(checks) + len(uncheckable)
-    sound = considered - len(unsound) - len(uncheckable)
-    coverage = round(sound / considered, 2)
+    supported = considered - len(unsound) - len(uncheckable) - len(refuted) - len(unchecked)
+    coverage = round(supported / considered, 2)
 
     gaps: list[str] = []
     unverified: list[str] = []
@@ -388,6 +431,12 @@ def _grade_against_evidence(
     if unsound:
         gaps.append("unsound_citations")
         unverified.extend(finding.claim for finding, _ in unsound)
+    if refuted:
+        gaps.append("contradicted_findings")
+        unverified.extend(finding.claim for finding in refuted)
+    if unchecked:
+        gaps.append("unverified_findings")
+        unverified.extend(finding.claim for finding in unchecked)
 
     if gaps:
         blocking = _blocking_statuses(unsound)
@@ -396,7 +445,7 @@ def _grade_against_evidence(
             unverified=unverified,
             coverage=coverage,
             reasons=[],
-            actionable=_is_requotable(uncheckable, unsound),
+            actionable=_is_requotable(uncheckable, unsound, refuted, unchecked),
             citation_checks=records,
             factor=_coverage_factor(coverage),
             # Why no retry is offered, in the run itself. "The loop gave up"
@@ -411,23 +460,34 @@ def _grade_against_evidence(
             ),
         )
 
+    if contract.requires_claim_check:
+        reason = (
+            f"All {len(checks)} finding(s) cite a source that still holds, and each "
+            "named a condition that would refute it which the source did not meet. "
+            "That is what was checked — not that the condition captures the claim."
+        )
+    else:
+        reason = (
+            f"All {len(checks)} finding(s) cite a source that was read this run, "
+            "with a digest, excerpt and line range that still hold. Citation "
+            "integrity only: each claim is eligible for semantic verification, "
+            "which this route does not require."
+        )
     return _Evidence(
         gaps=[],
         unverified=[],
         coverage=coverage,
-        reasons=[
-            f"All {len(checks)} finding(s) cite a source that was read this run, "
-            "with a digest, excerpt and line range that still hold. Citation "
-            "integrity only: each claim is eligible for semantic verification, "
-            "which this run did not perform."
-        ],
+        reasons=[reason],
         actionable=False,
         citation_checks=records,
     )
 
 
 def _is_requotable(
-    uncheckable: list[str], unsound: list[tuple[Finding, Any]]
+    uncheckable: list[str],
+    unsound: list[tuple[Finding, Any]],
+    refuted: list[Finding] | None = None,
+    unchecked: list[Finding] | None = None,
 ) -> bool:
     """Whether another pass could close **every** gap without new observations.
 
@@ -441,8 +501,10 @@ def _is_requotable(
     """
     if _blocking_statuses(unsound):
         return False
-    # A missing citation can be written from sources the run already holds.
-    return bool(uncheckable) or bool(unsound)
+    # A missing citation can be written from sources the run already holds; a
+    # missing condition can be declared; a refuted finding can be corrected or
+    # dropped. All three are repairs the producer can make without new sources.
+    return bool(uncheckable) or bool(unsound) or bool(refuted) or bool(unchecked)
 
 
 def _blocking_statuses(unsound: list[tuple[Finding, Any]]) -> list[EvidenceStatus]:
@@ -455,16 +517,22 @@ def _blocking_statuses(unsound: list[tuple[Finding, Any]]) -> list[EvidenceStatu
     ]
 
 
-def _citation_record(finding: Finding, check: Any) -> dict[str, Any]:
+def _citation_record(
+    finding: Finding, check: Any, claim: ClaimVerdict | None
+) -> dict[str, Any]:
+    """One finding's full record: the pointer, the claim, and the verdict."""
+    decided = apply_verdict(finding, check, claim) if claim else check.apply_to(finding)
     return {
         "finding_id": finding.finding_id,
         "claim": finding.claim,
-        "verdict": check.verdict,
+        "verdict": decided.verdict,
+        "verification_method": decided.verification_method,
         "citations_are_sound": check.citations_are_sound(),
         "statuses": [
             {"source_id": source_id, "status": status.value}
             for source_id, status in check.statuses
         ],
+        "claim_check": claim.to_dict() if claim else None,
     }
 
 
@@ -500,6 +568,18 @@ def _adjustment(
         )
     if "malformed_findings" in evidence.gaps:
         parts.append(f"Repair the `{FINDINGS_FENCE}` block so it parses as a list of findings.")
+    refuted = [
+        f"{record['claim'][:60]}: {(record['claim_check'] or {}).get('reason', '')}"
+        for record in evidence.citation_checks
+        if (record["claim_check"] or {}).get("result") == "refuted"
+    ]
+    if refuted:
+        parts.append("Drop or correct what the source refutes — " + "; ".join(refuted) + ".")
+    if "unverified_findings" in evidence.gaps:
+        parts.append(
+            "Give every finding a `claim_check` naming what would refute it: "
+            "{\"kind\": \"absent\"|\"present\", \"source_id\": ..., \"text\": ...}."
+        )
     broken = [
         f"{record['claim'][:60]}: "
         + ", ".join(

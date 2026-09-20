@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+Roadmap P0.2b: deciding whether the source supports the claim.
+
+- Added `atlas_core/claim_check.py`. A finding must declare **what would make
+  it false** — a condition over a source the run read — and a deterministic
+  checker settles it. The producer says how it could be wrong; code decides
+  whether it is, so a model's self-assessment closes nothing on its own.
+- Before this, a README containing `pip install atlas-core` backed a finding
+  asserting it "saknar helt installationsinstruktioner och nämner aldrig pip",
+  with a sound citation and `passed: True`. That finding is now `contradicted`
+  and the run does not pass. A finding that declares no condition gets
+  `insufficient_evidence` and does not pass either: a sound citation alone is
+  no longer enough for `repo_review`.
+- **`contradicted` and `verified` are reachable for the first time**, and only
+  from `claim_check.py`. `finding.py`'s structural guarantee is unchanged, and
+  the grep test that enforces it now covers both words.
+- The two outcomes are not symmetric, and the module says so. Refutation needs
+  one counterexample. A condition that holds shows only that *that condition*
+  held — nothing checks it is a fair test of the claim, so a producer that
+  declares an easy condition earns an easy `verified`. `verified` therefore
+  means "the falsifiable condition this finding named held", and the reasons
+  say that rather than presenting the claim as established.
+- Only a finding with sound citations reaches the claim check. A refutation
+  resting on a source the finding cannot point at would be an accusation about
+  the wrong file. A stale source settles nothing in either direction.
+- Conditions match literal text. A producer-supplied regular expression is
+  untrusted input that can hang the checker; a substring search cannot.
+- Added `schemas/atlas-findings-block.v1.json` for what a producer supplies.
+  It has no `verdict`, `verification_method` or `finding_id` — those are
+  assigned by whatever checked the finding — and the parser now enforces that
+  closed key set, so a smuggled `verdict` refuses the block instead of being
+  silently dropped.
+- `atlas-evaluation.v1` gains `verification_method` and `claim_check` on each
+  `citation_checks` entry, plus `contradicted_findings` and
+  `unverified_findings` gap codes. Both gaps are actionable: a refuted finding
+  can be corrected or dropped, and a missing condition can be declared.
+
 Roadmap P0.2: the evidence filter is wired into the run.
 
 - `AtlasController.run` takes `evidence: EvidenceBase | None` beside the

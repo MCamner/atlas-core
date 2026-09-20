@@ -71,7 +71,9 @@
           "uncited_findings",
           "malformed_findings",
           "uncheckable_findings",
-          "unsound_citations"
+          "unsound_citations",
+          "contradicted_findings",
+          "unverified_findings"
         ]
       }
     },
@@ -93,7 +95,7 @@
     },
     "citation_checks": {
       "type": "array",
-      "description": "Per-finding result of deterministic citation checking, so a score can be followed back to a source. Empty on a run with no evidence base: the citation-only path checks nothing and must not look as though it did. citations_are_sound is about the pointer, never about the claim — verdict is always insufficient_evidence here, because establishing that a source supports a claim is semantic verification and is not performed.",
+      "description": "Per-finding result of deterministic checking, so a score can be followed back to a source. Empty on a run with no evidence base. `citations_are_sound` is about the pointer; `claim_check` is about the claim. A verdict of `verified` means the condition the finding named held — not that the condition captures the claim; `contradicted` means the source met the finding's own test for being wrong.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -101,8 +103,10 @@
           "finding_id",
           "claim",
           "verdict",
+          "verification_method",
           "citations_are_sound",
-          "statuses"
+          "statuses",
+          "claim_check"
         ],
         "properties": {
           "finding_id": {
@@ -149,6 +153,52 @@
                     "intact"
                   ]
                 }
+              }
+            }
+          },
+          "verification_method": {
+            "type": "string",
+            "enum": [
+              "none",
+              "deterministic_evidence_check",
+              "semantic",
+              "test_execution"
+            ],
+            "description": "semantic means a declared condition was settled against the source. Anything else means the claim itself was not checked."
+          },
+          "claim_check": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The outcome of settling the finding's declared refutation condition. Null when the route requires no claim check, or when the citations were unsound — a refutation resting on a source the finding cannot point at would be an accusation about the wrong file, so unsound citations never reach this step.",
+            "additionalProperties": false,
+            "required": [
+              "result",
+              "reason",
+              "condition"
+            ],
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "supported",
+                  "refuted",
+                  "not_declared",
+                  "unsupported_kind",
+                  "source_not_cited",
+                  "source_unavailable"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "condition": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The condition that was evaluated, so a reader can judge whether it was a fair test of the claim."
               }
             }
           }

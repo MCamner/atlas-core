@@ -99,15 +99,40 @@ observation's own excerpt must still match the lines it names, and the quote
 must sit inside the range the observation recorded. A finding that fails any of
 those cannot contribute to `passed`.
 
-### Sound is still not verified
+### The claim check
 
-Surviving that check means the **pointer** holds, not that the source supports
-the claim. `citation_checks[].verdict` is always `insufficient_evidence`;
-`citations_are_sound` is what carries the difference. A false claim with a
-correctly quoted citation therefore still passes the gate. Closing that is
-semantic verification, which this repository does not perform yet — see
-`ROADMAP.md` P0.2. `evidence_gaps` being empty means "every claim here is
-eligible to be verified", never "this output is correct".
+A sound citation is no longer enough for `repo_review`. A finding must also
+declare a `claim_check`: a condition over a source it cites that would make the
+finding false.
+
+```json
+{"kind": "absent", "source_id": "...", "text": "pip install"}
+```
+
+The producer says how it could be wrong; a deterministic checker decides
+whether it is. Nothing asks a model whether it was right, so a self-assessment
+closes nothing. `schemas/atlas-findings-block.v1.json` is the producer's input
+contract, and it has no `verdict`, `verification_method` or `finding_id` —
+those are assigned by whatever checked the finding. A block that supplies one
+is refused, not stripped.
+
+Conditions match literal text. A producer-supplied regular expression is
+untrusted input that can hang the checker; a substring search cannot.
+
+Only a finding whose citations are sound reaches this step: a refutation
+resting on a source the finding cannot point at would be an accusation about
+the wrong file. A source that has moved settles nothing in either direction.
+
+### Refutation is stronger than support
+
+`contradicted` needs one counterexample: the finding said the text would be
+absent and it is there. That is a real refutation.
+
+`verified` is weaker. It says the declared condition held — **not** that the
+condition is a fair test of the claim. A producer that declares an easy
+condition earns an easy `verified`, and nothing detects that. So
+`evidence_gaps` being empty means "every finding named a way to be wrong and
+was not wrong in that way", never "this output is correct".
 
 ## Stop Semantics
 
