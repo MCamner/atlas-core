@@ -38,6 +38,23 @@ Roadmap P0.2: the evidence filter is wired into the run.
   gains optional `citation_checks` and three additive `evidence_gaps` codes
   (`malformed_findings`, `uncheckable_findings`, `unsound_citations`).
   Documents written against the earlier code set still validate.
+- The run document exports `evidence_manifest` — a sanitised
+  `atlas-observation-manifest.v1` — and never the evidence base. `asdict` had
+  been walking straight into the base and publishing every excerpt the run read
+  plus the absolute path it read from; the sanitised manifest from P0.1c
+  existed and was not being used. `snapshot.root` is dropped rather than
+  masked, because redaction recognises home directories and credential shapes,
+  not an arbitrary absolute path such as one under `/private/var`. The prose
+  `observations` channel is still exported verbatim, as in 1.0, and a test
+  asserts that so the sanitised manifest does not imply the whole document is
+  safe.
+- One gap that needs a fresh observation now blocks the retry for the whole
+  output. A retry re-runs the producer once, so a pass that fixed the citable
+  findings would still return the stale one unchanged and spend an iteration
+  failing on the same ground. The earlier rule returned "actionable" as soon as
+  any finding lacked a citation, without looking at what the other findings
+  required. The run now also records why it did not try again, since "the loop
+  gave up" and "observe the sources again" call for different actions.
 - Known and unchanged: a run that exhausts its iterations on an evidence gap
   reports `no_actionable_retry` rather than `max_iterations`, because that
   choice keys off `missing_sections`. Pre-existing, and stop-reason semantics

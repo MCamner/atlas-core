@@ -157,26 +157,55 @@
         }
       }
     },
-    "evidence_base": {
+    "evidence_manifest": {
       "type": [
         "object",
         "null"
       ],
-      "description": "The verifiable sources this run held: one snapshot and the observations taken against it. Null when the run carried prose context only, in which case grading was citation-only and checked nothing against a source's contents.",
+      "description": "The sanitised record of what this run read: an atlas-observation-manifest.v1 built from the run's evidence base. Null when the run carried prose context only, in which case grading was citation-only. The raw evidence base is never exported: it holds unmasked excerpts and the absolute path the run read from, and the root is dropped rather than masked because redaction cannot recognise an arbitrary absolute path. Each entry's verification is \"unknown\" and is_evidence is false by design — exporting is not verifying, and doing disk IO inside serialisation would make a run document depend on when it was rendered. What was verified is in each evaluation's citation_checks.",
       "additionalProperties": false,
       "required": [
+        "schema",
         "snapshot",
         "observations"
       ],
       "properties": {
+        "schema": {
+          "const": "atlas-observation-manifest.v1"
+        },
         "snapshot": {
           "type": "object",
-          "description": "A snapshot as produced by atlas_core.snapshot.take_snapshot."
+          "additionalProperties": false,
+          "required": [
+            "snapshot_id",
+            "taken_at",
+            "commit",
+            "ref",
+            "worktree_state"
+          ],
+          "description": "Snapshot identity without `root`. The local path a run read from is not part of its result.",
+          "properties": {
+            "snapshot_id": {
+              "type": "string"
+            },
+            "taken_at": {
+              "type": "string"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "worktree_state": {
+              "type": "string"
+            }
+          }
         },
         "observations": {
           "type": "array",
           "items": {
-            "$ref": "atlas-observation.v1.json"
+            "type": "object"
           }
         }
       }

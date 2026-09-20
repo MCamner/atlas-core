@@ -26,7 +26,13 @@ from atlas_core.evidence_base import EvidenceBase
 from atlas_core.observation import Observation
 from atlas_core.snapshot import collect_observation, take_snapshot
 
-README = "# Atlas Core\n\npip install atlas-core\n\nEn avgränsad loop-motor.\n"
+README = (
+    "# Atlas Core\n\npip install atlas-core\n\nEn avgränsad loop-motor.\n"
+    # Planted so the export tests can assert their absence rather than assert
+    # that a clean file stays clean, which would prove nothing.
+    "Kontakt: privat@example.com\n"
+    "Token: ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123\n"
+)
 
 # Long enough to clear the substance threshold, and carrying every section the
 # formatting check wants. The point of these tests is what happens when the
@@ -100,6 +106,11 @@ class _Loop(unittest.TestCase):
             }
         ]
         return f"{text}\n```{FINDINGS_FENCE}\n{json.dumps(findings)}\n```\n"
+
+    def _block(self, text, findings):
+        """Attach a findings block to prose."""
+        fence = "```" + FINDINGS_FENCE
+        return text + "\n" + fence + "\n" + json.dumps(findings) + "\n```\n"
 
     def _run(self, output, *, evidence=True, max_iterations=1):
         controller = AtlasController(
@@ -326,8 +337,8 @@ class TestBackwardsCompatibilityIsExplicit(_Loop):
         checked = self._run(self._output())
         unchecked = self._run(self._output(), evidence=False)
 
-        self.assertIsNotNone(checked["evidence_base"])
-        self.assertIsNone(unchecked["evidence_base"])
+        self.assertIsNotNone(checked["evidence_manifest"])
+        self.assertIsNone(unchecked["evidence_manifest"])
         self.assertTrue(checked["evaluations"][-1]["citation_checks"])
         self.assertEqual(unchecked["evaluations"][-1]["citation_checks"], [])
 
@@ -443,3 +454,153 @@ class TestTheFindingsBlock(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheExportIsSanitised(_Loop):
+    """Review blocker 1: `to_dict()` walked straight into the raw base.
+
+    `asdict` recurses, so every excerpt the run read and the absolute path it
+    read from were published in the run document — the sanitised manifest from
+    P0.1c existed and was not used. These tests assert absence of things the
+    fixture genuinely plants, so a pass cannot come from a clean input.
+    """
+
+    def _manifest(self):
+        run = self._run(self._output())
+        self.assertIsNotNone(run["evidence_manifest"])
+        return run, json.dumps(run["evidence_manifest"], ensure_ascii=False)
+
+    def test_the_absolute_root_is_not_exported(self):
+        """Dropped, not masked: redaction cannot recognise an arbitrary path."""
+        run, document = self._manifest()
+
+        self.assertNotIn("root", run["evidence_manifest"]["snapshot"])
+        self.assertNotIn(str(self.root), document)
+
+    def test_secrets_in_an_excerpt_do_not_reach_the_export(self):
+        _, document = self._manifest()
+
+        self.assertIn("privat@example.com", README)
+        self.assertNotIn("privat@example.com", document)
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", document)
+
+    def test_the_whole_run_document_is_free_of_the_raw_base(self):
+        """Not only the manifest: nothing else may carry it either."""
+        run = self._run(self._output())
+        run.pop("observations")  # the prose channel; see below
+        document = json.dumps(run, ensure_ascii=False)
+
+        self.assertNotIn("evidence_base", document)
+        self.assertNotIn(str(self.root), document)
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", document)
+
+    def test_the_prose_channel_is_still_exported_verbatim(self):
+        """Stated, not fixed. This is 1.0 behaviour and out of this PR's scope.
+
+        An adapter that puts file contents in `observations` still exports
+        them. Asserting it keeps the boundary visible instead of letting the
+        sanitised manifest imply the whole document is safe.
+        """
+        run = self._run(self._output())
+
+        self.assertIn("privat@example.com", json.dumps(run["observations"]))
+
+    def test_the_digest_survives_so_the_manifest_still_points_somewhere(self):
+        """Negative control: redaction must not mask the verification pointer."""
+        run, _ = self._manifest()
+        entry = run["evidence_manifest"]["observations"][0]
+
+        self.assertEqual(entry["content_sha256"], self.observation.content_sha256)
+        self.assertEqual(entry["source_id"], self.observation.source_id)
+
+    def test_the_manifest_claims_no_verification_of_its_own(self):
+        """Exporting is not verifying; what was checked is in citation_checks."""
+        run, _ = self._manifest()
+        entry = run["evidence_manifest"]["observations"][0]
+
+        self.assertEqual(entry["verification"], "unknown")
+        self.assertFalse(entry["is_evidence"])
+        self.assertTrue(run["evaluations"][-1]["citation_checks"][0]["citations_are_sound"])
+
+
+class TestOneBlockingGapStopsTheRetry(_Loop):
+    """Review blocker 2: a fixable finding made a doomed retry look worth it.
+
+    A retry re-runs the producer once for the whole output. If one finding
+    needs a fresh observation, the pass that fixes the citable ones still comes
+    back with that one unchanged — so the iteration is spent to fail on the
+    same ground.
+    """
+
+    def _mixed(self, max_iterations=2):
+        """One finding gone stale, one bullet with no citation at all."""
+        (self.root / "README.md").write_text(README + "ändrad\n", encoding="utf-8")
+        text = PROSE.format(claim=FALSE_CLAIM).replace(
+            f"- {FALSE_CLAIM}", f"- {FALSE_CLAIM}\n- Ett fynd helt utan citat."
+        )
+        findings = [
+            {
+                "claim": FALSE_CLAIM,
+                "scope": "README.md",
+                "severity": "P1",
+                "severity_rationale": "r",
+                "evidence": [self._citation()],
+            }
+        ]
+        output = self._block(text, findings)
+        return self._run(output, max_iterations=max_iterations)
+
+    def test_a_stale_source_blocks_the_retry_even_beside_a_citable_finding(self):
+        run = self._mixed()
+        evaluation = run["evaluations"][0]
+
+        self.assertIn("uncheckable_findings", evaluation["evidence_gaps"])
+        self.assertEqual(
+            [s["status"] for r in evaluation["citation_checks"] for s in r["statuses"]],
+            ["stale_source"],
+        )
+        self.assertFalse(evaluation["should_retry"])
+
+    def test_no_iteration_is_spent_on_it(self):
+        run = self._mixed()
+
+        self.assertEqual(run["iteration"], 1)
+        self.assertEqual(run["stop_reason"], "no_actionable_retry")
+
+    def test_the_run_says_why_it_did_not_try_again(self):
+        """"The loop gave up" and "observe again" need different actions."""
+        run = self._mixed()
+        missing = " ".join(run["evaluations"][0]["missing"])
+
+        self.assertIn("stale_source", missing)
+        self.assertIn("observed again", missing)
+
+    def test_an_uncited_finding_alone_is_still_worth_a_retry(self):
+        """Negative control: the fix must not block every retry."""
+        run = self._run(self._output(block=False), max_iterations=2)
+
+        self.assertTrue(run["evaluations"][0]["should_retry"])
+        self.assertEqual(run["iteration"], 2)
+
+    def test_a_miscited_finding_beside_an_uncited_one_is_still_worth_a_retry(self):
+        """Both gaps present, neither blocking: the retry must survive."""
+        text = PROSE.format(claim=FALSE_CLAIM).replace(
+            f"- {FALSE_CLAIM}", f"- {FALSE_CLAIM}\n- Ett fynd helt utan citat."
+        )
+        findings = [
+            {
+                "claim": FALSE_CLAIM,
+                "scope": "README.md",
+                "severity": "P1",
+                "severity_rationale": "r",
+                "evidence": [self._citation(quoted="FEL CITAT")],
+            }
+        ]
+        run = self._run(self._block(text, findings), max_iterations=2)
+        evaluation = run["evaluations"][0]
+
+        self.assertEqual(
+            sorted(evaluation["evidence_gaps"]),
+            ["uncheckable_findings", "unsound_citations"],
+        )
+        self.assertTrue(evaluation["should_retry"])

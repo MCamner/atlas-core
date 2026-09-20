@@ -68,6 +68,8 @@ class AtlasRunState:
     # re-read or re-hashed. Kept as a separate channel from `evidence_base` on
     # purpose — see atlas_core/evidence_base.py.
     observations: list[str] = field(default_factory=list)
+    # Raw: holds excerpts and the absolute root. Never serialised as-is —
+    # `to_dict` exports `evidence_manifest` instead. See evidence_base.py.
     evidence_base: EvidenceBase | None = None
     outputs: list[str] = field(default_factory=list)
     evaluations: list[AtlasEvaluation] = field(default_factory=list)
@@ -75,4 +77,16 @@ class AtlasRunState:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"schema": "atlas-run.v1", **asdict(self)}
+        """Render the run as an `atlas-run.v1` document.
+
+        `evidence_base` is deliberately not in the output. `asdict` would walk
+        straight into it and publish every excerpt the run read plus the
+        absolute path it read from; the export is a sanitised manifest instead.
+        """
+        fields = {
+            name: value
+            for name, value in asdict(self).items()
+            if name != "evidence_base"
+        }
+        manifest = self.evidence_base.to_manifest() if self.evidence_base else None
+        return {"schema": "atlas-run.v1", **fields, "evidence_manifest": manifest}

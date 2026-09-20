@@ -177,6 +177,8 @@ def evaluate(
     )
     reasons.extend(evidence.reasons)
     missing.extend(EVIDENCE_PROSE[code] for code in evidence.gaps)
+    if evidence.blocking_note:
+        missing.append(evidence.blocking_note)
 
     # Formatting alone can no longer carry a route that owes evidence. This is
     # the P1 rule: a well-formatted but unsupported answer does not pass.
@@ -217,6 +219,8 @@ class _Evidence:
     #: reader can follow a verdict back to a source rather than take the score
     #: on trust. Empty on the citation-only path, which checks nothing.
     citation_checks: list[dict[str, Any]] = field(default_factory=list)
+    #: Present when a gap exists that no re-citation can close.
+    blocking_note: str | None = None
     # What share of the formatting score survives. A route that owes evidence
     # and shows none keeps 0.75 of it, which lands below PASS_THRESHOLD on its
     # own — the gate is arithmetic, not only a boolean override.
@@ -386,6 +390,7 @@ def _grade_against_evidence(
         unverified.extend(finding.claim for finding, _ in unsound)
 
     if gaps:
+        blocking = _blocking_statuses(unsound)
         return _Evidence(
             gaps=gaps,
             unverified=unverified,
@@ -394,6 +399,16 @@ def _grade_against_evidence(
             actionable=_is_requotable(uncheckable, unsound),
             citation_checks=records,
             factor=_coverage_factor(coverage),
+            # Why no retry is offered, in the run itself. "The loop gave up"
+            # and "this needs a fresh observation" call for different actions
+            # from whoever reads the result.
+            blocking_note=(
+                "No retry: "
+                + ", ".join(sorted({status.value for status in blocking}))
+                + " cannot be repaired by re-citing; the sources must be observed again."
+                if blocking
+                else None
+            ),
         )
 
     return _Evidence(
@@ -414,16 +429,30 @@ def _grade_against_evidence(
 def _is_requotable(
     uncheckable: list[str], unsound: list[tuple[Finding, Any]]
 ) -> bool:
-    """Whether another pass could close these gaps without new observations."""
-    if uncheckable:
-        # A missing citation can be written from sources the run already holds.
-        return True
-    return all(
-        status in _REQUOTABLE
+    """Whether another pass could close **every** gap without new observations.
+
+    One blocking status decides the answer for the whole output. A retry is a
+    single re-run of the producer, so a pass that could fix the citable
+    findings would still come back with the stale one unchanged, and the run
+    would have spent an iteration to fail on the same ground. Treating the
+    fixable half as permission to retry is what made that happen: the earlier
+    version returned True as soon as any finding lacked a citation, without
+    looking at what the other findings' statuses required.
+    """
+    if _blocking_statuses(unsound):
+        return False
+    # A missing citation can be written from sources the run already holds.
+    return bool(uncheckable) or bool(unsound)
+
+
+def _blocking_statuses(unsound: list[tuple[Finding, Any]]) -> list[EvidenceStatus]:
+    """Failures no re-wording can repair; they need a fresh observation."""
+    return [
+        status
         for _, check in unsound
         for _, status in check.statuses
-        if status is not EvidenceStatus.INTACT
-    )
+        if status is not EvidenceStatus.INTACT and status not in _REQUOTABLE
+    ]
 
 
 def _citation_record(finding: Finding, check: Any) -> dict[str, Any]:

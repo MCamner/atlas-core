@@ -31,7 +31,20 @@ With `json_mode=True`, it returns an `atlas-run.v1` dictionary.
 | `observations: list[str]` | Prose context an adapter formatted. | Citation only: does a finding name a source that was read? |
 | `evidence: EvidenceBase \| None` | A snapshot and the `Observation` objects taken against it. | Deterministic: is each citation still sound against the source? |
 
-There is deliberately **no conversion** between them. Building an `Observation`
+The run document exports `evidence_manifest`, a sanitised
+`atlas-observation-manifest.v1`, and never the evidence base itself. The base
+holds unmasked excerpts and the absolute path the run read from; the root is
+dropped rather than masked, because redaction recognises home directories and
+credential shapes, not an arbitrary absolute path. The manifest's
+`verification` is `unknown` and `is_evidence` is false by design — exporting is
+not verifying, and disk IO inside serialisation would make a run document
+depend on when it was rendered. What was verified is in `citation_checks`.
+
+This does **not** make the whole document safe. `observations`, the prose
+channel, is still exported verbatim as it has been since 1.0, so an adapter
+that puts file contents there still exports them.
+
+There is deliberately **no conversion** between the two channels. Building an `Observation`
 from a formatted string would require inventing a digest, a line range and a
 snapshot, producing a source that claims to be verifiable while nothing behind
 it was read. Callers that want the stricter gate must collect real
