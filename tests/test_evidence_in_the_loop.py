@@ -18,6 +18,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from atlas_core import AtlasController, StubModelAdapter
 from atlas_core.evaluator import evaluate
@@ -63,6 +64,9 @@ Hög.
 
 FALSE_CLAIM = "README.md saknar helt installationsinstruktioner och nämner aldrig Python."
 
+#: Distinguishes "caller said nothing" from "caller said no condition".
+_DEFAULT: Any = object()
+
 
 class _Loop(unittest.TestCase):
     """A real snapshot, one real observation, and a model that says what we tell it."""
@@ -92,20 +96,80 @@ class _Loop(unittest.TestCase):
         fields.update(overrides)
         return fields
 
-    def _output(self, claim=FALSE_CLAIM, citations=None, block=True):
+    def _condition(self, **overrides):
+        """A condition the README genuinely satisfies, unless overridden.
+
+        A condition alone cannot pass since P0.2b — its relevance to the claim
+        is unchecked. `_passing_finding` is what a finding that may pass looks
+        like.
+        """
+        fields = {
+            "kind": "absent",
+            "source_id": self.observation.source_id,
+            "text": "detta finns inte i filen",
+        }
+        fields.update(overrides)
+        return fields
+
+    def _passing_finding(self):
+        """A finding that may reach PASS: a typed claim, stated as it reads.
+
+        The claim text is derived rather than written, which is the property
+        that closes the gap between what is asserted and what is settled.
+        """
+        from atlas_core.claim_check import ClaimKind, TypedClaim
+
+        typed = TypedClaim(
+            kind=ClaimKind.CONTAINS,
+            source_id=self.observation.source_id,
+            text="pip install",
+        )
+        claim = typed.render(
+            self.observation.path,
+            self.observation.line_start,
+            self.observation.line_end,
+        )
+        return {
+            "claim": claim,
+            "scope": "README.md",
+            "severity": "P1",
+            "severity_rationale": "Blockerar en ny användare.",
+            "evidence": [self._citation()],
+            "typed_claim": {
+                "kind": typed.kind.value,
+                "source_id": typed.source_id,
+                "text": typed.text,
+            },
+        }
+
+    def _passing_output(self):
+        return self._block(PROSE.format(claim=self._passing_finding()["claim"]),
+                           [self._passing_finding()])
+
+    def _output(
+        self,
+        claim: str = FALSE_CLAIM,
+        citations: list[dict[str, object]] | None = None,
+        block: bool = True,
+        condition: dict[str, object] | None | Any = _DEFAULT,
+    ) -> str:
         text = PROSE.format(claim=claim)
         if not block:
             return text
-        findings = [
-            {
-                "claim": claim,
-                "scope": "README.md",
-                "severity": "P1",
-                "severity_rationale": "Blockerar en ny användare.",
-                "evidence": citations if citations is not None else [self._citation()],
-            }
-        ]
-        return f"{text}\n```{FINDINGS_FENCE}\n{json.dumps(findings)}\n```\n"
+        finding: dict[str, Any] = {
+            "claim": claim,
+            "scope": "README.md",
+            "severity": "P1",
+            "severity_rationale": "Blockerar en ny användare.",
+            "evidence": citations if citations is not None else [self._citation()],
+        }
+        # The default declares a condition, because since P0.2b a finding
+        # without one cannot pass and most tests here are about other things.
+        if condition is _DEFAULT:
+            finding["claim_check"] = self._condition()
+        elif condition is not None:
+            finding["claim_check"] = condition
+        return self._block(text, [finding])
 
     def _block(self, text, findings):
         """Attach a findings block to prose."""
@@ -165,7 +229,7 @@ class TestTheGateEndToEnd(_Loop):
     def test_the_score_itself_drops_below_the_threshold(self):
         """The gate is arithmetic as well as boolean, so neither alone carries it."""
         blocked = self._run(self._output(citations=[self._citation(quoted="FEL")]))
-        accepted = self._run(self._output())
+        accepted = self._run(self._passing_output())
 
         self.assertLess(blocked["evaluations"][-1]["quality_score"], 0.78)
         self.assertGreaterEqual(accepted["evaluations"][-1]["quality_score"], 0.78)
@@ -242,32 +306,55 @@ class TestWhatCannotContributeToPass(_Loop):
         self.assertIn("malformed_findings", evaluation["evidence_gaps"])
 
 
-class TestSoundIsNotVerified(_Loop):
-    """The limit this PR does not move, asserted so nobody assumes otherwise."""
+class TestSoundIsNotEnough(_Loop):
+    """What used to be this suite's stated limit, now closed by P0.2b.
 
-    def test_a_sound_citation_still_does_not_mean_verified(self):
-        """The claim below is false, and its citation is perfectly sound.
+    Before the claim check, a sound citation was all `repo_review` required, so
+    a false claim quoting line 1 of a README correctly passed at 0.9. These
+    tests hold that door shut.
+    """
 
-        It quotes line 1 of a README that does contain installation
-        instructions. The gate lets it through because citation integrity is
-        all it checks — closing this is P0.2b, and the run record must not
-        pretend otherwise.
+    def test_a_sound_citation_alone_no_longer_passes(self):
+        run = self._run(self._output(condition=None))
+        evaluation = run["evaluations"][-1]
+        record = evaluation["citation_checks"][0]
+
+        self.assertTrue(record["citations_are_sound"])
+        self.assertFalse(evaluation["passed"])
+        self.assertIn("unverified_findings", evaluation["evidence_gaps"])
+        self.assertEqual(record["verdict"], "insufficient_evidence")
+
+    def test_the_run_says_the_claim_itself_was_not_checked(self):
+        run = self._run(self._output(condition=None))
+        record = run["evaluations"][-1]["citation_checks"][0]
+
+        self.assertEqual(record["claim_check"]["result"], "not_declared")
+        self.assertNotEqual(record["verification_method"], "semantic")
+
+    def test_a_condition_that_holds_is_still_not_a_confirmed_claim(self):
+        """A settled condition beside free text decides nothing.
+
+        This is the case the review caught: the condition holds, and the claim
+        it sits beside is false. Naming the result `condition_supported` is
+        what keeps the two apart.
         """
         run = self._run(self._output())
         evaluation = run["evaluations"][-1]
+        record = evaluation["citation_checks"][0]
+
+        self.assertEqual(record["claim_check"]["result"], "condition_supported")
+        self.assertFalse(record["claim_check"]["is_decisive"])
+        self.assertEqual(record["verdict"], "insufficient_evidence")
+        self.assertFalse(evaluation["passed"])
+
+    def test_a_typed_claim_is_what_it_takes_to_pass(self):
+        """Negative control: the gate is not shut for everything."""
+        run = self._run(self._passing_output())
+        evaluation = run["evaluations"][-1]
 
         self.assertTrue(evaluation["passed"])
-        record = evaluation["citation_checks"][0]
-        self.assertTrue(record["citations_are_sound"])
-        self.assertEqual(record["verdict"], "insufficient_evidence")
-        self.assertNotEqual(record["verdict"], "verified")
-
-    def test_the_reason_says_eligible_not_confirmed(self):
-        run = self._run(self._output())
-        reasons = " ".join(run["evaluations"][-1]["reasons"])
-
-        self.assertIn("eligible for semantic verification", reasons)
-        self.assertNotIn("verified that", reasons)
+        self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
+        self.assertIn("The claim is the predicate", " ".join(evaluation["reasons"]))
 
 
 class TestActionableOrStop(_Loop):

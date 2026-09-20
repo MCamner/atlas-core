@@ -71,7 +71,10 @@
           "uncited_findings",
           "malformed_findings",
           "uncheckable_findings",
-          "unsound_citations"
+          "unsound_citations",
+          "contradicted_findings",
+          "unverified_findings",
+          "claim_text_mismatch"
         ]
       }
     },
@@ -93,7 +96,7 @@
     },
     "citation_checks": {
       "type": "array",
-      "description": "Per-finding result of deterministic citation checking, so a score can be followed back to a source. Empty on a run with no evidence base: the citation-only path checks nothing and must not look as though it did. citations_are_sound is about the pointer, never about the claim — verdict is always insufficient_evidence here, because establishing that a source supports a claim is semantic verification and is not performed.",
+      "description": "Per-finding result of deterministic checking, so a score can be followed back to a source. Empty on a run with no evidence base. `citations_are_sound` is about the pointer; `claim_check` is about what the finding declared. A verdict of `verified` or `contradicted` comes only from a typed claim, where the claim is the predicate; a settled free condition never produces one.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -101,8 +104,10 @@
           "finding_id",
           "claim",
           "verdict",
+          "verification_method",
           "citations_are_sound",
-          "statuses"
+          "statuses",
+          "claim_check"
         ],
         "properties": {
           "finding_id": {
@@ -149,6 +154,61 @@
                     "intact"
                   ]
                 }
+              }
+            }
+          },
+          "verification_method": {
+            "type": "string",
+            "enum": [
+              "none",
+              "deterministic_evidence_check",
+              "semantic",
+              "test_execution"
+            ],
+            "description": "semantic means a declared condition was settled against the source. Anything else means the claim itself was not checked."
+          },
+          "claim_check": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The outcome of settling what the finding declared about itself. Null when the route requires no claim check, or when the citations were unsound — a refutation resting on a source the finding cannot point at would be an accusation about the wrong file, so unsound citations never reach this step.",
+            "additionalProperties": false,
+            "required": [
+              "result",
+              "reason",
+              "checked",
+              "is_decisive"
+            ],
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "contradicted",
+                  "condition_supported",
+                  "condition_refuted",
+                  "not_declared",
+                  "claim_text_mismatch",
+                  "unsupported_kind",
+                  "source_not_cited",
+                  "source_unavailable"
+                ],
+                "description": "verified/contradicted come only from a typed claim, where the claim is the predicate. condition_supported/condition_refuted come from a producer's own free-standing test and say that the test passed or failed — not that the claim holds or fails."
+              },
+              "reason": {
+                "type": "string"
+              },
+              "is_decisive": {
+                "type": "boolean",
+                "description": "Whether this result may move the finding's verdict. True only for verified and contradicted."
+              },
+              "checked": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "What was evaluated, including the line range it was settled over, so a reader can see the scope."
               }
             }
           }

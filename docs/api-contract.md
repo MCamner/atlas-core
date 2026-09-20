@@ -99,15 +99,49 @@ observation's own excerpt must still match the lines it names, and the quote
 must sit inside the range the observation recorded. A finding that fails any of
 those cannot contribute to `passed`.
 
-### Sound is still not verified
+### The claim check
 
-Surviving that check means the **pointer** holds, not that the source supports
-the claim. `citation_checks[].verdict` is always `insufficient_evidence`;
-`citations_are_sound` is what carries the difference. A false claim with a
-correctly quoted citation therefore still passes the gate. Closing that is
-semantic verification, which this repository does not perform yet — see
-`ROADMAP.md` P0.2. `evidence_gaps` being empty means "every claim here is
-eligible to be verified", never "this output is correct".
+A sound citation is not enough for `repo_review`. A finding earns a verdict of
+`verified` or `contradicted` only by stating a **typed claim**, where the claim
+*is* the predicate:
+
+```json
+{"kind": "source_contains_literal", "source_id": "...", "text": "pip install"}
+```
+
+The finding's `claim` string must equal the sentence derived from that object —
+`README.md lines 1-5 contain "pip install"` — so the sentence a reader sees
+cannot say more than what was tested. The derived sentence names the line
+range, because claims are settled over the lines the observation recorded, not
+the whole file. `collect_observation` keeps a bounded excerpt, and text nobody
+observed must not decide a verdict.
+
+Free text keeps `insufficient_evidence` and cannot reach `PASS`. A producer may
+still declare a free-standing `claim_check`, which yields `condition_supported`
+or `condition_refuted` — settling the *test*, not the claim. Nothing checks
+that such a test is a fair test of a sentence, so neither result is decisive.
+A finding declares a `typed_claim` or a `claim_check`, never both.
+
+`schemas/atlas-findings-block.v1.json` is the producer's input contract, and it
+has no `verdict`, `verification_method` or `finding_id` — those are assigned by
+whatever checked the finding. A block that supplies one is refused, not
+stripped.
+
+Only a finding whose citations are sound reaches this step: a refutation
+resting on a source the finding cannot point at would be an accusation about
+the wrong file. A source that has moved settles nothing in either direction.
+
+### What a passing run does and does not mean
+
+`evidence_gaps` being empty means every finding was stated in a form this code
+can settle, and settled in its favour, against lines that were actually read.
+It does not mean the review is complete or insightful: a claim that cannot be
+expressed as literal presence or absence over observed lines cannot be verified
+here at all, and stays `insufficient_evidence`. That is the correct answer and
+also the limit of what this phase reaches.
+
+Text matching is literal. A producer-supplied regular expression is untrusted
+input that can hang the checker; a substring search cannot.
 
 ## Stop Semantics
 

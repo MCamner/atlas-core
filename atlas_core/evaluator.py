@@ -27,6 +27,7 @@ from typing import Any
 from .state import AtlasEvaluation
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
+from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
     FINDINGS_FENCE,
@@ -55,6 +56,10 @@ class RouteEvaluator:
     finding_headings: tuple[str, ...]
     requires_sources: bool
     min_coverage: float = 1.0
+    # Whether a sound citation is enough. When true, a finding must also name
+    # a condition that would refute it, and that condition must survive. A
+    # route that only summarises has nothing to refute and leaves this off.
+    requires_claim_check: bool = False
 
 
 # Per P1, read-only repository review comes first. A route with no entry here
@@ -64,6 +69,7 @@ ROUTE_EVALUATORS: dict[str, RouteEvaluator] = {
         evidence_heading="## Observed sources",
         finding_headings=("## Verified findings",),
         requires_sources=True,
+        requires_claim_check=True,
     ),
 }
 
@@ -87,6 +93,19 @@ EVIDENCE_PROSE = {
     "unsound_citations": (
         "Some findings cite a source that does not hold up: unknown id, a "
         "digest or quote that does not match, or a source that has moved."
+    ),
+    "contradicted_findings": (
+        "Some findings are refuted by the source they cite: they named a "
+        "condition that would make them false, and it is false."
+    ),
+    "unverified_findings": (
+        "Some findings are stated as free text, so their truth was not "
+        "established. A settled condition beside a free-text claim says the "
+        "producer's own test passed, not that the claim holds."
+    ),
+    "claim_text_mismatch": (
+        "Some findings say something other than what their typed claim says, "
+        "so the sentence a reader sees is not the sentence that was settled."
     ),
 }
 
@@ -353,6 +372,17 @@ def _grade_against_evidence(
     ]
     unsound = [(finding, check) for finding, check in checks if not check.citations_are_sound()]
 
+    # Only a finding whose citations hold goes on to the semantic step. A
+    # refutation resting on a source the finding cannot point at would be an
+    # accusation about the wrong file.
+    claim_verdicts: dict[str, ClaimVerdict] = {}
+    if contract.requires_claim_check:
+        for (finding, check), (_, typed, condition) in zip(checks, parsed.entries):
+            if check.citations_are_sound():
+                claim_verdicts[finding.finding_id] = check_claim(
+                    finding, typed, condition, base.observations, base.root
+                )
+
     if not checks and not uncheckable:
         if contract.evidence_heading not in output:
             return _Evidence(
@@ -375,10 +405,45 @@ def _grade_against_evidence(
             citation_checks=[],
         )
 
-    records = [_citation_record(finding, check) for finding, check in checks]
+    records = [
+        _citation_record(finding, check, claim_verdicts.get(finding.finding_id))
+        for finding, check in checks
+    ]
+
+    # Only a decisive result moves a finding. A settled condition, however
+    # cleanly settled, is a record of the producer's own test — not of the
+    # claim — so it lands in `unchecked` beside a finding that declared nothing.
+    refuted = [
+        finding
+        for finding, _ in checks
+        if (verdict := claim_verdicts.get(finding.finding_id)) is not None
+        and verdict.result is ClaimResult.CONTRADICTED
+    ]
+    mismatched = [
+        finding
+        for finding, _ in checks
+        if (verdict := claim_verdicts.get(finding.finding_id)) is not None
+        and verdict.result is ClaimResult.CLAIM_TEXT_MISMATCH
+    ]
+    unchecked = [
+        finding
+        for finding, check in checks
+        if check.citations_are_sound()
+        and (verdict := claim_verdicts.get(finding.finding_id)) is not None
+        and not verdict.is_decisive()
+        and verdict.result is not ClaimResult.CLAIM_TEXT_MISMATCH
+    ]
+
     considered = len(checks) + len(uncheckable)
-    sound = considered - len(unsound) - len(uncheckable)
-    coverage = round(sound / considered, 2)
+    supported = (
+        considered
+        - len(unsound)
+        - len(uncheckable)
+        - len(refuted)
+        - len(mismatched)
+        - len(unchecked)
+    )
+    coverage = round(supported / considered, 2)
 
     gaps: list[str] = []
     unverified: list[str] = []
@@ -388,6 +453,15 @@ def _grade_against_evidence(
     if unsound:
         gaps.append("unsound_citations")
         unverified.extend(finding.claim for finding, _ in unsound)
+    if refuted:
+        gaps.append("contradicted_findings")
+        unverified.extend(finding.claim for finding in refuted)
+    if mismatched:
+        gaps.append("claim_text_mismatch")
+        unverified.extend(finding.claim for finding in mismatched)
+    if unchecked:
+        gaps.append("unverified_findings")
+        unverified.extend(finding.claim for finding in unchecked)
 
     if gaps:
         blocking = _blocking_statuses(unsound)
@@ -396,7 +470,9 @@ def _grade_against_evidence(
             unverified=unverified,
             coverage=coverage,
             reasons=[],
-            actionable=_is_requotable(uncheckable, unsound),
+            actionable=_is_requotable(
+                uncheckable, unsound, refuted, unchecked + mismatched
+            ),
             citation_checks=records,
             factor=_coverage_factor(coverage),
             # Why no retry is offered, in the run itself. "The loop gave up"
@@ -411,23 +487,35 @@ def _grade_against_evidence(
             ),
         )
 
+    if contract.requires_claim_check:
+        reason = (
+            f"All {len(checks)} finding(s) cite a source that still holds and are "
+            "stated as typed claims, each settled against the lines the run recorded. "
+            "The claim is the predicate, so there is no gap between what was asserted "
+            "and what was tested."
+        )
+    else:
+        reason = (
+            f"All {len(checks)} finding(s) cite a source that was read this run, "
+            "with a digest, excerpt and line range that still hold. Citation "
+            "integrity only: each claim is eligible for semantic verification, "
+            "which this route does not require."
+        )
     return _Evidence(
         gaps=[],
         unverified=[],
         coverage=coverage,
-        reasons=[
-            f"All {len(checks)} finding(s) cite a source that was read this run, "
-            "with a digest, excerpt and line range that still hold. Citation "
-            "integrity only: each claim is eligible for semantic verification, "
-            "which this run did not perform."
-        ],
+        reasons=[reason],
         actionable=False,
         citation_checks=records,
     )
 
 
 def _is_requotable(
-    uncheckable: list[str], unsound: list[tuple[Finding, Any]]
+    uncheckable: list[str],
+    unsound: list[tuple[Finding, Any]],
+    refuted: list[Finding] | None = None,
+    unchecked: list[Finding] | None = None,
 ) -> bool:
     """Whether another pass could close **every** gap without new observations.
 
@@ -441,8 +529,10 @@ def _is_requotable(
     """
     if _blocking_statuses(unsound):
         return False
-    # A missing citation can be written from sources the run already holds.
-    return bool(uncheckable) or bool(unsound)
+    # A missing citation can be written from sources the run already holds; a
+    # missing condition can be declared; a refuted finding can be corrected or
+    # dropped. All three are repairs the producer can make without new sources.
+    return bool(uncheckable) or bool(unsound) or bool(refuted) or bool(unchecked)
 
 
 def _blocking_statuses(unsound: list[tuple[Finding, Any]]) -> list[EvidenceStatus]:
@@ -455,16 +545,22 @@ def _blocking_statuses(unsound: list[tuple[Finding, Any]]) -> list[EvidenceStatu
     ]
 
 
-def _citation_record(finding: Finding, check: Any) -> dict[str, Any]:
+def _citation_record(
+    finding: Finding, check: Any, claim: ClaimVerdict | None
+) -> dict[str, Any]:
+    """One finding's full record: the pointer, the claim, and the verdict."""
+    decided = apply_verdict(finding, check, claim) if claim else check.apply_to(finding)
     return {
         "finding_id": finding.finding_id,
         "claim": finding.claim,
-        "verdict": check.verdict,
+        "verdict": decided.verdict,
+        "verification_method": decided.verification_method,
         "citations_are_sound": check.citations_are_sound(),
         "statuses": [
             {"source_id": source_id, "status": status.value}
             for source_id, status in check.statuses
         ],
+        "claim_check": claim.to_dict() if claim else None,
     }
 
 
@@ -500,6 +596,36 @@ def _adjustment(
         )
     if "malformed_findings" in evidence.gaps:
         parts.append(f"Repair the `{FINDINGS_FENCE}` block so it parses as a list of findings.")
+    refuted = [
+        f"{record['claim'][:60]}: {(record['claim_check'] or {}).get('reason', '')}"
+        for record in evidence.citation_checks
+        if (record["claim_check"] or {}).get("result") == "contradicted"
+    ]
+    if refuted:
+        parts.append("Drop or correct what the source refutes — " + "; ".join(refuted) + ".")
+
+    # The expected sentence, verbatim. A typed claim's text is derived, so
+    # telling a producer to "match it" without saying what it is would leave
+    # the only fixable part of the failure unstated.
+    expected = [
+        str((record["claim_check"] or {}).get("checked", {}).get("expected_claim"))
+        for record in evidence.citation_checks
+        if (record["claim_check"] or {}).get("result") == "claim_text_mismatch"
+    ]
+    if expected:
+        parts.append(
+            "State each typed claim exactly as it reads: "
+            + "; ".join(repr(text) for text in expected)
+            + "."
+        )
+
+    if "unverified_findings" in evidence.gaps:
+        parts.append(
+            "A free-text finding cannot be established. State it as a typed claim "
+            "— {\"kind\": \"source_contains_literal\"|\"source_lacks_literal\", "
+            "\"source_id\": ..., \"text\": ...} — and write its derived sentence as "
+            "the claim, or drop it."
+        )
     broken = [
         f"{record['claim'][:60]}: "
         + ", ".join(
