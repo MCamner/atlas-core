@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Merge main, correct terminal-state regressions and run tests
+      - name: Merge main, preserve ledger, fix terminal regressions and test
         shell: bash
         run: |
           set -euo pipefail
@@ -31,15 +31,18 @@ jobs:
               source=p.read_text(encoding='utf-8')
               assert source.count(old)==1, (path, source.count(old))
               p.write_text(source.replace(old,new), encoding='utf-8')
-          patch('atlas_core/controller.py', '        if state.evaluations:\n            candidate = build_memory_candidate(', '        # A failed or provisional run must not promote an earlier evaluation.\n        if state.evaluations and state.stop_reason == "passed":\n            candidate = build_memory_candidate(')
-          patch('atlas_core/evaluator.py', '    actionable = bool(gaps) or evidence.actionable\n', '    # Formatting cannot repair a missing/stale source. With evidence gaps,\n    # only an evidence-actionable retry is meaningful.\n    actionable = evidence.actionable if evidence.gaps else bool(gaps)\n')
-          patch('atlas_core/finalizer.py', '            "result above is not a verdict on the answer."\n', '            "result above is not a verdict on the answer."\n') if False else None
+          patch('atlas_core/controller.py', '        if state.evaluations:\n            candidate = build_memory_candidate(', '        # Only a passing run may promote a memory candidate.\n        if state.evaluations and state.stop_reason in {"passed"}:\n            candidate = build_memory_candidate(')
+          patch('atlas_core/evaluator.py', '    actionable = bool(gaps) or evidence.actionable\n', '    # Formatting cannot repair a missing or stale source.\n    actionable = evidence.actionable if evidence.gaps else bool(gaps)\n')
           final=Path('atlas_core/finalizer.py')
           text=final.read_text(encoding='utf-8')
           old='            f"{failure.get(\'error\', \'an error\')}. Nothing was graded, so the "\n            "result above is not a verdict on the answer."'
           new='            f"{failure.get(\'error\', \'an error\')}. "\n            + ("The failed iteration was not graded; earlier evaluations are "\n               "history, not this run outcome." if latest_eval else "No answer was graded.")'
           assert text.count(old)==1, text.count(old)
-          final.write_text(text.replace(old,new),encoding='utf-8')
+          text=text.replace(old,new)
+          anchor='    if run.get("stop_class") == "runtime":\n'
+          assert text.count(anchor)==1, text.count(anchor)
+          text=text.replace(anchor,'    ledger = _claim_ledger(run)\n'+anchor)
+          final.write_text(text,encoding='utf-8')
           PY
           cat > tests/test_terminal_regressions.py <<'PY'
           import tempfile
