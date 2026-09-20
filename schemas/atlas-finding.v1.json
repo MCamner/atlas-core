@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas Finding",
+  "description": "One claim, the citations it rests on, and how far those have been checked. A verdict of \"verified\" requires a semantic check: deterministic evidence checking can establish that a citation is sound, never that the source supports the claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "finding_id",
+    "claim",
+    "scope",
+    "severity",
+    "severity_rationale",
+    "evidence",
+    "verification_method",
+    "verdict"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-finding.v1"
+    },
+    "finding_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "claim": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the claim is about."
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "P0",
+        "P1",
+        "P2",
+        "unknown"
+      ]
+    },
+    "severity_rationale": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why this severity. A severity without a reason reads as assessed when it is not."
+    },
+    "evidence": {
+      "type": "array",
+      "description": "What the finding claims about each source it cites, checked against the run's observations rather than copied from them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "content_sha256",
+          "line_start",
+          "line_end",
+          "quoted"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Must name an observation from this run."
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quoted": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Must be contiguous text at the claimed line range."
+          }
+        }
+      }
+    },
+    "verification_method": {
+      "type": "string",
+      "enum": [
+        "none",
+        "deterministic_evidence_check",
+        "semantic",
+        "test_execution"
+      ]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "contradicted",
+        "insufficient_evidence"
+      ],
+      "description": "\"insufficient_evidence\" is the honest default, and what BOTH an unusable citation and an intact-but-unchecked claim earn: a broken pointer says the citation is unusable, never that the claim is false. \"contradicted\" is reserved for a claim a semantic check has actually disproved, and \"verified\" is not reachable from deterministic checking at all."
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reproducible_command": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A command that re-checks the claim, or \"unknown\". Never blank."
+    }
+  }
+}

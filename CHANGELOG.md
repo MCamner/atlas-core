@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+Roadmap P0.2a: `Finding.v1` and deterministic verification.
+
+- Added `atlas_core/finding.py` and `schemas/atlas-finding.v1.json`: a claim,
+  its scope, a severity that must carry a rationale, the citations it rests on,
+  the verification method, the verdict, limitations and a reproducible command.
+- **`check_finding()` cannot return `verified` or `contradicted`.** A citation
+  being unusable — unknown id, wrong digest, a quote that is not where it
+  claims — says the pointer is broken, not that the claim is false. Both an
+  unusable citation and an intact-but-unchecked claim return
+  `insufficient_evidence`; `citations_are_sound()` carries the discrimination
+  so the verdict does not have to. `contradicted` is reserved for a claim a
+  semantic check has actually disproved.
+- Only `local_file` observations are checked. A `github_file`, `ci` or `memory`
+  source returns `unsupported_source_type` rather than being read off a local
+  path that happens to match, which would confirm the wrong artifact.
+- A test greps the module to assert that no code path constructs `verified`
+  or `contradicted`, so the guarantee above is structural rather than a
+  convention someone has to remember.
+- A finding is built `insufficient_evidence` with method `none`. A verdict is
+  attached by a checker via `EvidenceCheck.apply_to`, and a producer that
+  writes `verdict="verified"` onto its own finding is overruled rather than
+  believed.
+- `EvidenceRef` carries what the finding *claims* about a source, checked
+  against the run's observations rather than copied from them — copying would
+  make every citation trivially correct.
+- Negative coverage: unknown `source_id`, wrong digest, wrong line range,
+  cherry-picked quote, range past end of file, empty evidence, stale source,
+  deleted source, and one bad reference among several.
+- A citation is checked with **one** read. Confirming freshness and then
+  reopening the file for the quote left a window in which the file could change
+  between them, so the digest would describe content the quote was never
+  compared against. A test counts the reads.
+- Containment is checked at that read. `Observation.path` is a plain string and
+  accepts `../` and absolute forms, and the collection wrapper in `integrity`
+  does not cover a later re-read, so an escaping path now returns
+  `path_refused` rather than being followed.
+- A citation is checked against the run's **observation**, not against the file
+  alone. Three things must agree, all from the bytes of that single read: the
+  digest still describes the file, the observation's own excerpt still matches
+  the line range it claims (`excerpt_mismatch`), and the finding's quote sits
+  inside the range the observation recorded (`quote_outside_excerpt`). Folding
+  two reads into one had dropped the excerpt check `verify_observation` was
+  doing, and without the range check a finding could quote a later part of the
+  file perfectly while no observation covered those lines — an accurate
+  citation standing in for an observation that was never made.
+- Added `integrity.read_within`, and the checker reads through it. `O_NOFOLLOW`
+  moves the containment refusal into the operation that creates the descriptor,
+  so a file replaced by a symlink *after* its name was checked is refused
+  instead of served. A test performs that swap inside the window and asserts
+  both the refusal and that the unprotected read would have returned bytes from
+  outside the root. A directory component swapped in the same window is still
+  open, and is stated as such in the module's threat model.
+- Semantic verification is not here. Deciding whether an intact source supports
+  a claim is P0.2b.
+
 Roadmap P0.1a: `Observation.v1`.
 
 - Added `atlas_core/observation.py` and `schemas/atlas-observation.v1.json`:
