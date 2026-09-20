@@ -16,8 +16,11 @@ substitution of citation for verification that this phase removes, so the code
 cannot express it.
 
 That makes this layer a filter rather than a judge. It rules claims out. Ruling
-one *in* needs a semantic check on top, which is P0.2b, and the roadmap is
-explicit that a model's own opinion of its output may not close that gap alone.
+one *in* needs a semantic check on top, which `claim_check` performs for a
+*typed* claim — one stated as literal presence or absence over observed lines,
+where the claim is its own predicate. A free-text claim gets no verdict from
+either layer, and the roadmap is explicit that a model's own opinion of its
+output may not close that gap.
 
 A `Finding` never asserts its own verdict either: it is constructed
 `insufficient_evidence` with method `none`, and a checker attaches a result via
