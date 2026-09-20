@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+Roadmap P0.2a: `Finding.v1` and deterministic verification.
+
+- Added `atlas_core/finding.py` and `schemas/atlas-finding.v1.json`: a claim,
+  its scope, a severity that must carry a rationale, the citations it rests on,
+  the verification method, the verdict, limitations and a reproducible command.
+- **`check_finding()` cannot return `verified`.** It establishes that a
+  citation is sound — the source was read in this run, the claimed digest
+  matches, and the quoted text sits contiguously at the line range it names —
+  and none of that shows the source supports the claim. Sound citations earn
+  `insufficient_evidence`; broken ones earn `contradicted`. A test greps the
+  module to assert no code path constructs `verified`.
+- A finding is built `insufficient_evidence` with method `none`. A verdict is
+  attached by a checker via `EvidenceCheck.apply_to`, and a producer that
+  writes `verdict="verified"` onto its own finding is overruled rather than
+  believed.
+- `EvidenceRef` carries what the finding *claims* about a source, checked
+  against the run's observations rather than copied from them — copying would
+  make every citation trivially correct.
+- Negative coverage: unknown `source_id`, wrong digest, wrong line range,
+  cherry-picked quote, range past end of file, empty evidence, stale source,
+  deleted source, and one bad reference among several.
+- Semantic verification is not here. Deciding whether an intact source supports
+  a claim is P0.2b.
+
 Roadmap P0.1a: `Observation.v1`.
 
 - Added `atlas_core/observation.py` and `schemas/atlas-observation.v1.json`:
