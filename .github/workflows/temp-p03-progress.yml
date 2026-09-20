@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Patch, test, type-check and commit verified fix
+      - name: Patch, test and type-check bounded-only no-progress fix
         shell: bash
         run: |
           set -euo pipefail
@@ -27,5 +27,5 @@ jobs:
           mypy atlas_core tests
           pyright atlas_core tests
           git add atlas_core/controller.py
-          git commit -m 'feat(p03): stop identical unproductive model retries'
+          git commit -m 'feat(p03): stop identical unproductive model retries in bounded runs'
           git push origin HEAD:feat/p03-no-progress-and-roadmap
