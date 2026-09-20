@@ -2,28 +2,33 @@
 
 ## Unreleased
 
-Roadmap P0.2, box three: fact, hypothesis and recommendation kept apart.
+Roadmap P0.2, box four: a CI result that can be cited, and can go stale.
 
-- `render_run_text` now carries a **claim ledger**. The run document already
-  separated the three kinds — `citation_checks` gives a verdict per finding,
-  `unverified_claims` lists the rest — but the text a human reads did not: a
-  settled claim and a guess appeared as identical bullets under one heading,
-  and the trailer named an evidence gap without naming the claim.
-- The ledger is derived from the run document, never parsed out of the body, so
-  an output that calls everything verified changes nothing. `FACT` is settled
-  against observed lines, `REFUTED` means the source says otherwise, and
-  `HYPOTHESIS` covers everything else — including prose findings the checker
-  never saw, which are the ones most at risk of reading as established.
-  Recommendations are listed nowhere in it, with a line saying why.
-- `## Findings` is now accepted ahead of `## Verified findings` for
-  `repo_review`. A heading is not a verification, and one that calls its
-  contents verified asserts exactly what the run has to establish. The older
-  heading still works, so existing producers are unaffected.
-- A negative control caught a gap in the new tests rather than in the code:
-  labelling an unchecked claim `FACT` passed, because every hypothesis in the
-  suite arrived through `unverified_claims` and no test exercised a
-  `citation_checks` entry with `insufficient_evidence`. That case is covered
-  now, and the injection fails against it.
+- Added `atlas_core/ci.py`. `ci` had been a declared `SourceType` that nothing
+  produced, so every CI citation was refused as `unsupported_source_type` —
+  the right outcome for the wrong reason. Refusing a source because nobody can
+  fetch it is not the same as testing what happens when a fetched one ages.
+- `CIRun` records what identifies a run: provider, workflow, run id, ref,
+  commit, conclusion and completion time. The digest is taken over exactly
+  those, canonicalised, so it changes when the result changes and not when a
+  provider reorders its JSON. Only `success` counts as green; `unknown` and
+  `in_progress` do not, and an unfetchable field cannot be defaulted into a
+  green result.
+- CI sources are re-read through their adapter, never from a cache. A cached
+  copy would make every CI citation permanently fresh, which is the failure the
+  box names. A run re-run red is `stale_source`; so is a re-run that comes back
+  green, because identity is the run and not the conclusion it happened to
+  produce.
+- Re-reading is now per source type. `SourceReader` has one implementation for
+  local files that cannot be replaced by a caller — one that could would own
+  containment and freshness for every local citation in the run — and hosts
+  supply readers for anything else. A source type with no reader is refused
+  rather than guessed at. Atlas Core still makes no network calls.
+- `AtlasRunState.to_dict` clears the evidence base before `asdict` walks it
+  rather than filtering afterwards. `asdict` deep-copies, and a host's reader
+  may wrap a network client that cannot be copied at all, so the old order
+  raised while rendering a run. Reproduced, fixed, and now covered by a test
+  that a negative control showed was missing.
 
 Roadmap P0.2b: deciding whether the source supports the claim.
 

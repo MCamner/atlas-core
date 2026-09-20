@@ -63,8 +63,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .finding import Finding
-from .integrity import PathRefused, read_within
+from .finding import Finding, SourceReader, resolve_readers
+from .integrity import PathRefused
 from .observation import Observation
 from .snapshot import sha256_text
 
@@ -259,6 +259,7 @@ def _observed_text(
     source_id: str,
     observations: list[Observation],
     root: str | Path,
+    readers: dict[str, SourceReader] | None = None,
 ) -> tuple[Observation, str] | ClaimVerdict:
     """The lines the run actually recorded, re-read and re-checked.
 
@@ -285,8 +286,18 @@ def _observed_text(
             reason=f"{source_id} was not read in this run",
         )
 
+    reader = resolve_readers(root, readers).get(observation.source_type)
+    if reader is None:
+        return ClaimVerdict(
+            result=ClaimResult.UNSUPPORTED_KIND,
+            reason=(
+                f"this run has no reader for a {observation.source_type!r} source, so "
+                "its current state cannot be established"
+            ),
+        )
+
     try:
-        content = read_within(root, observation.path)
+        content = reader.read(observation)
     except PathRefused:
         return ClaimVerdict(
             result=ClaimResult.SOURCE_UNAVAILABLE,
@@ -323,6 +334,7 @@ def check_typed_claim(
     claim: TypedClaim | None,
     observations: list[Observation],
     root: str | Path,
+    readers: dict[str, SourceReader] | None = None,
 ) -> ClaimVerdict:
     """Settle a typed claim against the lines the run observed.
 
@@ -339,7 +351,7 @@ def check_typed_claim(
             ),
         )
 
-    resolved = _observed_text(finding, claim.source_id, observations, root)
+    resolved = _observed_text(finding, claim.source_id, observations, root, readers)
     if isinstance(resolved, ClaimVerdict):
         return resolved
     observation, observed = resolved
@@ -384,6 +396,7 @@ def check_condition(
     condition: ClaimCondition | None,
     observations: list[Observation],
     root: str | Path,
+    readers: dict[str, SourceReader] | None = None,
 ) -> ClaimVerdict:
     """Settle a producer's free-standing test. Never decisive.
 
@@ -400,7 +413,7 @@ def check_condition(
             ),
         )
 
-    resolved = _observed_text(finding, condition.source_id, observations, root)
+    resolved = _observed_text(finding, condition.source_id, observations, root, readers)
     if isinstance(resolved, ClaimVerdict):
         return resolved
     observation, observed = resolved
@@ -435,6 +448,7 @@ def check_claim(
     condition: ClaimCondition | None,
     observations: list[Observation],
     root: str | Path,
+    readers: dict[str, SourceReader] | None = None,
 ) -> ClaimVerdict:
     """Settle a finding as far as its form allows.
 
@@ -442,8 +456,8 @@ def check_claim(
     settled as a condition, which records something without deciding anything.
     """
     if typed is not None:
-        return check_typed_claim(finding, typed, observations, root)
-    return check_condition(finding, condition, observations, root)
+        return check_typed_claim(finding, typed, observations, root, readers)
+    return check_condition(finding, condition, observations, root, readers)
 
 
 def apply_verdict(finding: Finding, evidence: Any, claim: ClaimVerdict) -> Finding:

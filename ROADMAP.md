@@ -55,7 +55,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 >
 > **Ruta tre** är åtgärdad i PR G men inte kryssad förrän den är mergad och resultatet observerat på `main`.
 >
-> **Ruta fyra står kvar öppen.** Den kräver att `stale CI` testas. Att koden avvisar en `ci`-observation som `unsupported_source_type` är inte samma sak som att ha testat hur en verklig CI-observation blir inaktuell — det kräver en insamlare med proveniens och ett test som låter resultatet bli inaktuellt under körningen. Övriga fall i rutan (falskt fynd som citerar en verkligt läst README, fel SHA, fel radintervall, cherry-pickat utdrag, tomma källor, saknat resultat) har tester.
+> **Ruta fyra** är åtgärdad i PR H men inte kryssad förrän den är mergad och resultatet observerat på `main`. Övriga fall i rutan (falskt fynd som citerar en verkligt läst README, fel SHA, fel radintervall, cherry-pickat utdrag, tomma källor, saknat resultat) hade redan tester.
 >
 > **Vad de kryssade rutorna betyder, och inte.** De gäller *verifierade literalpåståenden*, inte bredare slutsatser om ett repo. `verified` kan bara nås genom ett typat påstående där påståendet *är* predikatet — `source_contains_literal` eller `source_lacks_literal` över citerade, observerade rader — och den läsbara meningen härleds ur objektet, så prosan inte kan säga mer än det som prövades. Ett påstående som inte går att uttrycka så kan inte verifieras här alls: det blir `insufficient_evidence`, vilket är rätt svar och samtidigt gränsen för vad fasen räcker till. En grön körning betyder "varje fynd var formulerat så att det gick att avgöra, och avgjordes till sin fördel mot lästa rader" — inte att granskningen är fullständig.
 >
@@ -69,7 +69,8 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - `## Findings` accepteras nu före `## Verified findings`. En rubrik är ingen verifiering, och en som kallar sitt innehåll verifierat hävdar precis det körningen ska fastställa. Den äldre rubriken fungerar fortfarande.
 
 - [ ] Testa falskt fynd som citerar en verkligt läst README, fel SHA/linje, cherry-pickat utdrag, stale CI, tomma källor och saknat resultat. Alla ska bli FAIL/INSUFFICIENT_EVIDENCE.
-  - **Återstår `stale CI`:** att koden avvisar en `ci`-observation som `unsupported_source_type` är *inte* samma sak som att ha testat hur en verklig CI-observation blir inaktuell. Det kräver en insamlare som hämtar ett CI-resultat med proveniens, och ett test som låter det bli inaktuellt under körningen. Övriga fall i rutan har tester.
+  - **Åtgärdad i PR H, kryssas vid merge.** `atlas_core/ci.py` samlar in ett CI-resultat med proveniens — provider, workflow, run id, ref, commit, slutsats och tidpunkt — och hashar exakt de fälten, så digesten ändras när *resultatet* ändras och inte när ett API svarar i annan ordning. Källan läses om genom sin adapter, aldrig ur en cache: en cachad kopia skulle göra varje CI-citat permanent färskt, vilket är just felet rutan pekar på. Ett test citerar en grön körning, låter någon köra om workflowet rött, och visar `stale_source` och `passed=False` genom `AtlasController`. En omkörning som blir grön igen är också `stale_source` — identiteten är körningen, inte slutsatsen den råkade ge.
+  - Läsningen är nu typbunden: `SourceReader` per källtyp, där `local_file` alltid finns och inte kan ersättas av en anropare — en som kunde det skulle äga containment och färskhet för varje lokalt citat i körningen. En källtyp utan läsare avvisas som `unsupported_source_type` i stället för att gissas.
 
 ### P0.3 Terminalsäkerhet och resurser
 
