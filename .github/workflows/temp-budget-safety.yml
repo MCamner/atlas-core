@@ -15,48 +15,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Close unmetered memory read and run tests
+      - name: Guard memory reads and verify all gates
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('atlas_core/controller.py')
-          s=p.read_text(encoding='utf-8')
-          old='''        if self.memory_adapter:
-            state.observations.extend(self.memory_adapter.read(task))
-'''
-          new='''        # No unmetered read from a host adapter when resource limits apply.
-        # A future memory/tool gateway must accept the shared budget.
-        if self.memory_adapter and budget is None:
-            state.observations.extend(self.memory_adapter.read(task))
-        elif self.memory_adapter:
-            state.metadata["memory_read_skipped"] = "budgeted_run_has_no_metered_memory_reader"
-'''
-          assert s.count(old)==1
-          p.write_text(s.replace(old,new),encoding='utf-8')
-          p=Path('tests/test_budget_controller.py')
-          s=p.read_text(encoding='utf-8')
-          anchor="class TestBudgetedController(unittest.TestCase):\n"
-          newtest='''class ExplodingMemory:
-    def read(self, task):
-        raise AssertionError("unmetered memory read must not run")
-    def write(self, candidate):
-        raise AssertionError("unmetered memory write must not run")
-
-
-class TestBudgetedController(unittest.TestCase):
-    def test_unmetered_memory_is_not_invoked(self):
-        run = AtlasController(memory_adapter=ExplodingMemory()).run('hej', json_mode=True, limits=limits())
-        self.assertEqual(run['stop_reason'], 'passed')
-        self.assertEqual(run['metadata']['memory_read_skipped'], 'budgeted_run_has_no_metered_memory_reader')
-        self.assertEqual(run['memory_candidates'], [])
-'''
-          assert s.count(anchor)==1
-          p.write_text(s.replace(anchor,newtest),encoding='utf-8')
-          PY
+          python tools/temp_budget_memory_patch.py
           pip install -e . mypy pyright
           python -m unittest discover -s tests
           mypy atlas_core tests
