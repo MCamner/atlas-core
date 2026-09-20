@@ -14,7 +14,19 @@ def limits(**kwargs: object) -> RunLimits:
     return RunLimits(**params)
 
 
+class ExplodingMemory:
+    def read(self, query: str) -> list[str]:
+        raise AssertionError("unmetered memory read must not run")
+    def write(self, record: dict) -> str | None:
+        raise AssertionError("unmetered memory write must not run")
+
+
 class TestBudgetedController(unittest.TestCase):
+    def test_unmetered_memory_is_not_invoked(self):
+        run = AtlasController(memory_adapter=ExplodingMemory()).run('hej', json_mode=True, limits=limits())
+        self.assertEqual(run['stop_reason'], 'passed')
+        self.assertEqual(run['metadata']['memory_read_skipped'], 'budgeted_run_has_no_metered_memory_reader')
+        self.assertEqual(run['memory_candidates'], [])
     def test_call_quota_zero_prevents_model_invocation(self):
         adapter = StubModelAdapter('whatever', metadata={'usage_tokens': '1'})
         run = AtlasController(model_adapter=adapter).run('hej', json_mode=True, limits=limits(model_calls=0))

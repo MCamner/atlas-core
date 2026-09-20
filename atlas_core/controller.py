@@ -120,8 +120,11 @@ class AtlasController:
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
         state.evidence_base = evidence
-        if self.memory_adapter:
+        # No unmetered reads from host adapters in resource-limited runs.
+        if self.memory_adapter and budget is None:
             state.observations.extend(self.memory_adapter.read(task))
+        elif self.memory_adapter:
+            state.metadata["memory_read_skipped"] = "budgeted_run_has_no_metered_memory_reader"
         notice = safety_notice(task)
         if notice:
             # A warning is not a source, so it stays out of the observation list
