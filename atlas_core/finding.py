@@ -69,7 +69,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, Protocol
 
 from .integrity import PathRefused, read_within
 from .observation import UNKNOWN, Observation
@@ -118,10 +118,53 @@ class EvidenceStatus(str, Enum):
     INTACT = "intact"
 
 
-#: This checker reads local files. A `github_file`, `ci` or `memory`
-#: observation needs its own adapter to establish provenance, and checking one
-#: against a local path that happens to match would be a false confirmation.
+#: What this checker can re-read without help. A `github_file`, `ci` or
+#: `memory` observation needs its own reader to establish provenance, and
+#: checking one against a local path that happens to match would be a false
+#: confirmation. Extra readers are supplied per run; see `SourceReader`.
 SUPPORTED_SOURCE_TYPES: frozenset[str] = frozenset({"local_file"})
+
+
+class SourceReader(Protocol):
+    """How one kind of source is read *again*, to see whether it still holds.
+
+    Re-reading is the whole mechanism: an observation is evidence only while
+    its source still matches it. A reader that returned a cached copy would
+    make every citation permanently fresh, which defeats the check — a CI
+    conclusion in particular is perishable and must be fetched again.
+    """
+
+    def read(self, observation: Observation) -> str: ...
+
+
+class LocalFileReader:
+    """Reads a `local_file` observation, refusing a path that escapes.
+
+    Containment belongs to the read, not to an earlier name check: see
+    `integrity.read_within`.
+    """
+
+    source_type = "local_file"
+
+    def __init__(self, root: str | Path):
+        self._root = root
+
+    def read(self, observation: Observation) -> str:
+        return read_within(self._root, observation.path)
+
+
+def resolve_readers(
+    root: str | Path, extra: dict[str, SourceReader] | None = None
+) -> dict[str, SourceReader]:
+    """The readers for a run: local files always, anything else on request.
+
+    `extra` cannot replace the local-file reader. A caller that could would be
+    able to swap containment and freshness for something of its own choosing,
+    and every local citation in the run would rest on it.
+    """
+    readers: dict[str, SourceReader] = dict(extra or {})
+    readers["local_file"] = LocalFileReader(root)
+    return readers
 
 
 @dataclass(frozen=True)
@@ -263,7 +306,11 @@ class EvidenceCheck:
 
 
 def check_finding(
-    finding: Finding, observations: list[Observation], root: str | Path
+    finding: Finding,
+    observations: list[Observation],
+    root: str | Path,
+    *,
+    readers: dict[str, SourceReader] | None = None,
 ) -> EvidenceCheck:
     """Check a finding's citations against what this run actually read.
 
@@ -281,8 +328,9 @@ def check_finding(
         )
 
     by_id = {observation.source_id: observation for observation in observations}
+    resolved = resolve_readers(root, readers)
     statuses = [
-        (ref.source_id, _check_reference(ref, by_id, root)) for ref in finding.evidence
+        (ref.source_id, _check_reference(ref, by_id, resolved)) for ref in finding.evidence
     ]
 
     broken = [
@@ -313,15 +361,16 @@ def check_finding(
 
 
 def _check_reference(
-    ref: EvidenceRef, by_id: dict[str, Observation], root: str | Path
+    ref: EvidenceRef, by_id: dict[str, Observation], readers: dict[str, SourceReader]
 ) -> EvidenceStatus:
     observation = by_id.get(ref.source_id)
     if observation is None:
         return EvidenceStatus.UNKNOWN_SOURCE
 
-    # A github_file, ci or memory observation must not be read off the local
-    # disk: a local path that happens to match would confirm the wrong thing.
-    if observation.source_type not in SUPPORTED_SOURCE_TYPES:
+    # A source this run has no reader for must not be read off the local disk:
+    # a local path that happens to match would confirm the wrong thing.
+    reader = readers.get(observation.source_type)
+    if reader is None:
         return EvidenceStatus.UNSUPPORTED_SOURCE_TYPE
 
     # The finding's claimed digest must match what was observed. This is what
@@ -348,7 +397,7 @@ def _check_reference(
     # an open can be a link by the time the open happens. `read_within` refuses
     # on all three grounds and returns the bytes it actually opened.
     try:
-        content = read_within(root, observation.path)
+        content = reader.read(observation)
     except PathRefused:
         return EvidenceStatus.PATH_REFUSED
     except OSError:
@@ -384,6 +433,9 @@ def _derive_finding_id(claim: str, scope: str) -> str:
 
 __all__ = [
     "SCHEMA",
+    "LocalFileReader",
+    "SourceReader",
+    "resolve_readers",
     "SEVERITIES",
     "SUPPORTED_SOURCE_TYPES",
     "EvidenceCheck",

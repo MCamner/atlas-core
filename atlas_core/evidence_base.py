@@ -55,6 +55,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .finding import SourceReader
 from .integrity import redacted_manifest
 from .observation import Observation
 from .snapshot import Snapshot
@@ -71,6 +72,12 @@ class EvidenceBase:
 
     snapshot: Snapshot
     observations: list[Observation] = field(default_factory=list)
+    #: How non-local sources are re-read. Local files always have a reader;
+    #: anything else needs one from the host, because Atlas Core makes no
+    #: network calls. A source with no reader is refused rather than guessed
+    #: at — see `finding.resolve_readers`, which will not let this replace the
+    #: local-file reader.
+    readers: dict[str, SourceReader] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for observation in self.observations:
@@ -102,6 +109,10 @@ class EvidenceBase:
 
     def is_empty(self) -> bool:
         return not self.observations
+
+    def can_reread(self, observation: Observation) -> bool:
+        """Whether this run can establish that a source still holds."""
+        return observation.source_type == "local_file" or observation.source_type in self.readers
 
     def to_manifest(self) -> dict[str, Any]:
         """The only export. Raw excerpts and the absolute root stay behind.

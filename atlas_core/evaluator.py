@@ -367,7 +367,7 @@ def _grade_against_evidence(
     uncheckable = [bullet for bullet in prose if bullet not in claims]
 
     checks = [
-        (finding, check_finding(finding, base.observations, base.root))
+        (finding, check_finding(finding, base.observations, base.root, readers=base.readers))
         for finding in parsed.findings
     ]
     unsound = [(finding, check) for finding, check in checks if not check.citations_are_sound()]
@@ -380,7 +380,7 @@ def _grade_against_evidence(
         for (finding, check), (_, typed, condition) in zip(checks, parsed.entries):
             if check.citations_are_sound():
                 claim_verdicts[finding.finding_id] = check_claim(
-                    finding, typed, condition, base.observations, base.root
+                    finding, typed, condition, base.observations, base.root, base.readers
                 )
 
     if not checks and not uncheckable:

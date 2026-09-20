@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime, timezone
 from typing import Any, Literal
 import uuid
@@ -82,11 +82,13 @@ class AtlasRunState:
         `evidence_base` is deliberately not in the output. `asdict` would walk
         straight into it and publish every excerpt the run read plus the
         absolute path it read from; the export is a sanitised manifest instead.
+
+        It is cleared *before* `asdict` runs, not filtered out afterwards.
+        `asdict` deep-copies as it walks, and the base holds source readers a
+        host supplied — one wrapping a network client cannot be copied at all,
+        so filtering after the walk would raise while rendering a run.
         """
-        fields = {
-            name: value
-            for name, value in asdict(self).items()
-            if name != "evidence_base"
-        }
+        fields = asdict(replace(self, evidence_base=None))
+        fields.pop("evidence_base", None)
         manifest = self.evidence_base.to_manifest() if self.evidence_base else None
         return {"schema": "atlas-run.v1", **fields, "evidence_manifest": manifest}
