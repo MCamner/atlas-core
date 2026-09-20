@@ -74,6 +74,7 @@ class AtlasController:
         json_mode: Literal[False] = ...,
         limits: RunLimits | None = ...,
         cancelled: Callable[[], bool] | None = ...,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
     ) -> str: ...
 
     @overload
@@ -86,6 +87,7 @@ class AtlasController:
         json_mode: Literal[True],
         limits: RunLimits | None = ...,
         cancelled: Callable[[], bool] | None = ...,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
     ) -> dict[str, Any]: ...
 
     @overload
@@ -98,6 +100,7 @@ class AtlasController:
         json_mode: bool,
         limits: RunLimits | None = ...,
         cancelled: Callable[[], bool] | None = ...,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
     ) -> str | dict[str, Any]: ...
 
     def run(
@@ -109,6 +112,7 @@ class AtlasController:
         json_mode: bool = False,
         limits: RunLimits | None = None,
         cancelled: Callable[[], bool] | None = None,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
     ) -> str | dict[str, Any]:
         """Run the loop.
 
@@ -120,6 +124,8 @@ class AtlasController:
         """
         if self.tools and limits is None:
             raise ValueError("Atlas-managed tools require RunLimits; no unmetered gateway")
+        if readers and limits is None:
+            raise ValueError("Atlas-managed readers require RunLimits")
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
         budget = RunBudget(limits, cancelled=cancelled) if limits is not None else None
         gateway = ToolGateway(budget=budget, tools=self.tools) if budget is not None and self.tools else None
@@ -143,6 +149,33 @@ class AtlasController:
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
         state.evidence_base = evidence
+        if readers:
+            assert budget is not None  # checked at entry: no unmetered readers
+            try:
+                for reader in readers:
+                    budget.check()
+                    gathered = reader(task, budget)
+                    if not isinstance(gathered, list) or any(
+                        not isinstance(item, str) for item in gathered
+                    ):
+                        raise TypeError("source reader must return list[str]")
+                    budget.charge_output("\n".join(gathered))
+                    state.observations.extend(gathered)
+            except RunCancelled:
+                state.stop("cancelled")
+            except BudgetExceeded as exc:
+                state.metadata["budget_exhausted"] = str(exc)
+                state.stop("budget_exhausted")
+            except Exception as exc:
+                state.stop("tool_error")
+                state.metadata["failure"] = {
+                    "stage": "observer",
+                    "error": type(exc).__name__,
+                    "message": str(exc)[:MAX_FAILURE_MESSAGE],
+                }
+            if state.stop_reason is not None:
+                state.metadata["budget_usage"] = budget.usage()
+                return finalize(state, json_mode=json_mode)
         # No unmetered reads from host adapters in resource-limited runs.
         if self.memory_adapter and budget is None:
             state.observations.extend(self.memory_adapter.read(task))
