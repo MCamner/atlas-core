@@ -67,7 +67,12 @@ class RouteEvaluator:
 ROUTE_EVALUATORS: dict[str, RouteEvaluator] = {
     "repo_review": RouteEvaluator(
         evidence_heading="## Observed sources",
-        finding_headings=("## Verified findings",),
+        # "## Findings" first: a heading is not a verification, and one that
+        # calls its contents verified asserts exactly what the run has to
+        # establish. "## Verified findings" stays accepted so existing
+        # producers keep working, and the claim ledger in the rendered text
+        # says per claim which of them was actually settled.
+        finding_headings=("## Findings", "## Verified findings"),
         requires_sources=True,
         requires_claim_check=True,
     ),
