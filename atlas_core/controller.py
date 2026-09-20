@@ -197,7 +197,8 @@ class AtlasController:
             # nothing about whether it may trust the answer.
             state.stop("max_iterations")
 
-        if state.evaluations:
+        # Only a passing run may promote a memory candidate.
+        if state.evaluations and state.stop_reason in {"passed"}:
             candidate = build_memory_candidate(
                 task=state.task,
                 route_name=state.route.name if state.route else "unknown",

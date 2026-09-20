@@ -67,7 +67,12 @@ class RouteEvaluator:
 ROUTE_EVALUATORS: dict[str, RouteEvaluator] = {
     "repo_review": RouteEvaluator(
         evidence_heading="## Observed sources",
-        finding_headings=("## Verified findings",),
+        # "## Findings" first: a heading is not a verification, and one that
+        # calls its contents verified asserts exactly what the run has to
+        # establish. "## Verified findings" stays accepted so existing
+        # producers keep working, and the claim ledger in the rendered text
+        # says per claim which of them was actually settled.
+        finding_headings=("## Findings", "## Verified findings"),
         requires_sources=True,
         requires_claim_check=True,
     ),
@@ -207,7 +212,8 @@ def evaluate(
     # Retry only when the next pass can actually act on something: a gap the
     # executor knows how to close. Re-running a deterministic executor with
     # identical input cannot improve anything, so never burn an iteration on it.
-    actionable = bool(gaps) or evidence.actionable
+    # Formatting cannot repair a missing or stale source.
+    actionable = evidence.actionable if evidence.gaps else bool(gaps)
     # Split deliberately: what could still be tried, and what will be tried.
     # A run that stops with something actionable left stopped because of its
     # bound; one that stops with nothing left had nowhere to go. They are

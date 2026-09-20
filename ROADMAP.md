@@ -51,9 +51,9 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ### P0.2 Verifiering ≠ citering
 
-> Två av fyra rutor kryssade efter att PR E ([#20](https://github.com/MCamner/atlas-core/pull/20)) mergats som `99770bc`, med `Ran 283 tests ... OK` i testworkflowen på `main` och beteendet observerat i en körning mot det här repot: ett sant typat påstående om README gav `verified`, ett falskt gav `contradicted`, och ett om text bortom det observerade utdraget gav `contradicted`.
+> Två av fyra rutor kryssade efter PR E ([#20](https://github.com/MCamner/atlas-core/pull/20)) mergats som `99770bc`, med `Ran 283 tests ... OK` i testworkflowen på `main` och beteendet observerat i en körning mot det här repot: ett sant typat påstående om README gav `verified`, ett falskt gav `contradicted`, och ett om text bortom det observerade utdraget gav `contradicted`.
 >
-> **Ruta tre står kvar öppen.** Den innehåller två krav. Förbudet mot att modellen tilldelar sitt eget verdikt är uppfyllt; uppdelningen fakta/hypotes/rekommendation är inte visad. Se rutans egen notering.
+> **Ruta tre** är åtgärdad i PR G men inte kryssad förrän den är mergad och resultatet observerat på `main`.
 >
 > **Ruta fyra** är åtgärdad i PR H men inte kryssad förrän den är mergad och resultatet observerat på `main`. Övriga fall i rutan (falskt fynd som citerar en verkligt läst README, fel SHA, fel radintervall, cherry-pickat utdrag, tomma källor, saknat resultat) hade redan tester.
 >
@@ -65,18 +65,9 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 - [x] Låt evaluator kontrollera att refererade ID:n existerar i denna run, att utdrag och line range matchar snapshot och att påståendets kontrollerbara del stöds av källan/testet. Om semantisk verifiering inte kan göras: `insufficient_evidence`, aldrig `verified` på enbart filnamn.
   - Kontrollerbar del = det som går att uttrycka som literal närvaro eller frånvaro över observerade rader. Allt annat blir `insufficient_evidence`, aldrig `verified`.
 - [ ] Separera fakta, hypotes och rekommendation. En modellbaserad verifierare måste kompletteras med deterministiska kontroller/tester; modellens eget självomdöme får inte ensamt ge PASS.
-  - **Delvis:** det andra kravet är uppfyllt. Ingen modellbaserad verifierare finns; allt avgörs deterministiskt. `verdict`, `verification_method` och `finding_id` saknas i producentens indataschema, och ett insmugglat `verdict` avvisar hela blocket i stället för att tystas.
-  - **Återstår:** själva uppdelningen, och den är inte bara otestad utan trasig. Körningsdokumentet skiljer kategorierna — `citation_checks` ger `verdict: verified` per fynd och `unverified_claims` listar resten — men `render_run_text` gör det inte. En körning med ett verifierat faktum och en hypotes ger denna text:
+  - **Åtgärdad i PR G, kryssas vid merge.** Slutrapporten bär en **claim ledger**, härledd ur körningsdokumentet och inte ur texten ovanför: `FACT` för ett påstående avgjort mot observerade rader, `REFUTED` när källan säger emot, `HYPOTHESIS` för allt annat — inklusive prosafynd kontrollen aldrig såg. Rekommendationer listas inte alls där, med en rad som säger varför. Producentens brödtext lämnas orörd; ledgern är en separat, auktoritativ vy.
+  - `## Findings` accepteras nu före `## Verified findings`. En rubrik är ingen verifiering, och en som kallar sitt innehåll verifierat hävdar precis det körningen ska fastställa. Den äldre rubriken fungerar fortfarande.
 
-    ```text
-    - README.md lines 1-5 contain "pip install"
-    - README.md är förmodligen svår att följa för nybörjare.
-    ---
-    Status: provisional
-    Evidence gaps: uncheckable_findings
-    ```
-
-    Två identiska punkter under samma rubrik. En läsare kan inte se vilken som avgjordes mot en källa, och trailern säger att det finns ett evidensgap men inte vilket påstående det gäller. Kräver att slutrapporten märker kategorin per påstående, och ett test som följer ett verifierat fynd, en hypotes och en rekommendation genom `render_run_text` och visar att de förblir åtskilda.
 - [ ] Testa falskt fynd som citerar en verkligt läst README, fel SHA/linje, cherry-pickat utdrag, stale CI, tomma källor och saknat resultat. Alla ska bli FAIL/INSUFFICIENT_EVIDENCE.
   - **Åtgärdad i PR H, kryssas vid merge.** `atlas_core/ci.py` samlar in ett CI-resultat med proveniens — provider, workflow, run id, ref, commit, slutsats och tidpunkt — och hashar exakt de fälten, så digesten ändras när *resultatet* ändras och inte när ett API svarar i annan ordning. Källan läses om genom sin adapter, aldrig ur en cache: en cachad kopia skulle göra varje CI-citat permanent färskt, vilket är just felet rutan pekar på. Ett test citerar en grön körning, låter någon köra om workflowet rött, och visar `stale_source` och `passed=False` genom `AtlasController`. En omkörning som blir grön igen är också `stale_source` — identiteten är körningen, inte slutsatsen den råkade ge.
   - Läsningen är nu typbunden: `SourceReader` per källtyp, där `local_file` alltid finns och inte kan ersättas av en anropare — en som kunde det skulle äga containment och färskhet för varje lokalt citat i körningen. En källtyp utan läsare avvisas som `unsupported_source_type` i stället för att gissas.
