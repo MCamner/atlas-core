@@ -51,23 +51,34 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ### P0.2 Verifiering ≠ citering
 
-> Ingen ruta kryssad. PR E kryssar dem först när den är mergad och resultatet observerat på `main` — inte på en öppen gren.
+> Två av fyra rutor kryssade efter att PR E ([#20](https://github.com/MCamner/atlas-core/pull/20)) mergats som `99770bc`, med `Ran 283 tests ... OK` i testworkflowen på `main` och beteendet observerat i en körning mot det här repot: ett sant typat påstående om README gav `verified`, ett falskt gav `contradicted`, och ett om text bortom det observerade utdraget gav `contradicted`.
 >
-> Vad PR E täcker: ett starkt verdikt (`verified`/`contradicted`) kan bara komma från ett **typat påstående**, där påståendet *är* predikatet — `source_contains_literal` eller `source_lacks_literal` över en citerad källa, och den läsbara meningen härleds ur objektet i stället för att skrivas fritt. Producentens egen `claim`-sträng måste vara lika med härledningen, så meningen en läsare ser kan inte säga mer än det som prövades.
+> **Ruta tre står kvar öppen.** Den innehåller två krav. Förbudet mot att modellen tilldelar sitt eget verdikt är uppfyllt; uppdelningen fakta/hypotes/rekommendation är inte visad. Se rutans egen notering.
 >
-> **Varför så strikt:** en tidigare version lät fri text paras med ett separat valt predikat. Predikatet avgjordes deterministiskt, men dess *relevans* för påståendet kontrollerades inte, och det gick sönder åt båda hållen — ett falskt påstående fick `verified` för att `# Atlas Core` råkar finnas i filen, och ett sant fick `contradicted` av samma skäl. Att avgöra ett producentvalt predikat är inte att avgöra producentens påstående.
+> **Ruta fyra står kvar öppen.** Den kräver att `stale CI` testas. Att koden avvisar en `ci`-observation som `unsupported_source_type` är inte samma sak som att ha testat hur en verklig CI-observation blir inaktuell — det kräver en insamlare med proveniens och ett test som låter resultatet bli inaktuellt under körningen. Övriga fall i rutan (falskt fynd som citerar en verkligt läst README, fel SHA, fel radintervall, cherry-pickat utdrag, tomma källor, saknat resultat) har tester.
 >
-> Fri text behåller `insufficient_evidence` och kan inte nå `PASS`. Ett producentdeklarerat `claim_check` finns kvar som diagnostik och ger `condition_supported`/`condition_refuted` — namnen är poängen: att producentens eget test gick igenom säger att producentens eget test gick igenom.
+> **Vad de kryssade rutorna betyder, och inte.** De gäller *verifierade literalpåståenden*, inte bredare slutsatser om ett repo. `verified` kan bara nås genom ett typat påstående där påståendet *är* predikatet — `source_contains_literal` eller `source_lacks_literal` över citerade, observerade rader — och den läsbara meningen härleds ur objektet, så prosan inte kan säga mer än det som prövades. Ett påstående som inte går att uttrycka så kan inte verifieras här alls: det blir `insufficient_evidence`, vilket är rätt svar och samtidigt gränsen för vad fasen räcker till. En grön körning betyder "varje fynd var formulerat så att det gick att avgöra, och avgjordes till sin fördel mot lästa rader" — inte att granskningen är fullständig.
 >
-> Omfattningen är det observerade radintervallet, inte filen. `collect_observation` sparar ett begränsat utdrag, så att söka i hela filen skulle låta text ingen observerat avgöra ett verdikt — samma defekt som `quote_outside_excerpt` avvisar på citatsidan. Den härledda meningen namnger intervallet.
->
-> Kvar öppet: villkor matchar literal text, inte reguljära uttryck — ett producentlevererat mönster är otillförlitlig indata som kan hänga kontrollen. En stale källa avgör ingenting i någon riktning. Och ett påstående som inte går att uttrycka som literal närvaro eller frånvaro över observerade rader kan inte verifieras här alls; det blir `insufficient_evidence`, vilket är rätt svar men också gränsen för vad fasen räcker till.
+> Kvar öppet i övrigt: fri text ger `insufficient_evidence`; ett producentdeklarerat `claim_check` är diagnostik (`condition_supported`/`condition_refuted`) och kan aldrig ge ett verdikt. Villkor matchar literal text, inte reguljära uttryck. En stale källa avgör ingenting i någon riktning. Prosakanalen `observations` exporteras fortfarande ordagrant — en egen säkerhetslucka, inte en del av P0.2.
 
-- [ ] Definiera `Finding.v1`: claim, scope, severity med motivering, evidence IDs, verifieringsmetod, verifieringsresultat (`verified`/`contradicted`/`insufficient_evidence`), begränsningar och reproducerbart kommando om relevant.
-- [ ] Låt evaluator kontrollera att refererade ID:n existerar i denna run, att utdrag och line range matchar snapshot och att påståendets kontrollerbara del stöds av källan/testet. Om semantisk verifiering inte kan göras: `insufficient_evidence`, aldrig `verified` på enbart filnamn.
-  - **Delvis:** PR F kopplar in de deterministiska delarna i `AtlasController` och `repo_review` — ID:n, digest, utdrag och radintervall kontrolleras mot snapshotet, och `verified` är fortfarande onåbart. **Återstår:** "påståendets kontrollerbara del stöds av källan" — ingen kontroll jämför påståendets innebörd mot innehållet.
+- [x] Definiera `Finding.v1`: claim, scope, severity med motivering, evidence IDs, verifieringsmetod, verifieringsresultat (`verified`/`contradicted`/`insufficient_evidence`), begränsningar och reproducerbart kommando om relevant.
+- [x] Låt evaluator kontrollera att refererade ID:n existerar i denna run, att utdrag och line range matchar snapshot och att påståendets kontrollerbara del stöds av källan/testet. Om semantisk verifiering inte kan göras: `insufficient_evidence`, aldrig `verified` på enbart filnamn.
+  - Kontrollerbar del = det som går att uttrycka som literal närvaro eller frånvaro över observerade rader. Allt annat blir `insufficient_evidence`, aldrig `verified`.
 - [ ] Separera fakta, hypotes och rekommendation. En modellbaserad verifierare måste kompletteras med deterministiska kontroller/tester; modellens eget självomdöme får inte ensamt ge PASS.
+  - **Delvis:** det andra kravet är uppfyllt. Ingen modellbaserad verifierare finns; allt avgörs deterministiskt. `verdict`, `verification_method` och `finding_id` saknas i producentens indataschema, och ett insmugglat `verdict` avvisar hela blocket i stället för att tystas.
+  - **Återstår:** själva uppdelningen, och den är inte bara otestad utan trasig. Körningsdokumentet skiljer kategorierna — `citation_checks` ger `verdict: verified` per fynd och `unverified_claims` listar resten — men `render_run_text` gör det inte. En körning med ett verifierat faktum och en hypotes ger denna text:
+
+    ```text
+    - README.md lines 1-5 contain "pip install"
+    - README.md är förmodligen svår att följa för nybörjare.
+    ---
+    Status: provisional
+    Evidence gaps: uncheckable_findings
+    ```
+
+    Två identiska punkter under samma rubrik. En läsare kan inte se vilken som avgjordes mot en källa, och trailern säger att det finns ett evidensgap men inte vilket påstående det gäller. Kräver att slutrapporten märker kategorin per påstående, och ett test som följer ett verifierat fynd, en hypotes och en rekommendation genom `render_run_text` och visar att de förblir åtskilda.
 - [ ] Testa falskt fynd som citerar en verkligt läst README, fel SHA/linje, cherry-pickat utdrag, stale CI, tomma källor och saknat resultat. Alla ska bli FAIL/INSUFFICIENT_EVIDENCE.
+  - **Återstår `stale CI`:** att koden avvisar en `ci`-observation som `unsupported_source_type` är *inte* samma sak som att ha testat hur en verklig CI-observation blir inaktuell. Det kräver en insamlare som hämtar ett CI-resultat med proveniens, och ett test som låter det bli inaktuellt under körningen. Övriga fall i rutan har tester.
 
 ### P0.3 Terminalsäkerhet och resurser
 

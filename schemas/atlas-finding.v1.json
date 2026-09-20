@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Atlas Finding",
-  "description": "One claim, the citations it rests on, and how far those have been checked. A verdict of \"verified\" requires a semantic check: deterministic evidence checking can establish that a citation is sound, never that the source supports the claim.",
+  "description": "One claim, the citations it rests on, and how far those have been checked. A verdict of \"verified\" or \"contradicted\" requires a typed claim — one stated as literal presence or absence over a cited source's observed lines, where the claim is the predicate — settled by atlas_core.claim_check. Citation checking alone never produces either: it establishes that a pointer is sound, which says nothing about whether the source supports the claim. A free-text claim therefore stays \"insufficient_evidence\" however sound its citations are.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -91,7 +91,8 @@
         "deterministic_evidence_check",
         "semantic",
         "test_execution"
-      ]
+      ],
+      "description": "How far the finding was checked. \"deterministic_evidence_check\" means the citation was checked and the claim was not. \"semantic\" means a typed claim was settled against the lines the run observed. \"none\" means no checker has looked at it: a finding is constructed this way, and a producer cannot set this field."
     },
     "verdict": {
       "type": "string",
@@ -100,7 +101,7 @@
         "contradicted",
         "insufficient_evidence"
       ],
-      "description": "\"insufficient_evidence\" is the honest default, and what BOTH an unusable citation and an intact-but-unchecked claim earn: a broken pointer says the citation is unusable, never that the claim is false. \"contradicted\" is reserved for a claim a semantic check has actually disproved, and \"verified\" is not reachable from deterministic checking at all."
+      "description": "\"insufficient_evidence\" is the honest default, and what an unusable citation, an intact-but-unchecked claim and any free-text claim all earn: a broken pointer says the citation is unusable, never that the claim is false. \"verified\" and \"contradicted\" are reachable only for a typed claim, and only from atlas_core.claim_check — deterministic citation checking on its own cannot produce either. \"verified\" means the claim, stated as literal presence or absence over observed lines, held against those lines; it is not a judgement about a broader conclusion the finding might imply."
     },
     "limitations": {
       "type": "array",
