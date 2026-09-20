@@ -11,11 +11,12 @@ old='''            state.evaluations.append(evaluation)
 new='''            state.evaluations.append(evaluation)
             if expired():
                 break
-            # A producer that repeats an identical unsuccessful answer without
-            # any new observation has made no progress. Stop rather than spend
-            # every model call budget retrying the same output.
+            # In bounded runs, two identical unsuccessful model outputs with
+            # no new observation establish that another call is unproductive.
+            # Legacy unbudgeted verdict semantics remain unchanged.
             if (
-                self.model_adapter is not None
+                budget is not None
+                and self.model_adapter is not None
                 and len(state.outputs) >= 2
                 and state.outputs[-1] == state.outputs[-2]
                 and evaluation.retry_is_possible
