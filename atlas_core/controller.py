@@ -11,6 +11,7 @@ from .memory import build_memory_candidate, save_local_memory
 from .safety import safety_notice
 from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
+from .evidence_base import EvidenceBase
 
 # Provider messages are unbounded and may embed request content, so the run
 # record keeps a bounded excerpt rather than whatever the provider returned.
@@ -56,6 +57,7 @@ class AtlasController:
         task: str,
         *,
         observations: list[str] | None = ...,
+        evidence: EvidenceBase | None = ...,
         json_mode: Literal[False] = ...,
     ) -> str: ...
 
@@ -65,6 +67,7 @@ class AtlasController:
         task: str,
         *,
         observations: list[str] | None = ...,
+        evidence: EvidenceBase | None = ...,
         json_mode: Literal[True],
     ) -> dict[str, Any]: ...
 
@@ -74,6 +77,7 @@ class AtlasController:
         task: str,
         *,
         observations: list[str] | None = ...,
+        evidence: EvidenceBase | None = ...,
         json_mode: bool,
     ) -> str | dict[str, Any]: ...
 
@@ -82,12 +86,22 @@ class AtlasController:
         task: str,
         *,
         observations: list[str] | None = None,
+        evidence: EvidenceBase | None = None,
         json_mode: bool = False,
     ) -> str | dict[str, Any]:
+        """Run the loop.
+
+        `observations` is prose context; `evidence` is verifiable sources. They
+        are separate parameters because they are separate things, and passing
+        the first never produces the second. A run given an evidence base is
+        graded by deterministic citation checking; a run without one keeps the
+        citation-only grading it always had.
+        """
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
         state.status = "observing"
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
+        state.evidence_base = evidence
         if self.memory_adapter:
             state.observations.extend(self.memory_adapter.read(task))
         notice = safety_notice(task)
@@ -149,6 +163,7 @@ class AtlasController:
                 state.max_iterations,
                 route_name=route.name,
                 observations=state.observations,
+                evidence_base=state.evidence_base,
             )
             state.evaluations.append(evaluation)
             if evaluation.requires_user_approval:

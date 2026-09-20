@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 import uuid
 
+from .evidence_base import EvidenceBase
+
 Status = Literal[
     "new", "observing", "routing", "planning", "executing", "evaluating",
     "replanning", "need_user_approval", "done", "failed",
@@ -30,6 +32,10 @@ class AtlasEvaluation:
     evidence_gaps: list[str] = field(default_factory=list)
     unverified_claims: list[str] = field(default_factory=list)
     evidence_coverage: float | None = None
+    # What the deterministic check established per finding, so a score can be
+    # followed back to a source. Empty when the run carried no evidence base:
+    # the citation-only path checks nothing and must not look as though it did.
+    citation_checks: list[dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class AtlasRoute:
@@ -58,7 +64,11 @@ class AtlasRunState:
     max_iterations: int = 2
     route: AtlasRoute | None = None
     plan: AtlasPlan | None = None
+    # Prose context an adapter formatted. Not evidence: nothing in it can be
+    # re-read or re-hashed. Kept as a separate channel from `evidence_base` on
+    # purpose — see atlas_core/evidence_base.py.
     observations: list[str] = field(default_factory=list)
+    evidence_base: EvidenceBase | None = None
     outputs: list[str] = field(default_factory=list)
     evaluations: list[AtlasEvaluation] = field(default_factory=list)
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)

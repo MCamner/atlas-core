@@ -50,8 +50,18 @@
       ]
     },
     "stop_reason": {
-      "type": ["string", "null"],
-      "enum": [null, "passed", "approval_required", "no_actionable_retry", "max_iterations", "failed"]
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "passed",
+        "approval_required",
+        "no_actionable_retry",
+        "max_iterations",
+        "failed"
+      ]
     },
     "iteration": {
       "type": "integer",
@@ -64,44 +74,111 @@
     "route": {
       "description": "Null only when the loop never ran an iteration.",
       "oneOf": [
-        { "$ref": "atlas-route.v1.json" },
-        { "type": "null" }
+        {
+          "$ref": "atlas-route.v1.json"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "plan": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
-      "required": ["goal", "route_name", "steps", "stop_conditions", "validation_focus"],
+      "required": [
+        "goal",
+        "route_name",
+        "steps",
+        "stop_conditions",
+        "validation_focus"
+      ],
       "properties": {
-        "goal": { "type": "string" },
-        "route_name": { "type": "string" },
-        "steps": { "type": "array", "items": { "type": "string" } },
-        "stop_conditions": { "type": "array", "items": { "type": "string" } },
-        "validation_focus": { "type": "array", "items": { "type": "string" } }
+        "goal": {
+          "type": "string"
+        },
+        "route_name": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stop_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "validation_focus": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "observations": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      },
+      "description": "Prose context an adapter formatted. Not evidence: nothing in it can be re-read or re-hashed. Kept as a separate channel from evidence_base, with no conversion between them."
     },
     "outputs": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "evaluations": {
       "type": "array",
       "description": "Each item conforms to atlas-evaluation.v1.",
-      "items": { "$ref": "atlas-evaluation.v1.json" }
+      "items": {
+        "$ref": "atlas-evaluation.v1.json"
+      }
     },
     "memory_candidates": {
       "type": "array",
       "description": "Each item conforms to atlas-memory-candidate.v1.",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object"
+      }
     },
     "metadata": {
       "type": "object",
       "properties": {
-        "safety_notice": { "type": "string" }
+        "safety_notice": {
+          "type": "string"
+        }
+      }
+    },
+    "evidence_base": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The verifiable sources this run held: one snapshot and the observations taken against it. Null when the run carried prose context only, in which case grading was citation-only and checked nothing against a source's contents.",
+      "additionalProperties": false,
+      "required": [
+        "snapshot",
+        "observations"
+      ],
+      "properties": {
+        "snapshot": {
+          "type": "object",
+          "description": "A snapshot as produced by atlas_core.snapshot.take_snapshot."
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "atlas-observation.v1.json"
+          }
+        }
       }
     }
   }
