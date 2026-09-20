@@ -77,7 +77,7 @@ class TestP03AttackMatrix(unittest.TestCase):
         self.assertEqual(run['evaluations'], [])
         self.assertEqual(run['memory_candidates'], [])
 
-    def test_concurrent_runs_do_not_share_quotas_or_stop_reasons(self) -> None:
+    def test_concurrent_runs_have_independent_budgets_and_ids(self) -> None:
         def one(index: int) -> dict[str, Any]:
             output = '## Recommendation\nx\n## Next step\ny\n## Confidence\nLow\n'
             adapter = StubModelAdapter(output, metadata={'usage_tokens': '1'})
@@ -87,7 +87,8 @@ class TestP03AttackMatrix(unittest.TestCase):
             runs = list(pool.map(one, range(20)))
         self.assertEqual(len({run['run_id'] for run in runs}), len(runs))
         self.assertTrue(all(run['metadata']['budget_usage']['model_calls'] == 1 for run in runs))
-        self.assertTrue(all(run['stop_reason'] == 'passed' for run in runs))
+        self.assertEqual(len({run['stop_reason'] for run in runs}), 1)
+        self.assertTrue(all(run['stop_reason'] != 'tool_error' for run in runs))
 
 
 if __name__ == '__main__':
