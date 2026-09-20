@@ -42,6 +42,48 @@ Roadmap P0.1b: snapshots, collection and drift detection.
 - Still not wired into the controller; the loop keeps its `list[str]`
   observations.
 
+Roadmap P0.1c: source integrity and safe handling of observation data.
+
+- Added `atlas_core/integrity.py`. `resolve_within()` refuses absolute paths,
+  `..` escapes, a sibling directory sharing a prefix, and symlinks pointing out
+  of the snapshot. A symlink that stays inside is allowed — the rule is about
+  where bytes come from, not about links. Refusal, not clamping: reading a
+  different file than the one requested is worse than failing.
+- `redact_text()` masks credential formats, home directories and email
+  addresses. Deliberately narrow, so hex digests, commit ids, versions and
+  in-repo paths survive — masking the context needed to check a claim would
+  defeat the point. Verified against this repo's own files: no false positives.
+- `redacted_manifest()` is the exportable record: masked excerpts, snapshot
+  provenance, and per-entry verification status. It keeps `content_sha256`
+  unmasked so the manifest still points at what was verified, and omits
+  `snapshot.root`, which is an absolute path naming a user and a machine. An
+  entry built without re-verification reports `unknown`, never `is_evidence`.
+- Redaction is a view, not storage. Collected excerpts stay raw, because
+  verification compares the excerpt against the lines it claims — masking at
+  collection made an untouched source verify as `stale`, which a test caught.
+- Masking covers the **whole** export, not only the excerpt. A path like
+  `docs/privat@example.com.md` or a token-shaped branch name leaves a run
+  through metadata as readily as through content, so every exported string is
+  masked except the verification pointer — `content_sha256`, the ids and the
+  structural enums. The digest stays verbatim because a masked digest points
+  at nothing.
+- A private key is masked as a whole block. Matching only the `BEGIN` header
+  left the key body and `END` line in the clear; an unterminated block now has
+  its base64 run masked too, while following prose survives.
+- `collect_observation_safely()` reads through the **resolved** path instead of
+  the string it was asked for, so a symlink inside the root cannot be repointed
+  between the check and the read. The recorded path is the concrete file.
+- Documented what containment does **not** cover: `verify_observation()` has no
+  check of its own, `Observation.path` still accepts `../` and absolute forms,
+  and redaction is best-effort against arbitrary personal data. The full P0.1
+  security box stays open.
+- Negative tests cover tampering that preserves length, trailing-whitespace
+  edits, a commit that does not make a changed file fresh again, path
+  traversal, symlink escape, secret leakage into the manifest, secrets in
+  `path`/`repo`/`ref` metadata, and a full PEM block.
+- `ROADMAP.md` P0.1 status updated. Only the `Observation.v1` box is ticked;
+  the other three stay open with what each PR covers and what remains.
+
 Terminal states are now legible to callers.
 
 - A model adapter that raises, or returns anything other than a `ModelResult`

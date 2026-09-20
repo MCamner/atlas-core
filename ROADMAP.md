@@ -35,28 +35,42 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ## P0 — v1.1 Evidensintegritet och säker kärna
 
 ### P0.1 Observationer med proveniens
-- [ ] Definiera `Observation.v1`: `source_id`, typ (local-file/GitHub/CI/memory), repo/ref/commit eller lokal snapshot-id, sökväg, insamlad tid, content hash, läst utdrag + line range och sekretessklass. Använd explicit `unknown` där fält inte kan verifieras.
+
+- [x] Definiera `Observation.v1`: `source_id`, typ (local-file/GitHub/CI/memory), repo/ref/commit eller lokal snapshot-id, sökväg, insamlad tid, content hash, läst utdrag + line range och sekretessklass. Använd explicit `unknown` där fält inte kan verifieras.
+  - Stängd av [#15](https://github.com/MCamner/atlas-core/pull/15). `atlas_core/observation.py`, `schemas/atlas-observation.v1.json`, `tests/test_observation.py` (24 tester). Overifierade fält blir `unknown`; tomt och blanksteg avvisas, liksom trasig digest och okänd enum. Validering ligger i `__post_init__`, så `dataclasses.replace` inte kan skriva förbi den, och `source_id` omderiveras så en observation inte kan riktas om till en annan sökväg.
 - [ ] Läs en konsekvent snapshot för en run; upptäck ändrad HEAD/fil under läsning och märk `stale` eller avbryt; blanda inte `main` och arbetsgren utan tydlig separation.
+  - **Delvis.** [#16](https://github.com/MCamner/atlas-core/pull/16) ger `take_snapshot`, `verify_observation` (`fresh`/`stale`/`missing`/`unverifiable`) och `detect_drift`, som parar HEAD-kontroll med innehållskontroll per källa — `has_moved()` ensam ser inte en redan smutsig worktree ändras igen. Grenbyte ger ett annat snapshot.
+  - **Återstår:** ingen körning *avbryts* vid drift, och inget av detta är inkopplat i `AtlasController`. Loopen tar fortfarande `list[str]`-observationer, så en route som får stale källor mitt i en körning märker det inte.
 - [ ] Lagra begränsade, sanitiserade utdrag i observationsmanifest; koppla varje finding till `source_id` och exakt utdrag. Klipp inte bort just den kontext som behövs för att kontrollera påståendet.
+  - **Delvis.** PR C ger `redacted_manifest()` med begränsade och maskerade utdrag, snapshot-proveniens och per-post verifieringsstatus. Manifestet utelämnar `snapshot.root`, som är en absolut sökväg med användarnamn. Maskeringen är smal och verifierad mot repots egna filer: 0 falska positiva.
+  - **Återstår:** kopplingen finding → `source_id` finns inte. `Finding.v1` är P0.2, och inget i P0.1 kan därför knyta ett påstående till ett utdrag.
 - [ ] Redigera tokens, privata paths och persondata före run-artifact/export; råa källor förblir lokala. Negativa tester för injicerade hemligheter och symlänkar/path traversal.
+  - **Delvis.** PR C: `redact_text()` maskerar nyckelformat, hemkataloger och e-post vid export medan råa utdrag stannar lokalt. `resolve_within()` avvisar absoluta sökvägar, `..`-flykt, syskonkatalog med delat prefix och symlänkar som pekar ut ur snapshotet. Negativa tester finns för alla dessa samt för manipulerat innehåll av samma längd.
+  - **Återstår:** maskeringen är best-effort. Persondata utöver e-post och hemkatalog upptäcks inte, det finns ingen klassificering av personuppgifter, och `confidentiality` sätts aldrig automatiskt — den är `unknown` om ingen anger den.
+  - **Återstår:** containment gäller inte alla läsvägar. `verify_observation()` läser om `root / observation.path` utan egen kontroll, och `Observation.path` accepterar i dag `../` och absoluta former. En findingkontroll som läser om en källa måste göra sin egen säkra läsning. Även på den säkra vägen är resolve och read två steg: att läsa via den resolvade konkreta sökvägen tar bort symlänkbyte mellan dem, men en fil kan fortfarande ändras mellan vilken kontroll som helst och en senare läsning. Integritet återetableras genom omverifiering, inte genom att lita på en tidigare kontroll.
 
 ### P0.2 Verifiering ≠ citering
+
 - [ ] Definiera `Finding.v1`: claim, scope, severity med motivering, evidence IDs, verifieringsmetod, verifieringsresultat (`verified`/`contradicted`/`insufficient_evidence`), begränsningar och reproducerbart kommando om relevant.
 - [ ] Låt evaluator kontrollera att refererade ID:n existerar i denna run, att utdrag och line range matchar snapshot och att påståendets kontrollerbara del stöds av källan/testet. Om semantisk verifiering inte kan göras: `insufficient_evidence`, aldrig `verified` på enbart filnamn.
 - [ ] Separera fakta, hypotes och rekommendation. En modellbaserad verifierare måste kompletteras med deterministiska kontroller/tester; modellens eget självomdöme får inte ensamt ge PASS.
 - [ ] Testa falskt fynd som citerar en verkligt läst README, fel SHA/linje, cherry-pickat utdrag, stale CI, tomma källor och saknat resultat. Alla ska bli FAIL/INSUFFICIENT_EVIDENCE.
 
 ### P0.3 Terminalsäkerhet och resurser
+
 - [ ] Versionera explicit state machine och stopporsaker: `passed`, `insufficient_evidence`, `blocked`, `approval_required`, `budget_exhausted`, `max_iterations`, `no_progress`, `tool_error`, `cancelled`. Skilj runtime-fel från saklig evaluering.
 - [ ] Inför max iterationer, wall-clock, modell-/verktygsanrop, tokenkostnad och outputstorlek. Alla gränser ska gälla även nested verktyg och retries.
 - [ ] Fail-closed för skrivning: inga verktyg med sidoeffekter i read-only mode; mänskligt godkännande knyts senare till exakt diff/kommando/repo/ref och upphör när underlaget ändras.
 - [ ] Testa prompt injection i README och verktygsoutput, nätverksfel, timeout, abort, oändlig förbättring utan progress, felaktigt JSON och samtidiga körningar. Output från repo är *data*, inte instruktion.
+
+> Statusnoteringarna ovan följer regeln i huvudet: en ruta kryssas först när PR är mergad, tester körda och resultatet observerat. En delvis täckt ruta står kvar som öppen med vad som faktiskt återstår — inte som nästan klar.
 
 **P0 exit gate:** en osann verifierbar claim kan inte få `passed`; varje beslut kan följas till snapshot/evidence; read-only-försök att skriva nekas på exekveringsgränsen, inte bara genom prompttext.
 
 ## P1 — v1.2 Första verkliga uppgiftsloopen
 
 ### P1.1 Repo-review som vertikal slice
+
 - [ ] Inför en begränsad `repo_review`-plan: välj snapshot → identifiera konkret fråga → läs relevanta filer/tester/CI → samla fynd → verifiera → föreslå nästa *skrivskyddade* undersökning eller avsluta.
 - [ ] Välj ett litet, fast fixture-repo med kända defekter och ett utan defekter. Mät precision mot facit, andel evidensbelagda findings, falskt positiva, iterationsantal, kostnad och stopporsak.
 - [ ] Sätt explicit exit criteria per task i stället för generell textlängd/rubriker. Ingen finding med okänd täckning får tilldelas verifierad severity.
@@ -64,6 +78,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 - [ ] Verifiera med ett aktuellt publikt repo vid pinad commit och jämför med fixture; dokumentera manuellt kontrollerade fynd och kända missar.
 
 ### P1.2 Live modellprovider som valfri adapter
+
 - [ ] Implementera minst en riktig provider bakom befintlig `ModelAdapter`; stöd lokal Ollama eller extern leverantör som separat konfiguration. Saknad nyckel får inte bryta deterministic fallback.
 - [ ] Schemalägg och validera strukturerad modelloutput; begränsa prompt/context, logga provider/model/config och versions-ID utan hemligheter; hantera rate limits, timeout och okänt svar.
 - [ ] Kör kontraktstester med fake provider i CI och opt-in live smoke test utanför obligatorisk CI. Resultat från nätverksmodell markeras icke-deterministiskt.
@@ -85,11 +100,13 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ## P1 — v1.4 Integration utan tight coupling
 
 ### Atlas One (äger UI-arbetet i `MCamner/atlas-one`)
+
 - [ ] Publicera Core API/CLI-kontrakt för create/run/status/cancel/inspect, inklusive schema-version och streaming av progress-events. Anpassning i Atlas One görs i *dess* repo med separat PR.
 - [ ] Visa observerade källor, faktiska iterationer, budget, verifieringsstatus och `approval_required` i UI. Märk prompt-preview separat från exekverad/verifierad run.
 - [ ] Kontraktstest med mock Core och lokal smoke-test från Atlas One till Core; frontend får inte bli en alternativ evaluator.
 
 ### MQ (adaptrar, inte Core-importer)
+
 - [ ] `mq-agent`: adapter för tillåtna read-only operations och eventuell orchestration handoff; undvik två konkurrerande ägare av samma loop/state.
 - [ ] `mq-mcp`: adapter för explicit utvalda tools; respektera receiver-gates och befintliga evidence/memory-kontrakt. Ingen direkt write-around från Core.
 - [ ] `mqobsidian`: mappa memory candidates till befintligt inbox-/scoringflöde; historiskt minne är inte aktuell repo-/runtime-sanning. Deduplicering, provenance och fail-closed vid felaktigt schema.
