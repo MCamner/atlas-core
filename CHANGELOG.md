@@ -33,6 +33,14 @@ Roadmap P0.2a: `Finding.v1` and deterministic verification.
 - Negative coverage: unknown `source_id`, wrong digest, wrong line range,
   cherry-picked quote, range past end of file, empty evidence, stale source,
   deleted source, and one bad reference among several.
+- A citation is checked with **one** read. Confirming freshness and then
+  reopening the file for the quote left a window in which the file could change
+  between them, so the digest would describe content the quote was never
+  compared against. A test counts the reads.
+- Containment is checked at that read. `Observation.path` is a plain string and
+  accepts `../` and absolute forms, and the collection wrapper in `integrity`
+  does not cover a later re-read, so an escaping path now returns
+  `path_refused` rather than being followed.
 - Semantic verification is not here. Deciding whether an intact source supports
   a claim is P0.2b.
 

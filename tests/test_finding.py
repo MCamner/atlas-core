@@ -27,6 +27,7 @@ claim — is P0.2b and is not here.
 """
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -338,6 +339,123 @@ class TestUnsupportedSourceTypes(_Run):
 
     def test_local_files_remain_checkable(self):
         self.assertTrue(self._check(self._finding()).citations_are_sound())
+
+
+class TestTheReadIsSingleAndContained(_Run):
+    """Review point 2: one verified read, checked at the read itself.
+
+    The checker used to call `verify_observation` — which reads — and then open
+    the file again for the quote. Two reads leave a window in which the file
+    can change between them, so the digest would describe content the quote was
+    never compared against.
+    """
+
+    def _count_reads(self, finding):
+        original = Path.read_text
+        reads: list[str] = []
+
+        def counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if self.name == "README.md":
+                reads.append(str(self))
+            return original(self, *args, **kwargs)
+
+        Path.read_text = counting  # type: ignore[method-assign]
+        try:
+            result = check_finding(finding, self.observations, self.root)
+        finally:
+            Path.read_text = original  # type: ignore[method-assign]
+        return result, reads
+
+    def test_a_citation_is_checked_with_exactly_one_read(self):
+        result, reads = self._count_reads(self._finding())
+
+        self.assertEqual(len(reads), 1, f"expected one read, got {len(reads)}")
+        self.assertTrue(result.citations_are_sound())
+
+    def test_the_same_bytes_back_both_the_digest_and_the_quote(self):
+        """Freshness and the quote are decided from one read, not two."""
+        result = self._check(self._finding())
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.INTACT)
+
+    def test_an_observation_path_that_escapes_the_snapshot_is_refused(self):
+        """`Observation.path` is a plain string; it accepts `../` today."""
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        (outside / "hemlig.md").write_text("hemligt\n", encoding="utf-8")
+
+        escaping = Observation.create(
+            source_type="local_file",
+            path=f"../{outside.name}/hemlig.md",
+            collected_at=self.observation.collected_at,
+            content_sha256=self.observation.content_sha256,
+            excerpt="hemligt",
+            line_start=1,
+            line_end=1,
+            snapshot_id=self.observation.snapshot_id,
+        )
+        result = check_finding(
+            self._finding(evidence=[self._ref(source_id=escaping.source_id)]),
+            [escaping],
+            self.root,
+        )
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.PATH_REFUSED)
+        self.assertEqual(result.verdict, "insufficient_evidence")
+        self.assertFalse(result.citations_are_sound())
+
+    def test_an_absolute_observation_path_is_refused(self):
+        absolute = Observation.create(
+            source_type="local_file",
+            path="/etc/passwd",
+            collected_at=self.observation.collected_at,
+            content_sha256=self.observation.content_sha256,
+            excerpt="root",
+            line_start=1,
+            line_end=1,
+            snapshot_id=self.observation.snapshot_id,
+        )
+        result = check_finding(
+            self._finding(evidence=[self._ref(source_id=absolute.source_id)]),
+            [absolute],
+            self.root,
+        )
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.PATH_REFUSED)
+
+    @unittest.skipUnless(os.name != "nt", "symlinks unavailable")
+    def test_a_symlinked_observation_path_pointing_outside_is_refused(self):
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        (outside / "hemlig.md").write_text("hemligt\n", encoding="utf-8")
+        (self.root / "alias.md").symlink_to(outside / "hemlig.md")
+
+        linked = Observation.create(
+            source_type="local_file",
+            path="alias.md",
+            collected_at=self.observation.collected_at,
+            content_sha256=self.observation.content_sha256,
+            excerpt="hemligt",
+            line_start=1,
+            line_end=1,
+            snapshot_id=self.observation.snapshot_id,
+        )
+        result = check_finding(
+            self._finding(evidence=[self._ref(source_id=linked.source_id)]),
+            [linked],
+            self.root,
+        )
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.PATH_REFUSED)
+
+    def test_a_source_changed_before_the_read_is_stale_not_intact(self):
+        """The single read still has to confirm freshness itself."""
+        finding = self._finding()
+        (self.root / "README.md").write_text(README + "ändrad\n", encoding="utf-8")
+
+        result = self._check(finding)
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.STALE_SOURCE)
 
 
 class TestFindingShape(_Run):

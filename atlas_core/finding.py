@@ -51,8 +51,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from .integrity import PathRefused, resolve_within
 from .observation import UNKNOWN, Observation
-from .snapshot import verify_observation
+from .snapshot import sha256_text
 
 SCHEMA: Final = "atlas-finding.v1"
 
@@ -86,6 +87,8 @@ class EvidenceStatus(str, Enum):
     STALE_SOURCE = "stale_source"
     #: The source is not a kind this checker can verify. See SUPPORTED_SOURCE_TYPES.
     UNSUPPORTED_SOURCE_TYPE = "unsupported_source_type"
+    #: The observation's path resolves outside the snapshot root.
+    PATH_REFUSED = "path_refused"
     #: Pointer is sound. Says nothing about whether it supports the claim.
     INTACT = "intact"
 
@@ -298,22 +301,34 @@ def _check_reference(
 
     # The finding's claimed digest must match what was observed. This is what
     # stops a citation naming a real source while describing a different
-    # version of it.
+    # version of it. Pure comparison, no read.
     if ref.content_sha256 != observation.content_sha256:
         return EvidenceStatus.DIGEST_MISMATCH
 
-    verification = verify_observation(observation, root)
-    if not verification.is_evidence():
-        return EvidenceStatus.STALE_SOURCE
+    # Containment is checked here, at the read this function performs.
+    # `Observation.path` is a plain string and accepts `../` and absolute
+    # forms, and the collection wrapper in `integrity` does not cover a later
+    # re-read, so relying on it having sanitised this would be wrong.
+    try:
+        path = resolve_within(root, observation.path)
+    except PathRefused:
+        return EvidenceStatus.PATH_REFUSED
 
-    path = Path(root).expanduser().resolve() / observation.path
+    # One read, feeding both checks below. Reading twice — once to confirm
+    # freshness and once to confirm the quote — leaves a window in which the
+    # file can change between them, so the digest would describe content the
+    # quote was never compared against.
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return EvidenceStatus.STALE_SOURCE
 
-    # The quote has to be what sits at those lines, contiguously. Text lifted
-    # from elsewhere in the file is a cherry-pick, not a citation.
+    if sha256_text(content) != observation.content_sha256:
+        return EvidenceStatus.STALE_SOURCE
+
+    # The quote has to be what sits at those lines, contiguously, in the same
+    # bytes the digest just confirmed. Text lifted from elsewhere in the file
+    # is a cherry-pick, not a citation.
     actual = "\n".join(content.splitlines()[ref.line_start - 1 : ref.line_end])
     if actual != ref.quoted:
         return EvidenceStatus.QUOTE_MISMATCH

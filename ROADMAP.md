@@ -51,6 +51,12 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ### P0.2 Verifiering ≠ citering
 
+> Ingen ruta kryssad. PR D ([#18](https://github.com/MCamner/atlas-core/pull/18)) är ett **fristående deterministiskt filter** som inte är inkopplat i `AtlasController` eller `repo_review`-evaluatorn. En körning i dag får därför inget nytt skydd mot felaktigt `PASS`. Rutorna står öppna tills filtret är del av en faktisk körning.
+>
+> Vad #18 täcker: `Finding.v1` med schema; deterministisk kontroll av att `source_id` finns i körningen, att den påstådda digesten matchar, att källan fortfarande är färsk och att citatet sitter sammanhängande på angivet radintervall; en enda verifierad läsning med containment vid själva läsningen; och avvisning av källtyper vars proveniens ingen adapter kan fastställa ännu.
+>
+> Vad #18 **inte** täcker: `verified` och `contradicted` är båda onåbara därifrån — ett oanvändbart citat säger att pekaren är trasig, aldrig att påståendet är falskt. Semantisk verifiering är PR E. `stale CI` ur ruta fyra saknar fortfarande en `ci`-observationskälla att kontrollera mot.
+
 - [ ] Definiera `Finding.v1`: claim, scope, severity med motivering, evidence IDs, verifieringsmetod, verifieringsresultat (`verified`/`contradicted`/`insufficient_evidence`), begränsningar och reproducerbart kommando om relevant.
 - [ ] Låt evaluator kontrollera att refererade ID:n existerar i denna run, att utdrag och line range matchar snapshot och att påståendets kontrollerbara del stöds av källan/testet. Om semantisk verifiering inte kan göras: `insufficient_evidence`, aldrig `verified` på enbart filnamn.
 - [ ] Separera fakta, hypotes och rekommendation. En modellbaserad verifierare måste kompletteras med deterministiska kontroller/tester; modellens eget självomdöme får inte ensamt ge PASS.
