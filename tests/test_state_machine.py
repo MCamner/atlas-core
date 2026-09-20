@@ -425,9 +425,8 @@ class TestDeclaredButNotYetProduced(unittest.TestCase):
     rather than a comment — a later PR has to come here and delete a line.
     """
 
-    NOT_YET_PRODUCED = {
-        "cancelled": "P0.3 box four: abort",
-    }
+    # Cancellation is produced by the controller's runtime checkpoints.
+    NOT_YET_PRODUCED: dict[str, str] = {}
 
     def test_the_two_sets_together_are_the_whole_vocabulary(self):
         produced = {
@@ -439,6 +438,7 @@ class TestDeclaredButNotYetProduced(unittest.TestCase):
             "no_progress",
             "budget_exhausted",
             "tool_error",
+            "cancelled",
         }
 
         self.assertEqual(produced | set(self.NOT_YET_PRODUCED), set(STOP_REASONS))
