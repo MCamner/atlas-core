@@ -61,13 +61,34 @@ cooperative boundaries. Malformed explicitly-declared model JSON and provider
 errors stop as `tool_error`, without a template fallback or a graded PASS.
 Identical unproductive model outputs in bounded runs stop at `no_progress`.
 
+## Hard-isolated Python API (explicit opt-in)
+
+`from atlas_core import run_isolated` exposes
+`run_isolated(controller, task, limits=RunLimits(...))` for hosts supplying
+**trusted and spawn-picklable** model, reader and tool handlers. The process
+uses Python `spawn`, starts a new POSIX session before callbacks execute, and
+returns one versioned run document over capped JSON IPC. The parent applies a
+hard monotonic deadline including startup, polls cancellation, kills the whole
+worker process group on timeout/abort and rejects malformed or absent output
+rather than promoting a partial answer. The child uses the same RunBudget for
+all nested tool calls, retries and observations. Unpicklable callbacks fail
+closed as `tool_error`. See `tests/test_p03_isolation.py` for non-cooperating
+Python adapter, cancellation, nested quota and provider-failure regressions.
+
+This boundary does **not** modify the compatible in-process `run()` API and
+does **not** restrict the worker's OS privileges. A malicious installed adapter
+can access filesystem/network APIs directly and may perform irreversible
+side effects before the parent kills it. Only trusted adapters are in scope;
+untrusted code needs a separately configured low-privilege sandbox with
+read-only mounts/network policy. Windows currently fails closed for this API.
+
 ## Boundaries not provided by this implementation
 
 - **The in-process Python API is not a hard timeout.** A synchronous model
   adapter or read handler can ignore `RunBudget.check()` indefinitely. Hosts
-  using custom adapters MUST enforce a separate worker-process deadline and
-  terminate its descendants, as the public POSIX CLI does, or supply an
-  equivalent external isolation contract. A provider should additionally
+  using custom adapters MUST use `run_isolated` with trusted,
+  spawn-picklable callbacks or provide an equivalent external process deadline
+  and descendant termination contract. A provider should additionally
   enforce an I/O timeout. The public CLI's worker currently runs only the
   built-in deterministic executor and fixed repository readers.
 - **A process is not a security sandbox.** It runs with the caller's OS user
@@ -93,14 +114,14 @@ execution gate. Atlas Core ships no live LLM or repository write adapter.
 `tests/test_tool_gateway.py`, `tests/test_budget_concurrency.py`,
 `tests/test_p03_controller.py`, `tests/test_p03_attack_matrix.py`,
 `tests/test_p03_bounded_cli.py`, `tests/test_p03_progress.py` and
-`tests/test_p03_hard_cli.py` exercise denied mutations, malicious README/tool
+`tests/test_p03_hard_cli.py` and `tests/test_p03_isolation.py`
+exercise denied mutations, malicious README/tool
 output, nested and concurrent quotas, cancellation, provider/network failures,
 malformed JSON, bounded source reads, identical-output stops and deliberately
 non-cooperating worker processes. The standard repository workflow requests
 read-only contents permissions.
 
-The supported POSIX *public CLI* has a demonstrable hard worker deadline.
-This does **not** make arbitrary in-process `AtlasController.run(...)` or
-externally installed adapters sandboxed. P0.3 roadmap completion must state
-which interface is covered and must not silently count the legacy API as
-bounded.
+The supported POSIX public CLI and explicit `run_isolated` API have
+demonstrable parent-enforced deadlines. The in-process/legacy APIs remain
+cooperative or unbounded. Neither process boundary is a filesystem/network
+sandbox for arbitrary external Python; P0.3 completion is scoped accordingly.
