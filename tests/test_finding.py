@@ -26,6 +26,7 @@ Semantic verification — deciding whether an intact source actually supports th
 claim — is P0.2b and is not here.
 """
 
+import dataclasses
 import json
 import os
 import shutil
@@ -220,21 +221,21 @@ class TestBrokenCitationsAreNotRefutations(_Run):
         self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertFalse(result.is_supported())
 
-    def test_an_unknown_source_id_is_contradicted(self):
+    def test_an_unknown_source_id_is_not_sound(self):
         result = self._check(self._finding(evidence=[self._ref(source_id="0" * 16)]))
 
         self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.UNKNOWN_SOURCE)
         self.assertFalse(result.citations_are_sound())
 
-    def test_a_wrong_digest_is_contradicted(self):
+    def test_a_wrong_digest_is_not_sound(self):
         result = self._check(self._finding(evidence=[self._ref(content_sha256="b" * 64)]))
 
         self.assertEqual(result.verdict, "insufficient_evidence")
         self.assertEqual(result.statuses[0][1], EvidenceStatus.DIGEST_MISMATCH)
         self.assertFalse(result.citations_are_sound())
 
-    def test_a_wrong_line_range_is_contradicted(self):
+    def test_a_wrong_line_range_is_not_sound(self):
         """The quote is real; the lines it claims are not where it sits."""
         result = self._check(
             self._finding(evidence=[self._ref(line_start=4, line_end=5)])
@@ -244,7 +245,7 @@ class TestBrokenCitationsAreNotRefutations(_Run):
         self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_MISMATCH)
         self.assertFalse(result.citations_are_sound())
 
-    def test_a_cherry_picked_excerpt_is_contradicted(self):
+    def test_a_cherry_picked_excerpt_is_not_sound(self):
         """Text lifted from the file but not contiguous at the claimed range."""
         result = self._check(
             self._finding(evidence=[self._ref(quoted="# Demo repo\nRad fem.")])
@@ -254,7 +255,7 @@ class TestBrokenCitationsAreNotRefutations(_Run):
         self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_MISMATCH)
         self.assertFalse(result.citations_are_sound())
 
-    def test_a_range_beyond_the_file_is_contradicted(self):
+    def test_a_range_beyond_the_file_is_not_sound(self):
         result = self._check(
             self._finding(evidence=[self._ref(line_start=90, line_end=99)])
         )
@@ -269,7 +270,7 @@ class TestBrokenCitationsAreNotRefutations(_Run):
         self.assertEqual(result.statuses, [])
         self.assertIn("no evidence", result.reason)
 
-    def test_a_stale_source_is_contradicted(self):
+    def test_a_stale_source_is_not_sound(self):
         """The source moved after it was read. It no longer backs anything."""
         finding = self._finding()
         (self.root / "README.md").write_text(README + "ändrad\n", encoding="utf-8")
@@ -280,7 +281,7 @@ class TestBrokenCitationsAreNotRefutations(_Run):
         self.assertEqual(result.statuses[0][1], EvidenceStatus.STALE_SOURCE)
         self.assertFalse(result.citations_are_sound())
 
-    def test_a_deleted_source_is_contradicted(self):
+    def test_a_deleted_source_is_not_sound(self):
         finding = self._finding()
         (self.root / "README.md").unlink()
 
@@ -351,19 +352,25 @@ class TestTheReadIsSingleAndContained(_Run):
     """
 
     def _count_reads(self, finding):
-        original = Path.read_text
+        """Count opens, not `read_text`.
+
+        The read goes through `integrity.read_within`, which opens a descriptor
+        with `O_NOFOLLOW` instead of calling `Path.read_text`. Counting the old
+        call would count zero and pass for the wrong reason.
+        """
+        original = os.open
         reads: list[str] = []
 
-        def counting(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            if self.name == "README.md":
-                reads.append(str(self))
-            return original(self, *args, **kwargs)
+        def counting(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if str(path).endswith("README.md"):
+                reads.append(str(path))
+            return original(path, *args, **kwargs)
 
-        Path.read_text = counting  # type: ignore[method-assign]
+        os.open = counting  # type: ignore[assignment]
         try:
             result = check_finding(finding, self.observations, self.root)
         finally:
-            Path.read_text = original  # type: ignore[method-assign]
+            os.open = original  # type: ignore[assignment]
         return result, reads
 
     def test_a_citation_is_checked_with_exactly_one_read(self):
@@ -395,7 +402,19 @@ class TestTheReadIsSingleAndContained(_Run):
             snapshot_id=self.observation.snapshot_id,
         )
         result = check_finding(
-            self._finding(evidence=[self._ref(source_id=escaping.source_id)]),
+            self._finding(
+                evidence=[
+                    # Within the observation's own line range, so the path
+                    # check is what this test exercises — the range check is a
+                    # pure comparison and runs first, before any read.
+                    self._ref(
+                        source_id=escaping.source_id,
+                        line_start=1,
+                        line_end=1,
+                        quoted="hemligt",
+                    )
+                ]
+            ),
             [escaping],
             self.root,
         )
@@ -416,7 +435,19 @@ class TestTheReadIsSingleAndContained(_Run):
             snapshot_id=self.observation.snapshot_id,
         )
         result = check_finding(
-            self._finding(evidence=[self._ref(source_id=absolute.source_id)]),
+            self._finding(
+                evidence=[
+                    # Within the observation's own line range, so the path
+                    # check is what this test exercises — the range check is a
+                    # pure comparison and runs first, before any read.
+                    self._ref(
+                        source_id=absolute.source_id,
+                        line_start=1,
+                        line_end=1,
+                        quoted="root",
+                    )
+                ]
+            ),
             [absolute],
             self.root,
         )
@@ -441,7 +472,19 @@ class TestTheReadIsSingleAndContained(_Run):
             snapshot_id=self.observation.snapshot_id,
         )
         result = check_finding(
-            self._finding(evidence=[self._ref(source_id=linked.source_id)]),
+            self._finding(
+                evidence=[
+                    # Within the observation's own line range, so the path
+                    # check is what this test exercises — the range check is a
+                    # pure comparison and runs first, before any read.
+                    self._ref(
+                        source_id=linked.source_id,
+                        line_start=1,
+                        line_end=1,
+                        quoted="hemligt",
+                    )
+                ]
+            ),
             [linked],
             self.root,
         )
@@ -547,3 +590,102 @@ class TestRecordingAVerdict(_Run):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheObservationMustStillMatchItself(_Run):
+    """Review point 2a: the digest is not the only thing that can have drifted.
+
+    Folding the freshness check and the quote check into one read dropped the
+    excerpt check `verify_observation` had been doing. An unchanged file then
+    made an observation `intact` even when the excerpt it exported had never
+    been what sits at the lines it names — so a manifest could show a reader
+    one thing while the checker approved another.
+    """
+
+    def _with_excerpt(self, excerpt: str) -> Observation:
+        return dataclasses.replace(self.observation, excerpt=excerpt)
+
+    def test_an_excerpt_that_is_not_at_its_line_range_is_refused(self):
+        lying = self._with_excerpt("# Demo repo\n\nHELT PÅHITTAT")
+
+        result = check_finding(self._finding(), [lying], self.root)
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.EXCERPT_MISMATCH)
+        self.assertFalse(result.citations_are_sound())
+
+    def test_the_file_being_unchanged_does_not_rescue_a_lying_excerpt(self):
+        """The digest still matches. That is the whole point of the case."""
+        lying = self._with_excerpt("något helt annat")
+
+        result = check_finding(self._finding(), [lying], self.root)
+
+        self.assertEqual(lying.content_sha256, self.observation.content_sha256)
+        self.assertNotEqual(result.statuses[0][1], EvidenceStatus.STALE_SOURCE)
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.EXCERPT_MISMATCH)
+
+    def test_an_honest_excerpt_is_still_intact(self):
+        """Negative control: the check must not refuse everything."""
+        result = self._check(self._finding())
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.INTACT)
+
+
+class TestACitationMayOnlyCiteWhatWasObserved(_Run):
+    """Review point 2b: an accurate quote of lines nobody read is not evidence.
+
+    An excerpt is bounded. A finding can quote a later part of the file
+    perfectly — matching text, matching digest — while no observation covers
+    those lines. That is a citation standing in for an observation that was
+    never made, which is the substitution this phase exists to remove.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Three lines observed out of five. Lines four and five are real text
+        # in the file that this run never recorded.
+        self.bounded = collect_observation(self.snapshot, "README.md", max_lines=3)
+        self.observations = [self.bounded]
+
+    def _cite(self, line_start: int, line_end: int, quoted: str):
+        ref = self._ref(
+            source_id=self.bounded.source_id,
+            line_start=line_start,
+            line_end=line_end,
+            quoted=quoted,
+        )
+        return check_finding(self._finding(evidence=[ref]), self.observations, self.root)
+
+    def test_a_correct_quote_beyond_the_excerpt_is_refused(self):
+        self.assertEqual((self.bounded.line_start, self.bounded.line_end), (1, 3))
+
+        result = self._cite(4, 5, "Rad fyra.\nRad fem.")
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_OUTSIDE_EXCERPT)
+        self.assertFalse(result.citations_are_sound())
+
+    def test_the_refusal_is_not_a_quote_mismatch(self):
+        """The text is genuinely there. What is missing is the observation."""
+        actual = "\n".join(README.splitlines()[3:5])
+
+        result = self._cite(4, 5, actual)
+
+        self.assertEqual(actual, "Rad fyra.\nRad fem.")
+        self.assertNotEqual(result.statuses[0][1], EvidenceStatus.QUOTE_MISMATCH)
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_OUTSIDE_EXCERPT)
+
+    def test_a_range_that_straddles_the_end_of_the_excerpt_is_refused(self):
+        result = self._cite(3, 4, "Ett litet repo.\nRad fyra.")
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_OUTSIDE_EXCERPT)
+
+    def test_the_excerpt_boundary_itself_is_still_citable(self):
+        """Negative control: the rule is `outside`, not `not at the start`."""
+        result = self._cite(1, 3, "# Demo repo\n\nEtt litet repo.")
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.INTACT)
+
+    def test_a_wrong_quote_inside_the_excerpt_is_still_a_quote_mismatch(self):
+        """The new check must not swallow the one it sits in front of."""
+        result = self._cite(1, 3, "# Demo repo\n\nfel text")
+
+        self.assertEqual(result.statuses[0][1], EvidenceStatus.QUOTE_MISMATCH)

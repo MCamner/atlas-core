@@ -9,8 +9,9 @@ ROADMAP.md P0.2. The rule this module is shaped by:
 it. It can establish that a citation is sound — the source was read in this
 run, the digest matches what the finding claims, and the quoted text really
 sits at the line range it names — and none of that says the source *supports*
-the claim. A sound citation earns `insufficient_evidence`; a broken one earns
-`contradicted`. Granting `verified` for an intact pointer is precisely the
+the claim. A sound citation and a broken one therefore earn the *same* verdict,
+`insufficient_evidence`; which of the two it was lives in
+`citations_are_sound()`. Granting `verified` for an intact pointer is precisely the
 substitution of citation for verification that this phase removes, so the code
 cannot express it.
 
@@ -40,6 +41,22 @@ until the filter is part of an actual run.
 It also reads local files only. A `github_file`, `ci` or `memory` observation
 returns `unsupported_source_type` rather than being checked against a local
 path that happens to match.
+
+## What a citation is checked against
+
+The run's own recorded observation, not the file alone. Three things have to
+agree, all against the bytes of a single read:
+
+1. the observation's digest still describes the file,
+2. the observation's **own excerpt** still matches the line range it claims,
+3. the finding's quote sits at its line range, **inside** the range the
+   observation recorded.
+
+Dropping (2) would let a finding rest on an observation that misquotes its own
+source, and dropping (3) would let a finding cite lines the run never read — a
+correct-looking quote lifted from a part of the file no observation covers. A
+finding may only cite what was actually observed; to cite further, collect an
+observation that covers those lines.
 """
 
 from __future__ import annotations
@@ -51,7 +68,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from .integrity import PathRefused, resolve_within
+from .integrity import PathRefused, read_within
 from .observation import UNKNOWN, Observation
 from .snapshot import sha256_text
 
@@ -87,8 +104,13 @@ class EvidenceStatus(str, Enum):
     STALE_SOURCE = "stale_source"
     #: The source is not a kind this checker can verify. See SUPPORTED_SOURCE_TYPES.
     UNSUPPORTED_SOURCE_TYPE = "unsupported_source_type"
-    #: The observation's path resolves outside the snapshot root.
+    #: The observation's path resolves outside the snapshot root, or the file
+    #: could not be opened safely at the moment of the read.
     PATH_REFUSED = "path_refused"
+    #: The observation's own excerpt is not what sits at the lines it claims.
+    EXCERPT_MISMATCH = "excerpt_mismatch"
+    #: The citation names lines the observation never recorded.
+    QUOTE_OUTSIDE_EXCERPT = "quote_outside_excerpt"
     #: Pointer is sound. Says nothing about whether it supports the claim.
     INTACT = "intact"
 
@@ -242,11 +264,11 @@ def check_finding(
 ) -> EvidenceCheck:
     """Check a finding's citations against what this run actually read.
 
-    Returns `contradicted` when any citation is unsound, and
-    `insufficient_evidence` otherwise — including when every citation is
-    perfect. `verified` is never returned: whether an intact source supports
-    the claim is a different question, and answering it deterministically is
-    not possible here.
+    Always returns `insufficient_evidence`. `verified` and `contradicted` are
+    both unreachable from here: an intact pointer does not show that the source
+    supports the claim, and a broken pointer does not show that the claim is
+    false. `citations_are_sound()` separates those two cases, and the
+    per-citation statuses say which check failed.
     """
     if not finding.evidence:
         return EvidenceCheck(
@@ -305,35 +327,51 @@ def _check_reference(
     if ref.content_sha256 != observation.content_sha256:
         return EvidenceStatus.DIGEST_MISMATCH
 
-    # Containment is checked here, at the read this function performs.
-    # `Observation.path` is a plain string and accepts `../` and absolute
-    # forms, and the collection wrapper in `integrity` does not cover a later
-    # re-read, so relying on it having sanitised this would be wrong.
-    try:
-        path = resolve_within(root, observation.path)
-    except PathRefused:
-        return EvidenceStatus.PATH_REFUSED
+    # A finding may only cite what the run recorded. An excerpt is bounded, so
+    # a quote beyond it can be perfectly accurate about the file and still rest
+    # on lines no observation covers — which is the citation standing in for an
+    # observation that was never made. Pure comparison, no read.
+    if ref.line_start < observation.line_start or ref.line_end > observation.line_end:
+        return EvidenceStatus.QUOTE_OUTSIDE_EXCERPT
 
-    # One read, feeding both checks below. Reading twice — once to confirm
+    # One read, feeding every check below. Reading twice — once to confirm
     # freshness and once to confirm the quote — leaves a window in which the
     # file can change between them, so the digest would describe content the
     # quote was never compared against.
+    #
+    # Containment belongs to this read, not to an earlier one. `Observation.path`
+    # is a plain string that accepts `../` and absolute forms, the collection
+    # wrapper in `integrity` does not cover a re-read, and a name checked before
+    # an open can be a link by the time the open happens. `read_within` refuses
+    # on all three grounds and returns the bytes it actually opened.
     try:
-        content = path.read_text(encoding="utf-8", errors="replace")
+        content = read_within(root, observation.path)
+    except PathRefused:
+        return EvidenceStatus.PATH_REFUSED
     except OSError:
         return EvidenceStatus.STALE_SOURCE
 
     if sha256_text(content) != observation.content_sha256:
         return EvidenceStatus.STALE_SOURCE
 
+    # The observation has to still be honest about itself. The digest says the
+    # file is unchanged; it says nothing about whether the excerpt this run
+    # exported ever matched the lines it names. `verify_observation` checked
+    # this, and folding the two reads into one dropped it.
+    if _lines(content, observation.line_start, observation.line_end) != observation.excerpt:
+        return EvidenceStatus.EXCERPT_MISMATCH
+
     # The quote has to be what sits at those lines, contiguously, in the same
     # bytes the digest just confirmed. Text lifted from elsewhere in the file
     # is a cherry-pick, not a citation.
-    actual = "\n".join(content.splitlines()[ref.line_start - 1 : ref.line_end])
-    if actual != ref.quoted:
+    if _lines(content, ref.line_start, ref.line_end) != ref.quoted:
         return EvidenceStatus.QUOTE_MISMATCH
 
     return EvidenceStatus.INTACT
+
+
+def _lines(content: str, line_start: int, line_end: int) -> str:
+    return "\n".join(content.splitlines()[line_start - 1 : line_end])
 
 
 def _derive_finding_id(claim: str, scope: str) -> str:

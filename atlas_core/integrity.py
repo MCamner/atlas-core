@@ -35,10 +35,20 @@ Path containment protects the read paths that go through
   today accepts `../` and absolute forms. A finding checker that re-reads a
   source has to do its own safe read; relying on the collection wrapper to
   have covered it would be wrong.
-- Even on the safe path, resolving and then reading are two steps. Reading
-  through the resolved concrete path removes symlink swapping between them,
-  but a file can still change between any check and any later read. Integrity
-  is re-established by re-verifying, not assumed from an earlier check.
+- Resolving a name and opening a file are two steps, and `resolve_within`
+  answers a question about the *name*. `read_within` is the open-side half:
+  it opens with `O_NOFOLLOW`, so the kernel refuses at descriptor creation if
+  the final component has become a symlink since the name was checked, and it
+  reads through that descriptor instead of walking the path again. A
+  demonstration of the unprotected version reading a file outside the root is
+  in the test suite.
+  What remains open: a **directory** component of the path can still be
+  replaced by a link between the resolve and the open, which would need an
+  `openat` walk per component (or Linux `openat2(RESOLVE_BENEATH)`, which
+  Python does not expose) to close. Callers that read a path directly — such
+  as `snapshot.verify_observation` — get none of this. And content can always
+  change between one check and a later one; integrity is re-established by
+  re-verifying, never assumed.
 - Redaction is best-effort. It masks credential shapes, home directories and
   email addresses. It does not detect arbitrary personal data, and nothing
   here classifies it.
@@ -51,6 +61,8 @@ decides whether a claim is true.
 
 from __future__ import annotations
 
+import errno
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -125,6 +137,35 @@ def resolve_within(root: str | Path, relative_path: str) -> Path:
             f"{relative_path!r} resolves to {target}, outside the snapshot root"
         ) from None
     return target
+
+
+def read_within(root: str | Path, relative_path: str) -> str:
+    """Read a file under `root`, refusing an escape *at the open*.
+
+    `resolve_within` settles where a name points. Between that answer and an
+    open, the concrete file it named can be replaced by a symlink pointing out
+    of the root, and the read then serves bytes from outside while the earlier
+    check still reads as passed. `O_NOFOLLOW` moves the refusal into the same
+    operation that produces the descriptor, and the content comes from that
+    descriptor rather than from a second walk of the path.
+
+    Raises `PathRefused` for a name that escapes or a final component that has
+    become a link, and `OSError` for an ordinary read failure — a caller needs
+    to tell "refused" from "gone".
+
+    This narrows the window; it does not close it. See the module docstring.
+    """
+    path = resolve_within(root, relative_path)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.EMLINK):
+            raise PathRefused(
+                f"{relative_path!r} became a symbolic link before it could be read"
+            ) from None
+        raise
+    with os.fdopen(descriptor, encoding="utf-8", errors="replace") as handle:
+        return handle.read()
 
 
 def collect_observation_safely(
@@ -255,6 +296,7 @@ __all__ = [
     "REDACTED",
     "PathRefused",
     "collect_observation_safely",
+    "read_within",
     "redact_text",
     "redacted_manifest",
     "resolve_within",

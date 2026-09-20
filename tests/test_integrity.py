@@ -32,6 +32,7 @@ from atlas_core.integrity import (
     REDACTED,
     PathRefused,
     collect_observation_safely,
+    read_within,
     redact_text,
     redacted_manifest,
     resolve_within,
@@ -430,3 +431,81 @@ class TestIntegrityAgainstTheOriginalSnapshot(_Dir):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheOpenRefusesALateSwap(_Dir):
+    """Review point 3: the name was checked, but the file was opened later.
+
+    `resolve_within` settles where a name points. Between that answer and the
+    open, the concrete file can be replaced by a symlink out of the root, and
+    the read then serves outside bytes while the earlier check still reads as
+    passed. These tests exercise that window directly rather than trusting
+    that it is small.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.outside, True)
+        self.secret = self.outside / "hemligt.txt"
+        self.secret.write_text("HEMLIGHET UTANFÖR ROTEN\n", encoding="utf-8")
+
+    def _swap_during_resolve(self):
+        """Replace the resolved file with a link out, inside the window."""
+        import atlas_core.integrity as integrity
+
+        genuine = integrity.resolve_within
+
+        def swapping(root, relative_path):
+            target = genuine(root, relative_path)
+            target.unlink()
+            target.symlink_to(self.secret)
+            return target
+
+        integrity.resolve_within = swapping
+        self.addCleanup(setattr, integrity, "resolve_within", genuine)
+
+    @unittest.skipUnless(HAS_SYMLINKS, "symlinks unavailable")
+    def test_a_file_swapped_for_a_link_after_the_check_is_refused_at_the_open(self):
+        self._swap_during_resolve()
+
+        with self.assertRaises(PathRefused):
+            read_within(self.root, "README.md")
+
+    @unittest.skipUnless(HAS_SYMLINKS, "symlinks unavailable")
+    def test_the_unprotected_read_would_have_served_the_outside_bytes(self):
+        """What the refusal is worth. Without O_NOFOLLOW this read succeeds."""
+        self._swap_during_resolve()
+
+        with self.assertRaises(PathRefused):
+            read_within(self.root, "README.md")
+
+        # The swap did land: reading the same path the naive way follows the
+        # link straight out of the snapshot root.
+        self.assertEqual(
+            (self.root / "README.md").read_text(encoding="utf-8"),
+            "HEMLIGHET UTANFÖR ROTEN\n",
+        )
+
+    @unittest.skipUnless(HAS_SYMLINKS, "symlinks unavailable")
+    def test_a_link_already_in_place_is_refused_by_the_name_check(self):
+        """The two halves cover different moments; both are needed."""
+        (self.root / "alias.md").symlink_to(self.secret)
+
+        with self.assertRaises(PathRefused):
+            read_within(self.root, "alias.md")
+
+    def test_an_ordinary_file_still_reads(self):
+        """Negative control: the refusal is not unconditional."""
+        self.assertEqual(read_within(self.root, "README.md"), README)
+
+    def test_a_missing_file_is_an_oserror_not_a_refusal(self):
+        """A caller has to tell "refused" from "gone"; they mean different things."""
+        with self.assertRaises(OSError) as raised:
+            read_within(self.root, "finns-inte.md")
+
+        self.assertNotIsInstance(raised.exception, PathRefused)
+
+    def test_an_escaping_name_is_still_refused(self):
+        with self.assertRaises(PathRefused):
+            read_within(self.root, f"../{self.outside.name}/hemligt.txt")

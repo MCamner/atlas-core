@@ -17,12 +17,9 @@ Roadmap P0.2a: `Finding.v1` and deterministic verification.
 - Only `local_file` observations are checked. A `github_file`, `ci` or `memory`
   source returns `unsupported_source_type` rather than being read off a local
   path that happens to match, which would confirm the wrong artifact.
-- **`check_finding()` cannot return `verified`.** It establishes that a
-  citation is sound — the source was read in this run, the claimed digest
-  matches, and the quoted text sits contiguously at the line range it names —
-  and none of that shows the source supports the claim. Sound citations earn
-  `insufficient_evidence`; broken ones earn `contradicted`. A test greps the
-  module to assert no code path constructs `verified`.
+- A test greps the module to assert that no code path constructs `verified`
+  or `contradicted`, so the guarantee above is structural rather than a
+  convention someone has to remember.
 - A finding is built `insufficient_evidence` with method `none`. A verdict is
   attached by a checker via `EvidenceCheck.apply_to`, and a producer that
   writes `verdict="verified"` onto its own finding is overruled rather than
@@ -41,6 +38,22 @@ Roadmap P0.2a: `Finding.v1` and deterministic verification.
   accepts `../` and absolute forms, and the collection wrapper in `integrity`
   does not cover a later re-read, so an escaping path now returns
   `path_refused` rather than being followed.
+- A citation is checked against the run's **observation**, not against the file
+  alone. Three things must agree, all from the bytes of that single read: the
+  digest still describes the file, the observation's own excerpt still matches
+  the line range it claims (`excerpt_mismatch`), and the finding's quote sits
+  inside the range the observation recorded (`quote_outside_excerpt`). Folding
+  two reads into one had dropped the excerpt check `verify_observation` was
+  doing, and without the range check a finding could quote a later part of the
+  file perfectly while no observation covered those lines — an accurate
+  citation standing in for an observation that was never made.
+- Added `integrity.read_within`, and the checker reads through it. `O_NOFOLLOW`
+  moves the containment refusal into the operation that creates the descriptor,
+  so a file replaced by a symlink *after* its name was checked is refused
+  instead of served. A test performs that swap inside the window and asserts
+  both the refusal and that the unprotected read would have returned bytes from
+  outside the root. A directory component swapped in the same window is still
+  open, and is stated as such in the module's threat model.
 - Semantic verification is not here. Deciding whether an intact source supports
   a claim is P0.2b.
 
