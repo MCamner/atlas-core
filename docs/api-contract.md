@@ -123,9 +123,50 @@ arithmetic that never said what the route owed, and under which an answer could
 pass with a section the route had declared still missing. `PASS_THRESHOLD`,
 `SECTION_WEIGHTS` and the coverage factor are gone with it.
 
-`repo_review` declares `sources_documented`, `findings_are_checkable`,
-`citations_hold`, `claims_are_settled`, `recommendation`, `next_step` and
-`confidence`. A route that checks nothing against a source declares
+Criteria come from two places: the route, and — since P1.1 box three — the
+**question**. A route declares what any review owes; it cannot declare what
+*this* review owes, because before the review plan existed there was no
+"this". When the plan narrowed to a topic, `findings_are_on_topic` is added,
+and its requirement text carries that question verbatim: at least one finding
+must be settled **in its favour** against a source the plan named — the source
+its claim was *checked against*, not one it merely cites. A finding may
+legitimately cite more than one source, and a spare citation is not a claim: a
+claim settled about `README.md` does not become relevant to the credentials
+question by also pointing at `settings.env`.
+
+**Read the criterion for what it checks.** It is a relevance gate over the
+source, not a test that the question was answered, and it is named for the
+first rather than the second. A verified claim that `settings.env` contains
+`TIMEOUT=30` is settled and is about a source the credentials question named;
+it says nothing about whether a password is committed, and it passes. Deciding
+whether a settled claim *answers* a question is entailment — the same problem
+`claim_check` declines to guess at — and a guess made at the gate would sit
+behind a PASS rather than beside a limitation. The requirement text carries
+the question so the distance between the gate and the question stays visible
+in the run document. P1.1 box three is open for that distance.
+
+`contradicted` does not satisfy it. A refutation says the producer was wrong,
+which is worth knowing and is not the same as the question being settled by
+what it wrote; a producer that wants to establish a negative can claim
+`source_lacks_literal`, which a verified verdict then carries.
+
+A task the plan could not narrow is not held to a question. There is nothing
+to be off-topic about, and holding a broad task to a question nobody posed
+would punish it for being broad.
+
+The consequence worth stating: a review that **asserts nothing** no longer
+passes a narrowed review. It meets every criterion about what findings are
+worth — there are none to be worth anything — and it settled nothing about
+what it was asked to look at. The gap code is `no_on_topic_finding` and the
+next action is `answer_the_question`, the producer's: the sources are already
+in hand and what is missing is a claim about them. That instruction aims past
+the gate on purpose; asking for the floor would be asking for the cheapest
+thing that clears it.
+
+`repo_review` declares `plan_targets_read`, `sources_documented`,
+`findings_are_checkable`, `citations_hold`, `claims_are_settled`,
+`recommendation`, `next_step` and `confidence`. A route that checks nothing
+against a source declares
 `substance` instead of the evidence criteria — length remains a proxy where
 there is nothing better, and it is now named as one rather than folded into a
 sum. A route that does check its claims does not need it: a short review whose
@@ -423,7 +464,6 @@ tasks stop with `need_user_approval` and `approval_required`. An external
 adapter capable of mutation must obtain explicit approval immediately before
 performing that mutation; the core's keyword detection is advisory and does not
 replace adapter-side authorization.
-
 
 ### Optional cooperative run budget (P0.3, partial)
 

@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+Roadmap P1.1 box three, partly: criteria that come from the question, not just
+the route. The box stays open — see below, and ROADMAP.md.
+
+- **`findings_are_on_topic`.** A route declares what any review owes. It cannot
+  declare what *this* review owes, because before the review plan existed
+  there was no "this": every run of `repo_review` was graded against the same
+  list whatever it had been asked. When the plan narrows to a topic, a
+  criterion is added whose requirement text is that question verbatim, and it
+  is met when at least one finding is settled **in its favour** against a
+  source the plan named — the source its claim was *checked against*, not one
+  it merely cites. A finding may legitimately carry several citations, and a
+  spare citation is not a claim.
+- **It is a relevance gate, and it is named as one.** It checks the source a
+  settled claim is about, not the subject the claim speaks to. A verified
+  claim that `settings.env` contains `TIMEOUT=30` clears it while saying
+  nothing about whether a credential is committed. Deciding whether a settled
+  claim *answers* a question is entailment, which `claim_check` refuses to
+  guess at, and a guess made here would sit behind a PASS instead of beside a
+  limitation. `TestWhatTheGateDoesNotDecide` pins the distance.
+- `contradicted` does not satisfy it. A refutation says the producer was
+  wrong, which is worth knowing and is not the same as the question being
+  settled by what it wrote. A producer that wants to establish a negative can
+  claim `source_lacks_literal`, which a verified verdict then carries.
+- A task the plan could not narrow is **not** held to a question. There is
+  nothing to be off-topic about, and holding a broad task to a question nobody
+  posed would punish it for being broad.
+- **A review that asserts nothing no longer passes a narrowed review.** It
+  meets every criterion about what findings are worth — there are none to be
+  worth anything — and it has not answered what it was asked. This closes at
+  the gate what the trailer could only warn about.
+- New next action `answer_the_question`, the producer's, ranked after reading
+  and before anything about how good the findings are: an answer about the
+  wrong subject cannot be repaired into an answer about the right one, and
+  improving its citations would only make it read better. It carries the
+  question, the patterns and the source ids already in hand. The instruction
+  aims past the gate deliberately — asking for the floor would be asking for
+  the cheapest thing that clears it.
+- Fixed while adding it: an off-topic answer produced **no** next action at all
+  and offered no retry, because the gap was raised after `_next_action` had
+  already decided there was nothing to say. A producer can fix this one with
+  what the run already holds, so it is now both actionable and named.
+- A host round that resolves a pattern for the first time now counts as
+  progress even when it finds nothing. The run learned the repository has no
+  such file, which it had no other way to learn; it can happen once per
+  pattern, because the pattern is then recorded as resolved.
+- The severity rule from #36 is unchanged and re-asserted here: an
+  unestablished finding keeps `declared_severity` and carries `unknown`.
+
 Roadmap P1.1 box one: a plan that knows what it is asking, and what it needs
 to read.
 

@@ -264,6 +264,7 @@
               "type": "string",
               "enum": [
                 "observe_again",
+                "answer_the_question",
                 "repair_findings_block",
                 "drop_refuted_claim",
                 "restate_claim",
@@ -308,7 +309,7 @@
       "items": {
         "type": "string"
       },
-      "description": "The exit criteria this route declared and this answer did not meet. Empty exactly when `passed` is true and no approval is required. Each code names a requirement the route stated, not a fraction of a score: a requirement that can be outvoted by other requirements is not one."
+      "description": "The exit criteria this route and this question declared, and this answer did not meet. Empty exactly when `passed` is true and no approval is required. Each code names a requirement, not a fraction of a score: a requirement that can be outvoted by other requirements is not one. Criteria come from the route and, when the review plan narrowed to a topic, from the question — `findings_are_on_topic`, whose requirement text carries that question verbatim. Join to `plan.review.question` to read it. That criterion is a relevance gate over the source a settled claim is about; meeting it does not establish that the question was answered."
     },
     "score_method": {
       "type": "string",
