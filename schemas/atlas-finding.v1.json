@@ -39,7 +39,8 @@
         "P1",
         "P2",
         "unknown"
-      ]
+      ],
+      "description": "The severity that survived checking. Equal to `declared_severity` on a `verified` verdict, `unknown` otherwise. See `declared_severity`."
     },
     "severity_rationale": {
       "type": "string",
@@ -113,6 +114,16 @@
       "type": "string",
       "minLength": 1,
       "description": "A command that re-checks the claim, or \"unknown\". Never blank."
+    },
+    "declared_severity": {
+      "type": "string",
+      "enum": [
+        "P0",
+        "P1",
+        "P2",
+        "unknown"
+      ],
+      "description": "The severity the producer stated, kept whatever happens to `severity`. A producer declares an impact before anything is checked, so that number is only an assessment of something real once the claim it describes has been established: `severity` survives the check on a `verified` verdict and is `unknown` otherwise, including on `contradicted` — a refutation weighs an impact for something that is not the case. What the producer thought is not discarded; presenting it as established is what must not happen."
     }
   }
 }

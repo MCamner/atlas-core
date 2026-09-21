@@ -37,7 +37,80 @@ from .evidence import (
     structured_findings,
 )
 
-PASS_THRESHOLD = 0.78
+#: What each route owes before it is done, as (code, requirement) pairs.
+#:
+#: P1.1 box three asks for explicit exit criteria per task instead of a
+#: general score over text length and headings. The old gate was arithmetic:
+#: 0.45 to begin with, 0.15 for clearing three hundred characters, a little
+#: per heading, times an evidence factor, against a threshold. Nothing in it
+#: said what the route owed, and an answer could clear the bar with a declared
+#: section missing — a run reporting that it had met its gate while one of its
+#: own requirements went unmet.
+#:
+#: Every criterion listed must be met. There is no weighting, because a
+#: requirement that can be outvoted by other requirements is not one.
+EXIT_CRITERIA: dict[str, tuple[tuple[str, str], ...]] = {
+    "repo_review": (
+        (
+            "sources_documented",
+            "The output records which sources it read, so a reader can tell what "
+            "the review rests on.",
+        ),
+        (
+            "findings_are_checkable",
+            "Every finding carries a machine-readable citation naming a source "
+            "this run read.",
+        ),
+        (
+            "citations_hold",
+            "Every citation still points at the lines it claims, in a source "
+            "that has not moved.",
+        ),
+        (
+            "claims_are_settled",
+            "Every finding is stated so it can be decided, and was decided in "
+            "its favour against observed lines.",
+        ),
+        ("recommendation", "The output states a recommendation."),
+        ("next_step", "The output states a next step."),
+        ("confidence", "The output states how confident it is."),
+    ),
+    # Length stays here and nowhere else. A route that checks nothing against a
+    # source has only the shape of an answer to go on, so the proxy remains —
+    # named, and visible in the run document, rather than folded into a sum.
+    # A route that does check its claims does not need it: a short review whose
+    # findings were settled against observed lines is done, and words are not
+    # what makes it so.
+    "__generic__": (
+        ("substance", "The output is long enough to be an answer rather than a stub."),
+        ("recommendation", "The output states a recommendation."),
+        ("next_step", "The output states a next step."),
+        ("confidence", "The output states how confident it is."),
+    ),
+}
+
+#: Which criterion an evidence gap fails. The gap codes are unchanged; this
+#: says what each one means for being done.
+_CRITERION_FOR_GAP: dict[str, str] = {
+    "no_sources_observed": "sources_documented",
+    "sources_not_documented": "sources_documented",
+    "uncited_findings": "findings_are_checkable",
+    "uncheckable_findings": "findings_are_checkable",
+    "malformed_findings": "findings_are_checkable",
+    "unsound_citations": "citations_hold",
+    "contradicted_findings": "claims_are_settled",
+    "unverified_findings": "claims_are_settled",
+    "claim_text_mismatch": "claims_are_settled",
+}
+
+#: The shortest output that is an answer rather than a stub. A proxy, and
+#: named as one — see `EXIT_CRITERIA["__generic__"]`.
+MIN_SUBSTANCE = 300
+
+
+def criteria_for(route_name: str | None) -> tuple[tuple[str, str], ...]:
+    """The criteria a route must meet. Generic ones when it declares none."""
+    return EXIT_CRITERIA.get(route_name or "", EXIT_CRITERIA["__generic__"])
 
 
 @dataclass(frozen=True)
@@ -136,8 +209,6 @@ REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {
     "confidence": ("## Confidence", "## Konfidens"),
 }
 
-SECTION_WEIGHTS = {"recommendation": 0.15, "next_step": 0.10, "confidence": 0.05}
-
 SECTION_PROSE = {
     "recommendation": "No clear recommendation section.",
     "next_step": "No clear next step.",
@@ -173,23 +244,28 @@ def evaluate(
 ) -> AtlasEvaluation:
     reasons: list[str] = []
     missing: list[str] = []
-    score = 0.45
-    if len(output.strip()) > 300:
-        score += 0.15
-        reasons.append("Output has enough substance.")
-    else:
+
+    criteria = criteria_for(route_name)
+    declared = {code for code, _ in criteria}
+    unmet: set[str] = set()
+
+    if "substance" in declared and len(output.strip()) <= MIN_SUBSTANCE:
+        unmet.add("substance")
         missing.append("Output may be too short.")
+    elif "substance" in declared:
+        reasons.append("Output has enough substance.")
 
     gaps = missing_sections(output)
     for code in REQUIRED_SECTIONS:
+        if code not in declared:
+            continue
         if code in gaps:
+            unmet.add(code)
             missing.append(SECTION_PROSE[code])
         else:
-            score += SECTION_WEIGHTS[code]
             reasons.append(SECTION_PRESENT[code])
 
     if "no_unverified_repo_claims" in validation_focus and "MVP did not perform a full live GitHub scan" in output:
-        score += 0.05
         reasons.append("Avoids pretending full verification.")
     approval = requires_write_approval(task)
     if approval:
@@ -204,10 +280,18 @@ def evaluate(
     if evidence.blocking_note:
         missing.append(evidence.blocking_note)
 
-    # Formatting alone can no longer carry a route that owes evidence. This is
-    # the P1 rule: a well-formatted but unsupported answer does not pass.
-    score *= evidence.factor
-    passed = score >= PASS_THRESHOLD and not approval and not evidence.gaps
+    # Every gap the evidence check found fails the criterion it belongs to. The
+    # codes are unchanged; what is new is that each one names a requirement
+    # rather than costing a fraction of a score.
+    for gap in evidence.gaps:
+        unmet.add(_CRITERION_FOR_GAP.get(gap, "claims_are_settled"))
+    unmet &= declared
+
+    met = sorted(declared - unmet)
+    # A report, not a gate. It says how much of what the route owed was
+    # delivered; `passed` is decided by whether anything is outstanding.
+    score = round(len(met) / len(declared), 2) if declared else 1.0
+    passed = not unmet and not approval
 
     # Retry only when the next pass can actually act on something: a gap the
     # executor knows how to close. Re-running a deterministic executor with
@@ -222,8 +306,10 @@ def evaluate(
     retry_is_possible = (not passed) and not approval and actionable
     should_retry = retry_is_possible and iteration < max_iterations
     return AtlasEvaluation(
-        quality_score=round(min(score, 1.0), 2),
+        quality_score=score,
         passed=passed,
+        met_criteria=met,
+        unmet_criteria=sorted(unmet),
         reasons=reasons,
         missing=missing,
         missing_sections=gaps,
@@ -270,10 +356,6 @@ class _Evidence:
     #: is what the controller branches on, so a stop reason never depends on
     #: how a sentence was worded.
     blocked_by: list[str] = field(default_factory=list)
-    # What share of the formatting score survives. A route that owes evidence
-    # and shows none keeps 0.75 of it, which lands below PASS_THRESHOLD on its
-    # own — the gate is arithmetic, not only a boolean override.
-    factor: float = 1.0
 
 
 def _grade_evidence(
@@ -310,7 +392,6 @@ def _grade_evidence(
             coverage=None,
             reasons=[],
             actionable=False,
-            factor=_EVIDENCE_FLOOR,
         )
 
     findings = findings_in(output, contract.finding_headings)
@@ -324,8 +405,7 @@ def _grade_evidence(
                 coverage=coverage,
                 reasons=[],
                 actionable=True,
-                factor=_coverage_factor(coverage),
-            )
+                )
         return _Evidence(
             gaps=[],
             unverified=[],
@@ -345,7 +425,6 @@ def _grade_evidence(
             coverage=None,
             reasons=[],
             actionable=True,
-            factor=_EVIDENCE_FLOOR,
         )
 
     # Nothing claimed, so there is nothing to cover. coverage stays None rather
@@ -375,7 +454,6 @@ def _grade_against_evidence(
             coverage=None,
             reasons=[],
             actionable=False,
-            factor=_EVIDENCE_FLOOR,
         )
 
     parsed = structured_findings(output)
@@ -386,7 +464,6 @@ def _grade_against_evidence(
             coverage=None,
             reasons=[],
             actionable=True,
-            factor=_EVIDENCE_FLOOR,
         )
 
     # Prose and structure are matched, not derived from one another. A bullet
@@ -421,7 +498,6 @@ def _grade_against_evidence(
                 coverage=None,
                 reasons=[],
                 actionable=True,
-                factor=_EVIDENCE_FLOOR,
             )
         return _Evidence(
             gaps=[],
@@ -505,7 +581,6 @@ def _grade_against_evidence(
                 uncheckable, unsound, refuted, unchecked + mismatched
             ),
             citation_checks=records,
-            factor=_coverage_factor(coverage),
             # Why no retry is offered, in the run itself. "The loop gave up"
             # and "this needs a fresh observation" call for different actions
             # from whoever reads the result.
@@ -605,6 +680,13 @@ def _citation_record(
         "claim": finding.claim,
         "verdict": decided.verdict,
         "verification_method": decided.verification_method,
+        # The severity that survived the check, and the one the producer
+        # declared. They differ whenever the claim was not established, which
+        # is the point: an unestablished finding must not carry a number that
+        # reads as an assessment. See `finding.severity_after`.
+        "severity": decided.severity,
+        "declared_severity": decided.declared_severity,
+        "severity_rationale": decided.severity_rationale,
         "citations_are_sound": check.citations_are_sound(),
         "statuses": [
             {
@@ -620,14 +702,6 @@ def _citation_record(
         ],
         "claim_check": claim.to_dict() if claim else None,
     }
-
-
-_EVIDENCE_FLOOR = 0.75
-
-
-def _coverage_factor(coverage: float) -> float:
-    """Evidence owns the top quarter of the score for routes that require it."""
-    return _EVIDENCE_FLOOR + (1.0 - _EVIDENCE_FLOOR) * coverage
 
 
 def _next_action(

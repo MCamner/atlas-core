@@ -227,13 +227,23 @@ class TestTheGateEndToEnd(_Loop):
         self.assertIn("uncheckable_findings", evaluation["evidence_gaps"])
         self.assertIn(FALSE_CLAIM, evaluation["unverified_claims"])
 
-    def test_the_score_itself_drops_below_the_threshold(self):
-        """The gate is arithmetic as well as boolean, so neither alone carries it."""
+    def test_the_unmet_criterion_is_named_rather_than_priced(self):
+        """Was: the score drops below a threshold.
+
+        P1.1 box three replaced the arithmetic gate with named criteria, so
+        the thing to assert is *which* requirement went unmet — a number that
+        fell short said the run was short of something without saying of what.
+        The score still moves, and it reports rather than decides.
+        """
         blocked = self._run(self._output(citations=[self._citation(quoted="FEL")]))
         accepted = self._run(self._passing_output())
 
-        self.assertLess(blocked["evaluations"][-1]["quality_score"], 0.78)
-        self.assertGreaterEqual(accepted["evaluations"][-1]["quality_score"], 0.78)
+        self.assertIn("citations_hold", blocked["evaluations"][-1]["unmet_criteria"])
+        self.assertEqual(accepted["evaluations"][-1]["unmet_criteria"], [])
+        self.assertLess(
+            blocked["evaluations"][-1]["quality_score"],
+            accepted["evaluations"][-1]["quality_score"],
+        )
 
 
 class TestWhatCannotContributeToPass(_Loop):

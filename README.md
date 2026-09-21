@@ -236,7 +236,8 @@ High.
 ---
 Atlas route: prompt_improvement
 Iterations: 1/2
-Quality score: 0.9
+Stop reason: passed (evaluation)
+Criteria met: 1.0
 Status: passed
 ```
 
