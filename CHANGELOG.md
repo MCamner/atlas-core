@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+Roadmap P1.1: a run can read again, mid-loop, without loosening what evidence
+means.
+
+- **`AtlasController.run(observer=...)`.** Until now a run's evidence was
+  fixed before it started: whatever the loop found missing, it could only ask a
+  producer to re-word. A gap that needed a *source* had nowhere to go, so the
+  run stopped `blocked` and a human went and looked. The loop now asks the host
+  to read when the state it read has moved, or when an evaluation's next action
+  is `observe_again`, and only while passes remain.
+- **One snapshot per run still.** An observation that arrives bound to a
+  different snapshot is refused and the run ends `tool_error`. Asking the host
+  for more evidence must not become the way around the rule that a run cannot
+  mix two states.
+- **A changed source is not swapped in silently.** A re-read carrying different
+  bytes is recorded in `metadata.observation_rounds[].superseded` with both
+  digests. The lines an earlier claim rested on stay in that iteration's
+  `citation_checks`, and a new finding citing the old digest fails
+  `digest_mismatch` rather than being re-pointed at content nobody compared it
+  against.
+- **Nothing new is not a retry.** A round that returns nothing, or returns the
+  same bytes, does not earn another pass: the run stops `blocked` with the
+  round on record. Re-grading evidence the run has already graded is exactly
+  the retry this phase refuses.
+- **Fail closed.** A host that raises — a timeout, an unreachable source, a
+  refused observation — ends the run `tool_error`, a runtime class that the
+  state machine already says is not a verdict about an answer. A budget or a
+  cancellation keeps its own reason, because a limit is a control stop and the
+  machinery did not fail. A failed round produces no observation, so it cannot
+  become a finding.
+- An observer requires `RunLimits`, for the same reason Atlas-managed readers
+  do: there is no unmetered read path. What the host returns is charged against
+  the same output budget as everything else. `run_isolated` carries the
+  observer into the parent-enforced hard deadline; enforcement in-process
+  stays cooperative, as it is for a model adapter.
+- `evaluating → observing → replanning` are new edges in the state machine.
+  `observing` already means "the run is reading", so this adds edges rather
+  than meanings and the published version is unchanged.
+- New material reaches the producer through the prose `observations` channel
+  and the evidence base separately. The two stay apart: the text is context and
+  nothing turns it back into an observation, while the base is what
+  `check_finding` grades against.
+
 Roadmap P1.1, box four (partly): feedback as data, and a retry that has to be
 worth an iteration.
 

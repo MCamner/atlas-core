@@ -206,6 +206,52 @@
               "description": "The next action kind that stood unchanged, when there was one."
             }
           }
+        },
+        "observation_rounds": {
+          "type": "array",
+          "description": "One entry per mid-run read. Present only when the caller supplied an observer and the run asked it to read. A round is how a run whose ground moved can continue instead of stopping `blocked`: the host reads again, and the run grades the next pass against what came back. A round that changed nothing is recorded too, and the run stops — re-grading evidence it has already graded is the retry this phase refuses.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requested",
+              "added",
+              "superseded",
+              "unchanged",
+              "iteration"
+            ],
+            "properties": {
+              "iteration": {
+                "type": "integer",
+                "description": "The pass after which the round ran."
+              },
+              "requested": {
+                "type": "integer",
+                "description": "How many observations the host returned."
+              },
+              "added": {
+                "type": "array",
+                "description": "Sources the run had not read before, by id, path and digest.",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "superseded": {
+                "type": "array",
+                "description": "Sources that came back carrying different bytes, with BOTH digests. A changed source is never swapped in silently: the record says which version replaced which, the lines an earlier claim rested on stay in that iteration's citation_checks, and a new finding citing the old digest fails digest_mismatch rather than being re-pointed at content nobody compared it against.",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "unchanged": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Sources re-read without having moved. They are not new material, and a round that produced only these does not earn another pass."
+              }
+            }
+          }
         }
       }
     },

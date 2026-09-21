@@ -22,20 +22,21 @@ if TYPE_CHECKING:
     from .budget import RunBudget
     from .controller import AtlasController
     from .evidence_base import EvidenceBase
+    from .observer import Observer
 
 
 def _run_worker(
     channel: Connection, controller: AtlasController, task: str,
     observations: list[str] | None, evidence: EvidenceBase | None,
     readers: list[Callable[[str, RunBudget], list[str]]] | None,
-    limits: RunLimits,
+    limits: RunLimits, observer: Observer | None = None,
 ) -> None:
     # Start an independent POSIX session before any model or source reads.
     os.setsid()
     try:
         run = controller.run(
             task, observations=observations, evidence=evidence, readers=readers,
-            json_mode=True, limits=limits,
+            observer=observer, json_mode=True, limits=limits,
         )
         run.setdefault('metadata', {})['isolation'] = 'spawned_process'
         payload: dict[str, Any] = {'kind': 'run', 'run': run}
@@ -93,12 +94,13 @@ def run_isolated(
     observations: list[str] | None = None,
     evidence: EvidenceBase | None = None,
     readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
+    observer: Observer | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a controller with a parent-enforced hard POSIX deadline.
 
-    Controller, model and reader/handler callbacks must be picklable by the
-    `spawn` start method. All tool calls and retries share one worker RunBudget.
+    Controller, model, observer and reader/handler callbacks must be picklable
+    by the `spawn` start method. All tool calls and retries share one worker RunBudget.
     The parent bounds the whole run including startup and IPC, and can cancel
     a stuck callback by terminating its process group. It cannot undo side
     effects committed before termination. This is not a privilege sandbox.
@@ -111,7 +113,7 @@ def run_isolated(
     receive, send = ctx.Pipe(duplex=False)
     process = ctx.Process(
         target=_run_worker,
-        args=(send, controller, task, observations, evidence, readers, limits),
+        args=(send, controller, task, observations, evidence, readers, limits, observer),
         daemon=False,
     )
     deadline = time.monotonic() + limits.wall_seconds
