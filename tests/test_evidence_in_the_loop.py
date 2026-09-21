@@ -711,3 +711,84 @@ class TestOneBlockingGapStopsTheRetry(_Loop):
             ["uncheckable_findings", "unsound_citations"],
         )
         self.assertTrue(evaluation["should_retry"])
+
+
+class TestACitationCanBeFollowedToItsExcerpt(_Loop):
+    """P0.1 box three: finding → `source_id` **and the exact excerpt**.
+
+    The run document already named the source per citation, which is half the
+    link. The other half is the text the claim actually rests on: without it a
+    reader has the id of a file and no way to see which lines were relied on
+    short of re-reading the file and guessing. The manifest holds the source;
+    the citation record has to hold the span.
+    """
+
+    def _statuses(self, run):
+        return run["evaluations"][-1]["citation_checks"][0]["statuses"]
+
+    def test_a_citation_records_the_lines_it_relied_on(self):
+        run = self._run(self._passing_output())
+        citation = self._statuses(run)[0]
+
+        self.assertEqual(citation["source_id"], self.observation.source_id)
+        self.assertEqual(citation["line_start"], 1)
+        self.assertEqual(citation["line_end"], 1)
+        self.assertEqual(citation["quoted"], "# Atlas Core")
+        self.assertEqual(citation["status"], "intact")
+
+    def test_the_source_id_resolves_in_the_manifest_of_the_same_run(self):
+        """The link is only worth something if both ends are in one document."""
+        run = self._run(self._passing_output())
+        source_id = self._statuses(run)[0]["source_id"]
+
+        entry = {
+            item["source_id"]: item for item in run["evidence_manifest"]["observations"]
+        }[source_id]
+
+        self.assertEqual(entry["path"], "README.md")
+        self.assertEqual(entry["content_sha256"], self.observation.content_sha256)
+
+    def test_each_citation_keeps_its_own_span_when_a_finding_cites_several(self):
+        """Two citations, and the broken one must not borrow the other's span."""
+        good = self._citation()
+        wrong_line = self._citation(line_start=3, line_end=3, quoted="# Atlas Core")
+        run = self._run(self._output(citations=[good, wrong_line]))
+
+        first, second = self._statuses(run)
+
+        self.assertEqual(first["status"], "intact")
+        self.assertEqual((first["line_start"], first["line_end"]), (1, 1))
+        self.assertEqual(second["status"], "quote_mismatch")
+        self.assertEqual((second["line_start"], second["line_end"]), (3, 3))
+
+    def test_a_quoted_span_is_masked_on_the_way_out(self):
+        """Bounded and sanitised, like the manifest excerpt beside it.
+
+        The quote is a slice of a real file, so it can carry a credential just
+        as an excerpt can. It is exported through the same masking.
+        """
+        citation = self._citation(line_start=7, line_end=7, quoted=README.splitlines()[6])
+        run = self._run(self._output(citations=[citation]))
+        quoted = self._statuses(run)[0]["quoted"]
+
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", quoted)
+        self.assertIn("[REDACTED]", quoted)
+
+    def test_the_emitted_citation_matches_the_published_schema(self):
+        """Schema and document must not drift; nothing else exercises this one.
+
+        The schema tests run the loop without an evidence base, so
+        `citation_checks` is empty there and the nested citation object is
+        never compared with what is published.
+        """
+        schema = json.loads(
+            (Path(__file__).resolve().parents[1] / "schemas" / "atlas-evaluation.v1.json")
+            .read_text(encoding="utf-8")
+        )
+        declared = schema["properties"]["citation_checks"]["items"]["properties"][
+            "statuses"
+        ]["items"]
+        citation = self._statuses(self._run(self._passing_output()))[0]
+
+        self.assertEqual(set(citation), set(declared["properties"]))
+        self.assertEqual(set(declared["required"]) - set(citation), set())
