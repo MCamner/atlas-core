@@ -33,8 +33,10 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from atlas_core.finding import (
+    EvidenceCheck,
     EvidenceRef,
     EvidenceStatus,
     Finding,
@@ -351,7 +353,9 @@ class TestTheReadIsSingleAndContained(_Run):
     never compared against.
     """
 
-    def _count_reads(self, finding):
+    def _count_reads(
+        self, finding: Finding
+    ) -> tuple[EvidenceCheck, list[str]]:
         """Count opens, not `read_text`.
 
         The read goes through `integrity.read_within`, which opens a descriptor
@@ -361,7 +365,7 @@ class TestTheReadIsSingleAndContained(_Run):
         original = os.open
         reads: list[str] = []
 
-        def counting(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+        def counting(path: Any, *args: Any, **kwargs: Any) -> int:
             if str(path).endswith("README.md"):
                 reads.append(str(path))
             return original(path, *args, **kwargs)

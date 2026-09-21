@@ -168,7 +168,7 @@ class _Base(unittest.TestCase):
 class TestTheLoopReadsAgain(_Base):
     """The end-to-end case: a gap, a read, and a second pass that uses it."""
 
-    def test_iteration_two_grades_against_what_the_host_just_read(self):
+    def test_iteration_two_grades_against_what_the_host_just_read(self) -> None:
         outputs: list[str] = []
         test = self
 
