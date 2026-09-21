@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+Roadmap P1.1 box one: a plan that knows what it is asking, and what it needs
+to read.
+
+- **`plan.review` on a route that reviews a repository.** The plan a run
+  carried was a list of step names — `observe_repo`, `summarize`, `find_gaps`
+  — fixed per route and identical for every task that reached it. It said what
+  the route generally does; it never said what *this* run was looking into.
+  A `ReviewPlan` states the snapshot the review is about, the question in one
+  sentence, and the glob patterns that question needs.
+- **It binds to a snapshot rather than taking one.** Taking a snapshot is
+  reading, and reading is the host's. The plan records which state the whole
+  review is about, so an answer can be traced to one.
+- **Sources are patterns, not paths.** Core does not list directories any more
+  than it opens sockets. The host resolves a pattern and reads what it finds —
+  the same division of labour the observation loop already uses, and the reason
+  this reuses that loop instead of growing a second one.
+- **A task that matches no topic is reported as not narrowed**, with the task
+  as the question and no sources named. Inventing a plausible question would
+  send a host reading files nobody asked about, and then grade the answer
+  against a question nobody posed. Same discipline `Observation.v1` applies to
+  provenance.
+- New criterion `plan_targets_read` for `repo_review`, gap code
+  `plan_targets_unread`, and a next action that is the **host's**: a finding
+  cannot be improved into a source nobody read.
+- A pattern is answered when an observation sits under it **or when a host was
+  asked to resolve it and came back** — with nothing, if the repository has no
+  such file. Core cannot tell "no such file" from "not read yet" without
+  listing directories; the host can, and a completed round is that answer.
+  Without this a plan would wait forever on a file that does not exist and
+  every review would end `insufficient_evidence`.
+- `ObservationRequest` carries `patterns` and `question`, so a first read has
+  something to resolve and a host that can choose has something to choose by.
+- Topic selection is keyword matching against a declared vocabulary of five
+  topics. A real mechanism and a narrow one; there is no model in it.
+
 Post-merge review of #36: a citation is not a check, and the run document must
 not say it was.
 

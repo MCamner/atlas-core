@@ -256,7 +256,9 @@ class AtlasController:
             state.stop("blocked")
 
         def read_again(
-            evaluation: AtlasEvaluation, report: DriftReport | None
+            evaluation: AtlasEvaluation,
+            report: DriftReport | None,
+            review: Any = None,
         ) -> str:
             """Ask the host to read the sources this run cannot stand behind.
 
@@ -296,8 +298,23 @@ class AtlasController:
                     {v.result for v in report.not_evidence.values()} if report else set()
                 )
                 claims = []
+            # A first read has no paths to name, only the patterns the plan
+            # asked for. A re-read has both: the paths that went stale, and
+            # whatever the plan is still waiting on.
+            action = evaluation.next_action
+            patterns = (
+                [str(p) for p in action.details.get("patterns", [])]
+                if action is not None
+                else []
+            )
             request = request_from(
-                base.snapshot, base.observations, blocked_by, claims, state.iteration
+                base.snapshot,
+                base.observations,
+                blocked_by,
+                claims,
+                state.iteration,
+                patterns=patterns,
+                question=review.question if review is not None else "",
             )
             state.enter("observing")
             try:
@@ -324,6 +341,11 @@ class AtlasController:
 
             record = round_result.to_dict()
             record["iteration"] = state.iteration
+            # What the host was asked to resolve. A pattern it came back from
+            # is answered even when it found nothing: that is the run learning
+            # the repository has no such file, which it cannot learn any other
+            # way without listing directories itself.
+            record["patterns"] = list(patterns)
             state.metadata.setdefault("observation_rounds", []).append(record)
             if not round_result.has_new_material:
                 # Rule three. The host answered and nothing it returned changes
@@ -410,7 +432,17 @@ class AtlasController:
             route = select_route(task)
             state.route = route
             state.enter("planning")
-            plan = build_plan(task, route)
+            # The plan binds to the state the run carries. It does not go and
+            # take a snapshot: taking one is reading, and reading is the
+            # host's. A run with no evidence base has no state to review, and
+            # the plan says so by carrying no review at all.
+            plan = build_plan(
+                task,
+                route,
+                state.evidence_base.snapshot.snapshot_id
+                if state.evidence_base
+                else None,
+            )
             state.plan = plan
             state.enter("executing")
             if expired():
@@ -486,6 +518,12 @@ class AtlasController:
                 route_name=route.name,
                 observations=state.observations,
                 evidence_base=state.evidence_base,
+                review=plan.review,
+                resolved_patterns=[
+                    pattern
+                    for round_record in state.metadata.get("observation_rounds", [])
+                    for pattern in round_record.get("patterns", [])
+                ],
             )
             state.evaluations.append(evaluation)
             if expired():
@@ -519,7 +557,7 @@ class AtlasController:
                     )
                 )
             ):
-                outcome = read_again(evaluation, report)
+                outcome = read_again(evaluation, report, plan.review)
                 if outcome == "stopped":
                     break
                 if outcome == "new":

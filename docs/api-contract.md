@@ -75,6 +75,41 @@ collapse them:
 | `missing_sections` | Does the output have the shape the route promised? |
 | `evidence_gaps` | Are the claims in it supported by something that was read? |
 
+### What a review is asking
+
+A route that reviews a repository carries a **review plan** in
+`plan.review`: the snapshot the review is about, the question in one
+sentence, and the glob patterns that question needs. A route with a goal and
+no question carries `null`, as does a review with no snapshot to be about.
+
+Three properties are worth stating, because each is a choice that could have
+gone the other way:
+
+- **The plan binds to a snapshot; it does not take one.** Taking a snapshot is
+  reading, and reading is the host's. The plan records which state the whole
+  review is about, so an answer can always be traced to one.
+- **Sources are patterns, not paths.** Core does not list directories any more
+  than it opens sockets. The host resolves a pattern and reads what it finds,
+  which is the same division of labour the observation loop already uses — and
+  the reason this reuses that loop instead of growing a second one.
+- **A task that matches no topic is reported as not narrowed.** The question is
+  then the task itself and no sources are named. Inventing a plausible question
+  would send a host reading files nobody asked about, and then grade the answer
+  against a question nobody posed.
+
+A pattern the plan named is answered when some observation sits under it, or
+when a host was asked to resolve it and came back — with nothing, if the
+repository has no such file. Core cannot tell "no such file" from "not read
+yet" without listing the directory; the host can, and a completed round is
+that answer. Until then the criterion `plan_targets_read` is unmet, the gap
+code is `plan_targets_unread`, and the next action is `observe_again` naming
+the patterns still outstanding.
+
+Topic selection is **keyword matching against a declared vocabulary**. It is a
+real mechanism and a narrow one. There is no model in it, and a run whose task
+uses words the vocabulary does not carry will report `unknown` rather than
+guess.
+
 ### What it takes to be done
 
 Each route declares its **exit criteria**: named requirements, all of which

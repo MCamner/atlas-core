@@ -27,6 +27,7 @@ from typing import Any
 from .state import AtlasEvaluation, NextAction
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
+from .review_plan import ReviewPlan, unread_patterns
 from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
@@ -51,6 +52,12 @@ from .evidence import (
 #: requirement that can be outvoted by other requirements is not one.
 EXIT_CRITERIA: dict[str, tuple[tuple[str, str], ...]] = {
     "repo_review": (
+        (
+            "plan_targets_read",
+            "Every source the review plan asked for has been read, so the "
+            "question was looked into rather than answered from what happened "
+            "to be at hand.",
+        ),
         (
             "sources_documented",
             "The output records which sources it read, so a reader can tell what "
@@ -101,6 +108,11 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
     "contradicted_findings": ("claims_are_settled",),
     "unverified_findings": ("claims_are_settled",),
     "claim_text_mismatch": ("claims_are_settled",),
+    # All three, because on this path none of them was evaluated at all. A
+    # Its own criterion. The others are about what the findings are worth; this
+    # one is about whether the run looked where its question pointed, which is
+    # a different failure and needs a different fix — a read, not a re-write.
+    "plan_targets_unread": ("plan_targets_read",),
     # All three, because on this path none of them was evaluated at all. A
     # criterion reported met while no deterministic check ran is the run
     # document asserting something nobody established, which is the failure
@@ -176,6 +188,11 @@ EVIDENCE_PROSE = {
     "uncheckable_findings": (
         "Some findings carry no machine-readable citation, so nothing about "
         "them could be checked against what was read."
+    ),
+    "plan_targets_unread": (
+        "The review plan named sources its question needs and nothing read "
+        "them this run, so the answer rests on whatever happened to be at "
+        "hand rather than on what was asked about."
     ),
     "claims_not_checked": (
         "Findings name a source that was read, and nothing compared them "
@@ -256,6 +273,8 @@ def evaluate(
     route_name: str | None = None,
     observations: list[str] | None = None,
     evidence_base: EvidenceBase | None = None,
+    review: ReviewPlan | None = None,
+    resolved_patterns: list[str] | None = None,
 ) -> AtlasEvaluation:
     reasons: list[str] = []
     missing: list[str] = []
@@ -286,6 +305,20 @@ def evaluate(
     if approval:
         reasons.append("Write-like task detected; approval required before mutation.")
 
+    # Did the run look where its question pointed? Asked before anything about
+    # the findings, because a review that never read the sources its plan named
+    # has a different problem from one whose findings are weak, and the two ask
+    # for different things: a read, or a re-write.
+    waiting_on = (
+        unread_patterns(
+            review,
+            evidence_base.paths() if evidence_base else [],
+            resolved_patterns,
+        )
+        if review is not None
+        else []
+    )
+
     sources = observed_sources(observations)
     evidence = _grade_evidence(
         ROUTE_EVALUATORS.get(route_name or ""), output, sources, evidence_base
@@ -298,7 +331,10 @@ def evaluate(
     # Every gap the evidence check found fails the criterion it belongs to. The
     # codes are unchanged; what is new is that each one names a requirement
     # rather than costing a fraction of a score.
-    for gap in evidence.gaps:
+    gap_codes = list(evidence.gaps)
+    if waiting_on:
+        gap_codes.insert(0, "plan_targets_unread")
+    for gap in gap_codes:
         unmet.update(_CRITERION_FOR_GAP.get(gap, ("claims_are_settled",)))
     unmet &= declared
 
@@ -342,11 +378,11 @@ def evaluate(
         # an answer can pass with a section missing, and telling a caller to act
         # on a run that met its gate is an instruction it did not ask for.
         next_action=(
-            _next_action(gaps, evidence, sources, evidence_base)
+            _next_action(gaps, evidence, sources, evidence_base, review, waiting_on)
             if not passed
             else None
         ),
-        evidence_gaps=evidence.gaps,
+        evidence_gaps=gap_codes,
         unverified_claims=evidence.unverified,
         evidence_coverage=evidence.coverage,
         citation_checks=evidence.citation_checks,
@@ -729,6 +765,8 @@ def _next_action(
     evidence: _Evidence,
     sources: list[str],
     base: EvidenceBase | None = None,
+    review: ReviewPlan | None = None,
+    waiting_on: list[str] | None = None,
 ) -> NextAction | None:
     """The one thing that has to happen first, as data.
 
@@ -742,8 +780,25 @@ def _next_action(
     a next step nobody asked for.
     """
     codes = list(evidence.gaps) + list(gaps)
+    if waiting_on:
+        codes.insert(0, "plan_targets_unread")
     if not codes:
         return None
+
+    if waiting_on:
+        # First, and the host's. A finding cannot be improved into a source
+        # nobody read, and re-writing an answer to a question the run never
+        # looked into would only make it read better.
+        return NextAction(
+            kind="observe_again",
+            gap_codes=codes,
+            actor="host",
+            details={
+                "reason": "plan_targets_unread",
+                "patterns": list(waiting_on),
+                "question": review.question if review else "",
+            },
+        )
 
     if "claims_not_checked" in evidence.gaps:
         # Ahead of everything else for the same reason `observe_again` is:
