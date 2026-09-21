@@ -108,15 +108,14 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
     "contradicted_findings": ("claims_are_settled",),
     "unverified_findings": ("claims_are_settled",),
     "claim_text_mismatch": ("claims_are_settled",),
-    # All three, because on this path none of them was evaluated at all. A
     # Its own criterion. The others are about what the findings are worth; this
     # one is about whether the run looked where its question pointed, which is
     # a different failure and needs a different fix — a read, not a re-write.
     "plan_targets_unread": ("plan_targets_read",),
     # The question's own criterion. Distinct from every other gap here: those
-    # say the findings are not worth what they claim, this one says they are
-    # not about what was asked.
-    "question_unanswered": ("question_addressed",),
+    # say the findings are not worth what they claim, this one says none of
+    # them is about what was asked.
+    "no_on_topic_finding": ("findings_are_on_topic",),
     # All three, because on this path none of them was evaluated at all. A
     # criterion reported met while no deterministic check ran is the run
     # document asserting something nobody established, which is the failure
@@ -148,18 +147,29 @@ def criteria_for(
     A task nothing narrowed has no question to be off-topic about, and holding
     a broad task to a question nobody posed would punish it for being broad.
 
-    The requirement text is the question itself, verbatim, so the run document
-    says what the answer was supposed to settle rather than leaving a reader
-    to infer it from a code.
+    ## What it checks, and what it must not be read as
+
+    A **relevance gate**: something settled, about a source the question
+    named. It is not a test that the question was answered, and it is not
+    named as one. A claim that `settings.env` contains `TIMEOUT=30` is settled
+    and is about a source the credentials question named; it says nothing
+    about whether a password is committed, and it passes this gate.
+
+    Deciding whether a settled claim *answers* a question is entailment — the
+    same problem `claim_check` refuses to guess at, and a guess made here
+    would sit behind a PASS rather than beside a limitation. So the gate stops
+    where determinism stops, and the requirement text carries the question
+    verbatim so the distance between the two stays in front of a reader.
     """
     base = EXIT_CRITERIA.get(route_name or "", EXIT_CRITERIA["__generic__"])
     if review is None or not review.narrowed():
         return base
     return base + (
         (
-            "question_addressed",
-            "At least one finding is settled against a source the plan named, "
-            f"answering: {review.question}",
+            "findings_are_on_topic",
+            "At least one finding is settled in its favour against a source "
+            "the plan named. A relevance gate; it does not establish that "
+            f"this was answered: {review.question}",
         ),
     )
 
@@ -219,10 +229,11 @@ EVIDENCE_PROSE = {
         "Some findings carry no machine-readable citation, so nothing about "
         "them could be checked against what was read."
     ),
-    "question_unanswered": (
-        "Nothing this run established is about a source the question named. "
-        "The answer may be well formed, cited and true, and it answers "
-        "something else."
+    "no_on_topic_finding": (
+        "Nothing this run settled is about a source the question named. The "
+        "answer may be well formed, cited and true, and be about something "
+        "else entirely. The converse does not follow: a settled claim about "
+        "the right source is not by itself an answer to the question."
     ),
     "plan_targets_unread": (
         "The review plan named sources its question needs and nothing read "
@@ -373,11 +384,11 @@ def evaluate(
     # read for it. A run that has not read the sources yet has not failed to
     # answer; it has not had the chance.
     if (
-        "question_addressed" in declared
+        "findings_are_on_topic" in declared
         and not waiting_on
-        and not _question_addressed(review, evidence, evidence_base)
+        and not _on_topic_finding(review, evidence, evidence_base)
     ):
-        gap_codes.append("question_unanswered")
+        gap_codes.append("no_on_topic_finding")
     for gap in gap_codes:
         unmet.update(_CRITERION_FOR_GAP.get(gap, ("claims_are_settled",)))
     unmet &= declared
@@ -395,7 +406,7 @@ def evaluate(
     # A question answered about the wrong subject is something the producer
     # can fix with what the run already holds: the sources are read, and the
     # finding is about the wrong one. That is a retry worth an iteration.
-    off_topic = "question_unanswered" in gap_codes
+    off_topic = "no_on_topic_finding" in gap_codes
     actionable = (
         off_topic or (evidence.actionable if evidence.gaps else bool(gaps))
     )
@@ -818,12 +829,12 @@ def _citation_record(
     }
 
 
-def _question_addressed(
+def _on_topic_finding(
     review: ReviewPlan | None,
     evidence: _Evidence,
     base: EvidenceBase | None,
 ) -> bool:
-    """Whether anything this run established is about what was asked.
+    """Whether anything this run settled is about a source the question named.
 
     A finding counts when it was settled **in its favour** against a source
     matching one of the plan's patterns. `contradicted` does not count: it
@@ -831,6 +842,11 @@ def _question_addressed(
     the question being settled by what it wrote. A producer that wants to
     establish the negative can claim `source_lacks_literal`, which is
     expressible and which a verified verdict then carries.
+
+    The check is the path, not the subject matter. Whether the claim bears on
+    the question is not decided here and is not decided anywhere in this
+    repository yet — see `criteria_for`, and ROADMAP.md P1.1 box three, which
+    stays open for it.
     """
     from fnmatch import fnmatch
 
@@ -874,7 +890,7 @@ def _next_action(
     if waiting_on:
         codes.insert(0, "plan_targets_unread")
     if off_topic:
-        codes.append("question_unanswered")
+        codes.append("no_on_topic_finding")
     if not codes:
         return None
 
@@ -934,6 +950,11 @@ def _next_action(
         # about the right one, and improving its citations would only make it
         # read better. The sources are already in hand; what is missing is a
         # claim about them.
+        #
+        # The instruction aims past the gate, deliberately. The gate can only
+        # tell whether something was settled about the right source; what the
+        # producer is asked for is an answer to the question. Asking for the
+        # floor would be asking for the cheapest thing that clears it.
         return NextAction(
             kind="answer_the_question",
             gap_codes=codes,

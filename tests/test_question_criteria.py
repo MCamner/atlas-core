@@ -4,15 +4,21 @@
 review owes, because until box one there was no "this": every run of the route
 was graded against the same list whatever it had been asked.
 
-The criterion added here is the question itself. A run whose plan narrowed to a
-topic must establish something about a source that topic named. The requirement
-text is the question, verbatim, so the run document says what it was supposed
-to answer rather than leaving a reader to infer it from a code.
+The criterion added here comes from the question: a run whose plan narrowed to
+a topic must settle something about a source that topic named. The requirement
+text is the question, verbatim, so the run document says what the answer was
+about rather than leaving a reader to infer it from a code.
 
-The completion criterion for the box, in two tests:
+It is a **relevance gate**, and it is named for what it checks rather than for
+what one might wish it checked. `TestWhatTheGateDoesNotDecide` pins the
+distance: a trivially true claim about the right file clears it. Closing that
+distance is entailment, which nothing here decides, so P1.1 box three stays
+open — see ROADMAP.md.
 
-- a well-formatted answer that does not answer the question falls
-- a short answer that actually establishes something passes
+Two tests carry the behaviour the gate does change:
+
+- a long, well-formatted, cited and verified answer about the wrong file falls
+- a short answer that settles something about the right file passes
 """
 
 from __future__ import annotations
@@ -181,7 +187,7 @@ class TestTheCompletionCriterion(_Repo):
         evaluation = run["evaluations"][-1]
 
         self.assertFalse(evaluation["passed"])
-        self.assertEqual(evaluation["unmet_criteria"], ["question_addressed"])
+        self.assertEqual(evaluation["unmet_criteria"], ["findings_are_on_topic"])
         self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
 
     def test_a_short_answer_that_establishes_something_passes(self):
@@ -201,8 +207,20 @@ class TestTheCriterionCarriesTheQuestion(_Repo):
         plan = build_review_plan(SECRETS_TASK, self.snapshot.snapshot_id)
         criteria = dict(criteria_for("repo_review", plan))
 
-        self.assertIn("question_addressed", criteria)
-        self.assertIn(plan.question, criteria["question_addressed"])
+        self.assertIn("findings_are_on_topic", criteria)
+        self.assertIn(plan.question, criteria["findings_are_on_topic"])
+
+    def test_the_requirement_text_does_not_claim_the_question_was_answered(self):
+        """The code and its sentence both have to stay inside what was checked.
+
+        A criterion named for the question, met, reads as the question having
+        been settled. It was not: see `TestWhatTheGateDoesNotDecide`.
+        """
+        plan = build_review_plan(SECRETS_TASK, self.snapshot.snapshot_id)
+        requirement = dict(criteria_for("repo_review", plan))["findings_are_on_topic"]
+
+        self.assertIn("relevance gate", requirement)
+        self.assertNotIn("answering:", requirement)
 
     def test_the_run_document_says_what_it_was_supposed_to_answer(self):
         """One document, two places: the plan carries the question and the
@@ -215,7 +233,7 @@ class TestTheCriterionCarriesTheQuestion(_Repo):
         evaluation = run["evaluations"][-1]
 
         self.assertTrue(run["plan"]["review"]["question"])
-        self.assertIn("question_addressed", evaluation["unmet_criteria"])
+        self.assertIn("findings_are_on_topic", evaluation["unmet_criteria"])
         self.assertEqual(evaluation["next_action"]["kind"], "answer_the_question")
         self.assertEqual(
             evaluation["next_action"]["details"]["question"],
@@ -235,13 +253,13 @@ class TestWhenThereIsNoQuestion(_Repo):
             task=BROAD_TASK,
         )
 
-        self.assertNotIn("question_addressed", run["evaluations"][-1]["unmet_criteria"])
+        self.assertNotIn("findings_are_on_topic", run["evaluations"][-1]["unmet_criteria"])
         self.assertEqual(run["stop_reason"], "passed")
 
     def test_a_route_with_no_review_plan_is_unchanged(self):
         criteria = dict(criteria_for("repo_review", None))
 
-        self.assertNotIn("question_addressed", criteria)
+        self.assertNotIn("findings_are_on_topic", criteria)
 
 
 class TestAnEmptyReviewNoLongerAnswersAQuestion(_Repo):
@@ -256,7 +274,7 @@ class TestAnEmptyReviewNoLongerAnswersAQuestion(_Repo):
         run = self._run(self._output([], long=True))
 
         self.assertFalse(run["evaluations"][-1]["passed"])
-        self.assertIn("question_addressed", run["evaluations"][-1]["unmet_criteria"])
+        self.assertIn("findings_are_on_topic", run["evaluations"][-1]["unmet_criteria"])
 
     def test_a_refuted_claim_does_not_count_as_an_answer(self):
         """The producer was wrong; that is not the same as the question being
@@ -276,7 +294,36 @@ class TestAnEmptyReviewNoLongerAnswersAQuestion(_Repo):
         evaluation = run["evaluations"][-1]
 
         self.assertEqual(evaluation["citation_checks"][0]["verdict"], "contradicted")
-        self.assertIn("question_addressed", evaluation["unmet_criteria"])
+        self.assertIn("findings_are_on_topic", evaluation["unmet_criteria"])
+
+
+class TestWhatTheGateDoesNotDecide(_Repo):
+    """The limit, asserted rather than only written down.
+
+    This test exists so the gap is visible where the behaviour is, not only in
+    a roadmap note. It passes today and it is not describing something
+    desirable: it is the reason P1.1 box three stays open.
+    """
+
+    def test_a_trivial_claim_about_the_right_file_clears_the_gate(self):
+        """`TIMEOUT=30` settles, is about `settings.env`, and answers nothing.
+
+        The question is whether a credential is committed. Nothing here
+        decides whether a settled claim bears on a question — that is
+        entailment, which `claim_check` refuses to guess at for the same
+        reason. The gate therefore stops at relevance, and passing it is not
+        evidence that the review looked into what it was asked.
+        """
+        output = self._output([self._finding(self.settings, "TIMEOUT=30")], long=False)
+        run = self._run(output)
+        evaluation = run["evaluations"][-1]
+
+        self.assertEqual(run["stop_reason"], "passed")
+        self.assertIn("findings_are_on_topic", evaluation["met_criteria"])
+        self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
+        # And the thing an unwary reader would take from that PASS is not in
+        # the document: nothing here says the credentials question is settled.
+        self.assertNotIn("PASSWORD", json.dumps(evaluation["citation_checks"]))
 
 
 class TestSeverityRuleSurvives(_Repo):

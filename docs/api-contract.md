@@ -126,9 +126,20 @@ pass with a section the route had declared still missing. `PASS_THRESHOLD`,
 Criteria come from two places: the route, and — since P1.1 box three — the
 **question**. A route declares what any review owes; it cannot declare what
 *this* review owes, because before the review plan existed there was no
-"this". When the plan narrowed to a topic, `question_addressed` is added, and
-its requirement text is that question verbatim: at least one finding must be
-settled **in its favour** against a source the plan named.
+"this". When the plan narrowed to a topic, `findings_are_on_topic` is added,
+and its requirement text carries that question verbatim: at least one finding
+must be settled **in its favour** against a source the plan named.
+
+**Read the criterion for what it checks.** It is a relevance gate over the
+source, not a test that the question was answered, and it is named for the
+first rather than the second. A verified claim that `settings.env` contains
+`TIMEOUT=30` is settled and is about a source the credentials question named;
+it says nothing about whether a password is committed, and it passes. Deciding
+whether a settled claim *answers* a question is entailment — the same problem
+`claim_check` declines to guess at — and a guess made at the gate would sit
+behind a PASS rather than beside a limitation. The requirement text carries
+the question so the distance between the gate and the question stays visible
+in the run document. P1.1 box three is open for that distance.
 
 `contradicted` does not satisfy it. A refutation says the producer was wrong,
 which is worth knowing and is not the same as the question being settled by
@@ -141,14 +152,17 @@ would punish it for being broad.
 
 The consequence worth stating: a review that **asserts nothing** no longer
 passes a narrowed review. It meets every criterion about what findings are
-worth — there are none to be worth anything — and it has not answered what it
-was asked. The gap code is `question_unanswered` and the next action is
-`answer_the_question`, the producer's: the sources are already in hand and
-what is missing is a claim about them.
+worth — there are none to be worth anything — and it settled nothing about
+what it was asked to look at. The gap code is `no_on_topic_finding` and the
+next action is `answer_the_question`, the producer's: the sources are already
+in hand and what is missing is a claim about them. That instruction aims past
+the gate on purpose; asking for the floor would be asking for the cheapest
+thing that clears it.
 
 `repo_review` declares `plan_targets_read`, `sources_documented`,
 `findings_are_checkable`, `citations_hold`, `claims_are_settled`,
-`recommendation`, `next_step` and `confidence`. A route that checks nothing against a source declares
+`recommendation`, `next_step` and `confidence`. A route that checks nothing
+against a source declares
 `substance` instead of the evidence criteria — length remains a proxy where
 there is nothing better, and it is now named as one rather than folded into a
 sum. A route that does check its claims does not need it: a short review whose

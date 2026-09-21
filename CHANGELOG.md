@@ -2,16 +2,23 @@
 
 ## Unreleased
 
-Roadmap P1.1 box three: criteria that come from the question, not just the
-route.
+Roadmap P1.1 box three, partly: criteria that come from the question, not just
+the route. The box stays open — see below, and ROADMAP.md.
 
-- **`question_addressed`.** A route declares what any review owes. It cannot
+- **`findings_are_on_topic`.** A route declares what any review owes. It cannot
   declare what *this* review owes, because before the review plan existed
   there was no "this": every run of `repo_review` was graded against the same
   list whatever it had been asked. When the plan narrows to a topic, a
   criterion is added whose requirement text is that question verbatim, and it
   is met when at least one finding is settled **in its favour** against a
   source the plan named.
+- **It is a relevance gate, and it is named as one.** It checks the source a
+  settled claim is about, not the subject the claim speaks to. A verified
+  claim that `settings.env` contains `TIMEOUT=30` clears it while saying
+  nothing about whether a credential is committed. Deciding whether a settled
+  claim *answers* a question is entailment, which `claim_check` refuses to
+  guess at, and a guess made here would sit behind a PASS instead of beside a
+  limitation. `TestWhatTheGateDoesNotDecide` pins the distance.
 - `contradicted` does not satisfy it. A refutation says the producer was
   wrong, which is worth knowing and is not the same as the question being
   settled by what it wrote. A producer that wants to establish a negative can
@@ -27,7 +34,9 @@ route.
   and before anything about how good the findings are: an answer about the
   wrong subject cannot be repaired into an answer about the right one, and
   improving its citations would only make it read better. It carries the
-  question, the patterns and the source ids already in hand.
+  question, the patterns and the source ids already in hand. The instruction
+  aims past the gate deliberately — asking for the floor would be asking for
+  the cheapest thing that clears it.
 - Fixed while adding it: an off-topic answer produced **no** next action at all
   and offered no retry, because the gap was raised after `_next_action` had
   already decided there was nothing to say. A producer can fix this one with
