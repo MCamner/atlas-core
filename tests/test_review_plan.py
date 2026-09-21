@@ -195,7 +195,7 @@ class TestTheWholeLoop(_Repo):
     `settings.env`, and the second pass settles a claim against those bytes.
     """
 
-    def test_a_gap_leads_to_a_relevant_read_and_then_a_verified_finding(self):
+    def test_a_gap_leads_to_a_relevant_read_and_then_a_verified_finding(self) -> None:
         test = self
         host_requests: list[ObservationRequest] = []
         read: list[Observation] = []

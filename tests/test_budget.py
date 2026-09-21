@@ -42,7 +42,7 @@ class TestBudgetAccounting(unittest.TestCase):
         self.assertEqual(budget.model_calls, 2)
         self.assertEqual(budget.tool_calls, 2)
 
-    def test_tokens_are_reported_not_guessed(self):
+    def test_tokens_are_reported_not_guessed(self) -> None:
         budget = RunBudget(limits())
         for usage in (None, -1, '3', True):
             invalid: Any = usage  # deliberately malformed external adapter data
