@@ -75,6 +75,49 @@ collapse them:
 | `missing_sections` | Does the output have the shape the route promised? |
 | `evidence_gaps` | Are the claims in it supported by something that was read? |
 
+### Reading again, mid-run
+
+A run may be given an `observer`: a host callable that reads on the run's
+behalf when the loop cannot stand behind its sources. It is asked when the
+state the run read has moved, or when an evaluation's next action is
+`observe_again`, and only while passes remain. The request names the snapshot,
+every source by id and path, the status codes behind the gap and the claims
+that rested on them. The answer is `Observation.v1` values and nothing else.
+
+Four rules hold, and they are what make a mid-run read evidence rather than
+input:
+
+1. **One snapshot per run.** An observation bound to another snapshot is
+   refused and the run ends `tool_error`. A run that mixed two states could not
+   say which bytes backed a claim.
+2. **A changed source is not swapped in silently.** A re-read that carries
+   different bytes is recorded in `metadata.observation_rounds[].superseded`
+   with both digests. The lines an earlier claim rested on stay in that
+   iteration's `citation_checks`, and a new finding citing the old digest fails
+   `digest_mismatch`.
+3. **Nothing new is not a retry.** A round that returns nothing, or returns the
+   same bytes, does not earn another pass: the run stops `blocked` with the
+   round recorded.
+4. **Fail closed.** A host that raises — a timeout, an unreachable source, a
+   refused observation — ends the run `tool_error`, which is a runtime class
+   and explicitly not a verdict about an answer. A budget or a cancellation
+   keeps its own reason, because a limit is a control stop and the machinery
+   did not fail. A failed round produces no observation, so it cannot become a
+   finding.
+
+An observer requires `RunLimits`, for the same reason Atlas-managed readers do:
+there is no unmetered read path. What the host returns is charged against the
+same output budget as everything else. Enforcement is cooperative in-process,
+as it is for a model adapter — the deadline is checked before the call and the
+result is accepted only if the budget still allows it, and a synchronous host
+cannot be preempted. `run_isolated` wraps the whole run, observer included, in
+the parent-enforced hard deadline; the observer must be picklable to go there.
+
+New material reaches the producer through the prose `observations` channel and
+the evidence base separately. The two stay apart: the text is context and
+nothing turns it back into an observation, while the base is what
+`check_finding` grades against.
+
 `next_action` is the instruction as data: one `kind` from a closed vocabulary,
 the `gap_codes` it addresses, the `actor` who can carry it out, and the
 `details` that actor needs — available source ids, the expected sentence, the

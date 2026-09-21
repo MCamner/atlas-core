@@ -32,6 +32,7 @@
       "cancelled",
       "done",
       "failed",
+      "replanning",
       "routing"
     ],
     "routing": [
@@ -57,6 +58,7 @@
       "done",
       "failed",
       "need_user_approval",
+      "observing",
       "replanning"
     ],
     "replanning": [

@@ -114,6 +114,24 @@ class EvidenceBase:
         """Whether this run can establish that a source still holds."""
         return observation.source_type == "local_file" or observation.source_type in self.readers
 
+    def with_observations(self, observations: list[Observation]) -> EvidenceBase:
+        """A base holding `observations` instead, on the same snapshot.
+
+        Returns a new base rather than mutating this one: an evidence base that
+        could be edited after a claim was graded against it would make the
+        grade unreadable. Validation runs again in `__post_init__`, so a
+        replacement set that mixes snapshots or repeats a source is refused
+        here exactly as an original one would be.
+
+        Readers are carried over. They are how a non-local source is re-read,
+        and a re-read set that lost them would silently become uncheckable.
+        """
+        return EvidenceBase(
+            snapshot=self.snapshot,
+            observations=list(observations),
+            readers=dict(self.readers),
+        )
+
     def to_manifest(self) -> dict[str, Any]:
         """The only export. Raw excerpts and the absolute root stay behind.
 

@@ -208,11 +208,19 @@ _INTERRUPTIONS: frozenset[str] = frozenset({"done", "failed", "cancelled"})
 
 _LOOP: dict[str, frozenset[str]] = {
     "new": frozenset({"observing"}),
-    "observing": frozenset({"routing"}),
+    # `replanning` as well as `routing`: since P1.1 a run can read again in the
+    # middle of the loop, and what follows a mid-loop read is a re-plan with
+    # the new evidence rather than the first trip round.
+    "observing": frozenset({"routing", "replanning"}),
     "routing": frozenset({"planning"}),
     "planning": frozenset({"executing"}),
     "executing": frozenset({"evaluating"}),
-    "evaluating": frozenset({"replanning", "done", "need_user_approval"}),
+    # `observing`: an evaluation whose next action is `observe_again` sends the
+    # run back to read. `observing` already means "the run is reading", so this
+    # is an additional edge rather than a new meaning — the vocabulary a
+    # consumer codes against is unchanged, which is why the version is not
+    # bumped.
+    "evaluating": frozenset({"replanning", "observing", "done", "need_user_approval"}),
     # `done` as well as `routing`: the loop can decide to go again and then be
     # stopped by its own bound before it does.
     "replanning": frozenset({"routing", "done"}),
