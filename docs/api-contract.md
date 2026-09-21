@@ -159,7 +159,7 @@ Terminal runs expose `status`, `stop_reason` and `stop_class`:
 | --- | --- | --- | --- |
 | `done` | `passed` | evaluation | The answer was graded and met its gate. |
 | `done` | `insufficient_evidence` | evaluation | The answer was graded and its claims were not established against what the run read. |
-| `done` | `blocked` | control | A cited source has moved or vanished. The ground moved under the run; re-wording cannot repair it. |
+| `done` | `blocked` | control | A source the run read has moved or vanished, whether or not a finding cited it, or HEAD moved under the run. The ground moved; re-wording cannot repair it. See `metadata.drift`. |
 | `done` | `max_iterations` | control | A gap remained that another pass could have acted on, and the bound stopped the run from trying. |
 | `done` | `no_progress` | control | Nothing was left that another pass could change, so a further iteration would fail the same way. |
 | `done` | `budget_exhausted` | control | A declared limit other than the iteration bound was reached. |

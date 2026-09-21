@@ -19,8 +19,11 @@ A dirty worktree is the case that motivates keeping snapshot identity separate
 from commit identity: the commit is real, and it still does not tell you which
 bytes were served from that path.
 
-Nothing here is wired into the controller. The loop keeps its `list[str]`
-observations; connecting the two is a separate change.
+`detect_drift` is what the controller calls. A run grades its answer and then
+asks whether the state it read still holds; if it does not, the run stops
+`blocked` and says what moved. The loop keeps its `list[str]` observations as a
+separate prose channel — see `evidence_base` for why those two are not the same
+thing and why neither converts into the other.
 """
 
 from __future__ import annotations
