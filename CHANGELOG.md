@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+Roadmap P1.1, box four (partly): feedback as data, and a retry that has to be
+worth an iteration.
+
+- **`next_action` on every evaluation with something outstanding.** The gap
+  *codes* were already structured; what to do about them was English in
+  `suggested_adjustment`, so a host or a model adapter had to parse prose to
+  find out whether to re-cite, repair a block or go and observe a source again
+  — the one thing `docs/api-contract.md` tells adapters not to do. The action
+  is now data: one `kind` from a closed vocabulary, the `gap_codes` it
+  addresses, the `actor` who can carry it out, and the `details` that actor
+  needs. The prose stays beside it, for people.
+- One action rather than a list, chosen by **precedence, not severity**: a
+  findings block that cannot be parsed makes every question about an individual
+  citation moot, and a source that has moved cannot be re-cited at all.
+  `gap_codes` still carries everything outstanding, so naming one hides
+  nothing.
+- `observe_again` carries `actor: "host"`. It is the one action a producer
+  cannot take — a producer told to try harder against a file that has moved
+  would only invent something — and a run that stops `blocked` therefore still
+  states a next action instead of leaving the case that most needs a human the
+  least served.
+- **A bounded run no longer buys an iteration by rewording.** `#29` stopped a
+  run whose provider returned byte-identical output; a producer could reword
+  its answer, fail in exactly the same way and get another pass. The rule is
+  now also stated on the failure: same next action, same gaps, same unsupported
+  claims means the feedback the producer would receive next is the feedback it
+  has already had. `metadata.no_progress.reason` says which rule fired,
+  `identical_model_output` or `unchanged_feedback`.
+- The score and the prose are deliberately **not** part of that comparison. A
+  quality score that moves by a rounding step while every gap stands is not
+  progress, and wording is not a failure.
+- Bounded runs only, as in `#29`. The unbudgeted path keeps its 1.0 verdict
+  semantics, so a legacy run that spends every pass on a gap another producer
+  could have closed still reports `max_iterations`. A test asserts that
+  boundary rather than leaving it to be discovered.
+- `schemas/atlas-evaluation.v1.json` declares `next_action`;
+  `schemas/atlas-run.v1.json` declares `metadata.no_progress`. Both are
+  optional additions, so a consumer written against 1.0 still reads a valid
+  document.
+
 Roadmap P0.1, the three boxes that were left partly closed: drift that reaches
 a run, a citation that can be followed to its lines, and containment and
 masking on every path.

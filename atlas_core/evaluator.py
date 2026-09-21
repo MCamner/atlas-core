@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .state import AtlasEvaluation
+from .state import AtlasEvaluation, NextAction
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
 from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
@@ -233,6 +233,11 @@ def evaluate(
         suggested_adjustment=(
             _adjustment(gaps, evidence, sources, evidence_base) if should_retry else None
         ),
+        # Emitted whenever something is outstanding, including when no retry is
+        # offered. A run that stops `blocked` has a next action too — it is
+        # simply the host's to take, not the producer's, and saying nothing
+        # there would leave the one case that needs a human the least served.
+        next_action=_next_action(gaps, evidence, sources, evidence_base),
         evidence_gaps=evidence.gaps,
         unverified_claims=evidence.unverified,
         evidence_coverage=evidence.coverage,
@@ -616,6 +621,105 @@ _EVIDENCE_FLOOR = 0.75
 def _coverage_factor(coverage: float) -> float:
     """Evidence owns the top quarter of the score for routes that require it."""
     return _EVIDENCE_FLOOR + (1.0 - _EVIDENCE_FLOOR) * coverage
+
+
+def _next_action(
+    gaps: list[str],
+    evidence: _Evidence,
+    sources: list[str],
+    base: EvidenceBase | None = None,
+) -> NextAction | None:
+    """The one thing that has to happen first, as data.
+
+    Chosen by the order in `NEXT_ACTION_KINDS`, which is not severity but
+    precedence: a block that cannot be parsed makes every question about an
+    individual citation moot, and a source that has moved cannot be re-cited at
+    all. `gap_codes` carries everything outstanding, so choosing one action
+    hides nothing.
+
+    None when nothing is outstanding. An empty action on a passing run would be
+    a next step nobody asked for.
+    """
+    codes = list(evidence.gaps) + list(gaps)
+    if not codes:
+        return None
+
+    if evidence.blocked_by:
+        return NextAction(
+            kind="observe_again",
+            gap_codes=codes,
+            actor="host",
+            details={
+                "blocked_by": list(evidence.blocked_by),
+                # The claims resting on what moved, so a host knows what the
+                # re-read is for rather than only that one is needed.
+                "claims": [
+                    record["claim"]
+                    for record in evidence.citation_checks
+                    if not record["citations_are_sound"]
+                ],
+            },
+        )
+
+    if "malformed_findings" in evidence.gaps:
+        return NextAction(
+            kind="repair_findings_block",
+            gap_codes=codes,
+            details={"fence": FINDINGS_FENCE},
+        )
+
+    refuted = [
+        {
+            "claim": record["claim"],
+            "reason": (record["claim_check"] or {}).get("reason", ""),
+        }
+        for record in evidence.citation_checks
+        if (record["claim_check"] or {}).get("result") == "contradicted"
+    ]
+    if refuted:
+        return NextAction(
+            kind="drop_refuted_claim", gap_codes=codes, details={"claims": refuted}
+        )
+
+    expected = [
+        str((record["claim_check"] or {}).get("checked", {}).get("expected_claim"))
+        for record in evidence.citation_checks
+        if (record["claim_check"] or {}).get("result") == "claim_text_mismatch"
+    ]
+    if expected:
+        return NextAction(
+            kind="restate_claim", gap_codes=codes, details={"expected_claims": expected}
+        )
+
+    broken = [
+        {
+            "claim": record["claim"],
+            "statuses": [
+                entry["status"]
+                for entry in record["statuses"]
+                if entry["status"] != "intact"
+            ],
+        }
+        for record in evidence.citation_checks
+        if not record["citations_are_sound"]
+    ]
+    if broken:
+        return NextAction(
+            kind="recite_from_source", gap_codes=codes, details={"citations": broken}
+        )
+
+    if evidence.gaps:
+        return NextAction(
+            kind="cite_sources",
+            gap_codes=codes,
+            details={
+                "fence": FINDINGS_FENCE,
+                "available_source_ids": base.source_ids() if base else [],
+                "available_sources": base.paths() if base else list(sources),
+            },
+        )
+
+    return NextAction(kind="add_sections", gap_codes=codes, details={"sections": gaps})
 
 
 def _adjustment(

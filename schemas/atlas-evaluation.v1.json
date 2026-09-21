@@ -242,6 +242,58 @@
         "type": "string"
       },
       "description": "Evidence failures no re-wording can repair, as atlas-finding status codes. Non-empty means the sources must be observed again; the run then stops `blocked` rather than reporting a verdict on the answer."
+    },
+    "next_action": {
+      "description": "What has to happen before the answer could be different, as data rather than prose. Null when nothing is outstanding. One action, chosen by precedence rather than severity: a findings block that cannot be parsed makes every question about an individual citation moot, and a source that has moved cannot be re-cited at all. gap_codes still carries every outstanding gap, so naming one action hides nothing. suggested_adjustment says the same thing in English, for a person.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "gap_codes",
+            "actor",
+            "details"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "observe_again",
+                "repair_findings_block",
+                "drop_refuted_claim",
+                "restate_claim",
+                "recite_from_source",
+                "cite_sources",
+                "add_sections"
+              ],
+              "description": "Listed in precedence order: the first that applies is the one named."
+            },
+            "gap_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Every outstanding gap, evidence and formatting alike, not only the one this action addresses."
+            },
+            "actor": {
+              "type": "string",
+              "enum": [
+                "producer",
+                "host"
+              ],
+              "description": "Who can carry it out. `observe_again` is the host's: re-reading a source is not something a producer can do, and one told to try harder against a file that has moved would only invent something."
+            },
+            "details": {
+              "type": "object",
+              "description": "What the actor needs, per kind: available source ids for cite_sources, the expected sentence for restate_claim, the failing statuses for recite_from_source, the blocking status codes for observe_again."
+            }
+          }
+        }
+      ]
     }
   }
 }

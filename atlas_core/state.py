@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 import uuid
 
 from .evidence_base import EvidenceBase
@@ -19,11 +19,85 @@ from .machine import (
 __all__ = [
     "Status",
     "StopReason",
+    "NEXT_ACTION_KINDS",
+    "NextAction",
+    "NextActionKind",
     "AtlasEvaluation",
     "AtlasRoute",
     "AtlasPlan",
     "AtlasRunState",
 ]
+
+NextActionKind = Literal[
+    "observe_again",
+    "repair_findings_block",
+    "drop_refuted_claim",
+    "restate_claim",
+    "recite_from_source",
+    "cite_sources",
+    "add_sections",
+]
+
+#: The closed vocabulary, in the order an action is chosen from it. The order
+#: is not severity: it is what has to happen **first** for the rest to be worth
+#: doing. A block that cannot be parsed makes every question about an
+#: individual citation moot, and a source that has moved cannot be re-cited at
+#: all — so those come before anything about the text of a claim.
+NEXT_ACTION_KINDS: tuple[str, ...] = (
+    "observe_again",
+    "repair_findings_block",
+    "drop_refuted_claim",
+    "restate_claim",
+    "recite_from_source",
+    "cite_sources",
+    "add_sections",
+)
+
+#: Who can carry the action out. `observe_again` is the one a producer cannot
+#: do: re-reading a source is the host's job, and a producer told to "try
+#: harder" against a file that has moved would only invent something.
+NEXT_ACTION_ACTORS: tuple[str, ...] = ("producer", "host")
+
+
+@dataclass(frozen=True)
+class NextAction:
+    """What has to happen before the answer could be different, as data.
+
+    The evaluator has always emitted gap *codes*; what to do about them lived
+    in `suggested_adjustment` as English. A host or a model adapter that wanted
+    to act on it had to parse prose to find out whether to re-cite, repair a
+    block, or go and observe a source again — which is exactly what the API
+    contract tells adapters not to do. This is that instruction as data. The
+    prose stays beside it, for people.
+
+    One action, not a list. Naming everything at once would leave the actor to
+    decide what to do first, and the order in `NEXT_ACTION_KINDS` is precisely
+    that decision. `gap_codes` still carries every outstanding gap, so nothing
+    is hidden by choosing one.
+    """
+
+    kind: NextActionKind
+    #: Every outstanding gap, not only the one this action addresses.
+    gap_codes: list[str]
+    actor: str = "producer"
+    #: What the actor needs, per kind. Data, not a sentence.
+    details: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.kind not in NEXT_ACTION_KINDS:
+            raise ValueError(
+                f"kind must be one of {NEXT_ACTION_KINDS}, got {self.kind!r}"
+            )
+        if self.actor not in NEXT_ACTION_ACTORS:
+            raise ValueError(
+                f"actor must be one of {NEXT_ACTION_ACTORS}, got {self.actor!r}"
+            )
+        if not self.gap_codes:
+            raise ValueError(
+                "an action addresses at least one gap; an action with none is a "
+                "next step nobody asked for"
+            )
+
 
 @dataclass
 class AtlasEvaluation:
@@ -40,6 +114,9 @@ class AtlasEvaluation:
     # nothing left to try — which are different stop reasons.
     retry_is_possible: bool = False
     suggested_adjustment: str | None = None
+    # The same instruction as data. Prose is for a person; this is what a host
+    # or an adapter branches on. None when nothing is outstanding.
+    next_action: NextAction | None = None
     # Evidence signals. Separate from missing_sections on purpose: a heading
     # that is present says nothing about whether the claim under it is backed
     # by something that was actually read.

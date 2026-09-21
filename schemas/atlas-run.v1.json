@@ -184,6 +184,28 @@
               "description": "The paths behind those ids, so a reader knows which files to look at without resolving ids through the manifest."
             }
           }
+        },
+        "no_progress": {
+          "type": "object",
+          "description": "Present when a bounded run stopped because a further pass was shown to be unproductive. `reason` is `identical_model_output` when the provider returned the same bytes twice, or `unchanged_feedback` when two passes failed in the same way — same next action, same gaps, same unsupported claims — however differently they were worded. Absent on the a-priori form, where the evaluation found nothing another pass could act on.",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "enum": [
+                "identical_model_output",
+                "unchanged_feedback"
+              ]
+            },
+            "iterations": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "action": {
+              "description": "The next action kind that stood unchanged, when there was one."
+            }
+          }
         }
       }
     },
