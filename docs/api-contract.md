@@ -75,6 +75,17 @@ collapse them:
 | `missing_sections` | Does the output have the shape the route promised? |
 | `evidence_gaps` | Are the claims in it supported by something that was read? |
 
+`next_action` is the instruction as data: one `kind` from a closed vocabulary,
+the `gap_codes` it addresses, the `actor` who can carry it out, and the
+`details` that actor needs — available source ids, the expected sentence, the
+failing statuses. It is `null` only when nothing is outstanding, including on a
+run that stops `blocked`, where the action is the host's (`observe_again`)
+rather than the producer's. The kinds are listed in precedence order: the first
+that applies is the one named, because a findings block that cannot be parsed
+makes every question about an individual citation moot, and a source that has
+moved cannot be re-cited at all. `suggested_adjustment` says the same thing in
+English and is for a person; adapters branch on `next_action`.
+
 `unverified_claims` lists findings that are not supported — hypotheses, not
 findings. `evidence_coverage` is the share of findings that are supported, or
 `null` when the route has no evidence contract or the output asserts no
@@ -183,9 +194,22 @@ code path; they are reserved by the remaining P0.3 work so the vocabulary a
 consumer codes against does not grow every time a limit lands. A test names
 them, so the gap is recorded rather than implied.
 
-`no_progress` here is the a-priori form: the evaluation found nothing another
-pass could act on. Detecting that two passes produced the *same* output is a
-separate, stronger check that P1.1 owns.
+`no_progress` has three forms, and `metadata.no_progress.reason` says which:
+
+- absent — the a-priori form: the evaluation found nothing another pass could
+  act on at all.
+- `identical_model_output` — a bounded run whose provider returned exactly the
+  same bytes twice.
+- `unchanged_feedback` — a bounded run whose two passes failed in the same way.
+  The wording moved and the failure did not, so the feedback the producer would
+  receive next is the feedback it has already had. Compared on the next action,
+  the gaps it addresses and the claims still unsupported; the quality score and
+  the prose are deliberately excluded, because a score that moves by a rounding
+  step while every gap stands is not progress.
+
+Both output-comparing forms are **bounded runs only**. The unbudgeted path
+keeps its 1.0 verdict semantics, so a legacy run that spends every pass on a
+gap another producer could have closed still reports `max_iterations`.
 
 Adapters must use `stop_reason`; they must not infer completion semantics from
 prose output. The text form of a run is rendered from the run document by

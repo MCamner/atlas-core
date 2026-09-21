@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Callable, Literal, Mapping, overload
 import json
 
-from .state import AtlasRunState
+from .state import AtlasEvaluation, AtlasRunState
 from .router import select_route
 from .planner import build_plan
 from .executor import execute_plan
@@ -42,6 +42,32 @@ def _check_model_result(result: object) -> None:
             json.loads(result.output)
         except json.JSONDecodeError as exc:
             raise ValueError("ModelAdapter.execute returned malformed JSON") from exc
+
+
+def _same_failure(current: AtlasEvaluation, previous: AtlasEvaluation) -> bool:
+    """Whether two passes failed in the same way, not merely with the same text.
+
+    Compared on what a next pass would be told to do and on what is still
+    unsupported — the action, the gaps it addresses, and the claims that did
+    not survive. The quality score and the prose are deliberately not part of
+    it: a score that moves by a rounding step while every gap stands is not
+    progress, and wording is not a failure.
+    """
+    return (
+        _failure_signature(current) == _failure_signature(previous)
+        and current.next_action is not None
+    )
+
+
+def _failure_signature(evaluation: AtlasEvaluation) -> tuple[Any, ...]:
+    action = evaluation.next_action
+    return (
+        action.kind if action else None,
+        tuple(sorted(action.gap_codes)) if action else (),
+        tuple(sorted(evaluation.missing_sections)),
+        tuple(sorted(evaluation.evidence_gaps)),
+        tuple(sorted(evaluation.unverified_claims)),
+    )
 
 
 class AtlasController:
@@ -365,6 +391,28 @@ class AtlasController:
                 state.metadata["no_progress"] = {
                     "reason": "identical_model_output",
                     "iterations": [state.iteration - 1, state.iteration],
+                }
+                state.stop("no_progress")
+                break
+            # The same rule stated on the failure rather than on the bytes.
+            # A producer can reword an answer, fail in exactly the same way and
+            # buy another iteration with nothing; byte equality does not see
+            # that, and the feedback it would receive next is the feedback it
+            # has already had. Bounded runs only, which is where #29 put the
+            # narrower rule — the unbudgeted path keeps its verdict semantics.
+            if (
+                budget is not None
+                and len(state.evaluations) >= 2
+                and _same_failure(state.evaluations[-1], state.evaluations[-2])
+                and evaluation.retry_is_possible
+                and not evaluation.blocked_by
+            ):
+                state.metadata["no_progress"] = {
+                    "reason": "unchanged_feedback",
+                    "iterations": [state.iteration - 1, state.iteration],
+                    "action": (
+                        evaluation.next_action.kind if evaluation.next_action else None
+                    ),
                 }
                 state.stop("no_progress")
                 break
