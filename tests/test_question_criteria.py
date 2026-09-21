@@ -111,6 +111,32 @@ class _Repo(unittest.TestCase):
             },
         }
 
+    def _also_citing(
+        self, finding: dict[str, Any], observation: Observation, text: str
+    ) -> dict[str, Any]:
+        """Add a second intact citation the typed claim was not checked against.
+
+        A finding may legitimately cite more than one source — context for a
+        reader, a neighbouring line, the place a value is consumed. Nothing
+        about the extra citation is wrong; what must not follow from it is a
+        verdict about a source the claim was never settled against.
+        """
+        line = next(
+            index + 1
+            for index, content in enumerate(observation.excerpt.splitlines())
+            if text in content
+        )
+        finding["evidence"].append(
+            {
+                "source_id": observation.source_id,
+                "content_sha256": observation.content_sha256,
+                "line_start": line,
+                "line_end": line,
+                "quoted": observation.excerpt.splitlines()[line - 1],
+            }
+        )
+        return finding
+
     def _output(self, findings: list[dict[str, Any]], *, long: bool) -> str:
         head = "# Repogranskning\n\n" + (LONG_PROSE if long else "Kort.")
         body = (
@@ -295,6 +321,57 @@ class TestAnEmptyReviewNoLongerAnswersAQuestion(_Repo):
 
         self.assertEqual(evaluation["citation_checks"][0]["verdict"], "contradicted")
         self.assertIn("findings_are_on_topic", evaluation["unmet_criteria"])
+
+
+class TestTheGateReadsTheSourceThatWasChecked(_Repo):
+    """Relevance is decided by the claim, not by the company it keeps.
+
+    The gate asks which source a settled claim is *about*. A finding's citation
+    list is a different question — it is what a reader may need to see, and it
+    can legitimately name sources the claim was never tested against. Reading
+    the list instead of the claim made a spare citation enough to buy relevance
+    for a claim about somewhere else.
+    """
+
+    def test_a_spare_citation_does_not_make_an_off_topic_claim_relevant(self):
+        """The claim is settled against `README.md`; the plan named `*.env`.
+
+        Every other signal is honest: both citations are intact, the verdict
+        is `verified`, and the finding is exactly what it says it is. The one
+        thing that must not happen is the credentials question reporting
+        itself looked into.
+        """
+        finding = self._also_citing(
+            self._finding(self.readme, "# Demorepo"), self.settings, "PASSWORD=admin"
+        )
+        run = self._run(self._output([finding], long=True))
+        evaluation = run["evaluations"][-1]
+        record = evaluation["citation_checks"][0]
+
+        # The precondition, asserted so a later change cannot make this test
+        # pass for the wrong reason: two intact citations, one settled claim.
+        self.assertEqual(record["verdict"], "verified")
+        self.assertEqual(len(record["statuses"]), 2)
+        self.assertEqual(record["claim_check"]["checked"]["path"], "README.md")
+
+        self.assertFalse(evaluation["passed"])
+        self.assertIn("findings_are_on_topic", evaluation["unmet_criteria"])
+
+    def test_the_same_finding_counts_when_the_claim_is_the_one_on_topic(self):
+        """The other direction, so the fix is not simply 'two citations fail'.
+
+        Same two sources, same two intact citations. The typed claim is about
+        `settings.env` this time, and that is what makes it relevant.
+        """
+        finding = self._also_citing(
+            self._finding(self.settings, "PASSWORD=admin"), self.readme, "# Demorepo"
+        )
+        run = self._run(self._output([finding], long=True))
+        evaluation = run["evaluations"][-1]
+
+        self.assertEqual(len(evaluation["citation_checks"][0]["statuses"]), 2)
+        self.assertEqual(run["stop_reason"], "passed")
+        self.assertIn("findings_are_on_topic", evaluation["met_criteria"])
 
 
 class TestWhatTheGateDoesNotDecide(_Repo):

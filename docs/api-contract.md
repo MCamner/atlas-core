@@ -128,7 +128,11 @@ Criteria come from two places: the route, and — since P1.1 box three — the
 *this* review owes, because before the review plan existed there was no
 "this". When the plan narrowed to a topic, `findings_are_on_topic` is added,
 and its requirement text carries that question verbatim: at least one finding
-must be settled **in its favour** against a source the plan named.
+must be settled **in its favour** against a source the plan named — the source
+its claim was *checked against*, not one it merely cites. A finding may
+legitimately cite more than one source, and a spare citation is not a claim: a
+claim settled about `README.md` does not become relevant to the credentials
+question by also pointing at `settings.env`.
 
 **Read the criterion for what it checks.** It is a relevance gate over the
 source, not a test that the question was answered, and it is named for the

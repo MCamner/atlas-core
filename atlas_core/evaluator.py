@@ -168,8 +168,9 @@ def criteria_for(
         (
             "findings_are_on_topic",
             "At least one finding is settled in its favour against a source "
-            "the plan named. A relevance gate; it does not establish that "
-            f"this was answered: {review.question}",
+            "the plan named — the source its claim was checked on, not one it "
+            "merely cites. A relevance gate; it does not establish that this "
+            f"was answered: {review.question}",
         ),
     )
 
@@ -843,8 +844,22 @@ def _on_topic_finding(
     establish the negative can claim `source_lacks_literal`, which is
     expressible and which a verified verdict then carries.
 
-    The check is the path, not the subject matter. Whether the claim bears on
-    the question is not decided here and is not decided anywhere in this
+    The source is the one the **claim was checked against**, not any source the
+    finding happens to cite. A finding may legitimately carry more than one
+    citation — context for a reader, the place a value is consumed — and a
+    spare citation is not a claim. Reading the citation list instead of the
+    claim let a settled claim about `README.md` buy relevance for the
+    credentials question by also pointing at `settings.env`, while nothing
+    about credentials had been looked into. `claim_check.checked.source_id` is
+    what `check_typed_claim` actually searched, so that is what is matched.
+
+    A record with no such source does not count, whatever its verdict says. A
+    `verified` verdict cannot be reached without a typed claim, so the field
+    is there whenever it matters; if it ever is not, the run has no basis for
+    saying the question was looked into.
+
+    The check is the source, not the subject matter. Whether the claim bears
+    on the question is not decided here and is not decided anywhere in this
     repository yet — see `criteria_for`, and ROADMAP.md P1.1 box three, which
     stays open for it.
     """
@@ -859,10 +874,10 @@ def _on_topic_finding(
     for record in evidence.citation_checks:
         if record.get("verdict") != "verified":
             continue
-        for status in record.get("statuses") or []:
-            path = paths.get(str(status.get("source_id")))
-            if path and any(fnmatch(path, pattern) for pattern in review.patterns):
-                return True
+        checked = (record.get("claim_check") or {}).get("checked") or {}
+        path = paths.get(str(checked.get("source_id")))
+        if path and any(fnmatch(path, pattern) for pattern in review.patterns):
+            return True
     return False
 
 

@@ -11,7 +11,9 @@ the route. The box stays open — see below, and ROADMAP.md.
   list whatever it had been asked. When the plan narrows to a topic, a
   criterion is added whose requirement text is that question verbatim, and it
   is met when at least one finding is settled **in its favour** against a
-  source the plan named.
+  source the plan named — the source its claim was *checked against*, not one
+  it merely cites. A finding may legitimately carry several citations, and a
+  spare citation is not a claim.
 - **It is a relevance gate, and it is named as one.** It checks the source a
   settled claim is about, not the subject the claim speaks to. A verified
   claim that `settings.env` contains `TIMEOUT=30` clears it while saying
