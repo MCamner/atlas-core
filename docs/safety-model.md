@@ -103,8 +103,13 @@ read-only mounts/network policy. Windows currently fails closed for this API.
   not confer a capability.
 - **Text is not evidence.** README/tool-output prompt injection cannot itself
   register a tool or grant permission, but Core does not guarantee that an
-  arbitrary external model ignores malicious text. The legacy prose
-  `observations` export remains verbatim; inspect run logs before sharing.
+  arbitrary external model ignores malicious text.
+- **The export is masked, and masking is narrow.** Since P0.1 the whole run
+  document is redacted on the way out, including the prose `observations`
+  channel that used to leave verbatim. The patterns cover credential shapes,
+  home directories and email addresses — not arbitrary personal data — so
+  inspect run logs before sharing them. `confidentiality` is derived from the
+  same patterns and is never set to `public` automatically.
 
 `requires_write_approval()` remains an advisory substring check, not the
 execution gate. Atlas Core ships no live LLM or repository write adapter.
