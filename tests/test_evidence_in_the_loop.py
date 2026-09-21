@@ -207,16 +207,23 @@ class TestTheGateEndToEnd(_Loop):
         self.assertIn("unsound_citations", evaluation["evidence_gaps"])
         self.assertIn(FALSE_CLAIM, evaluation["unverified_claims"])
 
-    def test_the_older_checks_would_have_accepted_the_same_answer(self):
-        """What the gate is worth. Without an evidence base this passes at 0.9."""
+    def test_the_same_answer_without_an_evidence_base_is_refused_too(self):
+        """Was: `test_the_older_checks_would_have_accepted_the_same_answer`.
+
+        It asserted that this answer passed at 0.9 without an evidence base,
+        which is what made the older path worth replacing. Post-merge review
+        of #36 closed that: a route that owes settled claims cannot meet
+        `claims_are_settled` on a path where nothing is checked, so the answer
+        is now refused whether or not the run carries a base.
+        """
         run = self._run(
             self._output(citations=[self._citation(quoted="FEL CITAT")]), evidence=False
         )
         evaluation = run["evaluations"][-1]
 
-        self.assertTrue(evaluation["passed"])
-        self.assertEqual(run["stop_reason"], "passed")
-        self.assertEqual(evaluation["evidence_gaps"], [])
+        self.assertFalse(evaluation["passed"])
+        self.assertNotEqual(run["stop_reason"], "passed")
+        self.assertIn("claims_not_checked", evaluation["evidence_gaps"])
 
     def test_a_finding_with_no_machine_readable_citation_cannot_pass(self):
         """Prose alone is not checkable, however well it is written."""
@@ -424,11 +431,18 @@ class TestActionableOrStop(_Loop):
 class TestBackwardsCompatibilityIsExplicit(_Loop):
     """Requirement 1: no silent conversion in either direction."""
 
-    def test_a_run_without_an_evidence_base_is_graded_exactly_as_before(self):
-        run = self._run(self._output(block=False), evidence=False)
+    def test_a_run_without_an_evidence_base_is_graded_by_citation_only(self):
+        """Was: `..._exactly_as_before`, asserting that it passed.
 
-        self.assertTrue(run["evaluations"][-1]["passed"])
-        self.assertEqual(run["evaluations"][-1]["evidence_coverage"], 1.0)
+        The path is still the citation-only one and still measures citation
+        coverage. What changed is that a route owing settled claims can no
+        longer clear its gate on that measurement alone.
+        """
+        evaluation = self._run(self._output(block=False), evidence=False)["evaluations"][-1]
+
+        self.assertEqual(evaluation["evidence_coverage"], 1.0)
+        self.assertFalse(evaluation["passed"])
+        self.assertIn("claims_not_checked", evaluation["evidence_gaps"])
 
     def test_the_run_record_says_which_path_ran(self):
         """A reader must be able to tell a checked run from an unchecked one."""

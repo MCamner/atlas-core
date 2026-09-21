@@ -20,6 +20,8 @@ __all__ = [
     "Status",
     "StopReason",
     "NEXT_ACTION_KINDS",
+    "SCORE_METHODS",
+    "CURRENT_SCORE_METHOD",
     "NextAction",
     "NextActionKind",
     "AtlasEvaluation",
@@ -27,6 +29,22 @@ __all__ = [
     "AtlasPlan",
     "AtlasRunState",
 ]
+
+#: How `quality_score` was computed. A field name that keeps its spelling
+#: while its meaning changes is a compatibility trap: a consumer written
+#: against 1.0 reads the new number as the old one and never finds out. This
+#: names the method, so the question is answerable without reading a changelog.
+#:
+#: `criteria_met_share` — the share of its route's exit criteria the answer
+#: met. Reports; nothing compares it against a threshold.
+#:
+#: A document with **no** `score_method` predates P1.1 and carries the earlier
+#: method: a weighted sum over output length and headings, multiplied by an
+#: evidence factor, compared against 0.78. That method is gone, and it is named
+#: here so an archived document can still be read correctly.
+SCORE_METHODS: tuple[str, ...] = ("criteria_met_share", "weighted_sections_and_length")
+
+CURRENT_SCORE_METHOD = "criteria_met_share"
 
 NextActionKind = Literal[
     "observe_again",
@@ -105,6 +123,8 @@ class AtlasEvaluation:
     # branches on it. `passed` is decided by `unmet_criteria` being empty.
     quality_score: float
     passed: bool
+    #: How `quality_score` was computed. See `SCORE_METHODS`.
+    score_method: str = CURRENT_SCORE_METHOD
     # What the route declared it owed, and what it delivered. Named rather
     # than weighted: a requirement that can be outvoted by other requirements
     # is not one.

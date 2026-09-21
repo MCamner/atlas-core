@@ -165,12 +165,30 @@ written against 1.0 that ignores them still reads a valid document.
 
 ### Which grading ran
 
-A run without an evidence base is graded exactly as it was in 1.0: a finding
-counts as covered when it **names** a source that was read. Nothing compares
-the claim against that source's contents, so a factually wrong statement that
-mentions `README.md` passes that gate. `citation_checks` is empty for such a
-run, and `evidence_base` in the run document is `null`, so a reader can always
-tell a checked run from an unchecked one.
+A run without an evidence base is measured the way it was in 1.0: a finding
+counts as covered when it **names** a source that was read, and
+`evidence_coverage` reports that share. Nothing on that path compares a claim
+against the source's contents.
+
+It therefore **cannot clear the gate** of a route that declares
+`claims_are_settled`. Naming a file is not evidence about what the file says,
+so a false claim and a true one are indistinguishable there, and a criterion
+reported met while no check ran would be the run document asserting something
+nobody established. The gap code is `claims_not_checked`, all three evidence
+criteria go unmet, and the next action is the host's: collect observations and
+pass them as `evidence`. Re-wording cannot close it, so no iteration is spent
+trying.
+
+Until that rule landed, a factually wrong statement mentioning `README.md`
+passed this gate at 0.9. It no longer does.
+
+A review that records its sources and **asserts no finding** still passes.
+There is nothing to settle, `evidence_coverage` stays `null` rather than 1.0,
+and the claim ledger is empty.
+
+`citation_checks` is empty for a run with no evidence base, and
+`evidence_base` in the run document is `null`, so a reader can always tell a
+checked run from an unchecked one.
 
 A run with an evidence base is graded against `check_finding`. Every finding
 under the route's finding headings must carry a machine-readable citation in an
