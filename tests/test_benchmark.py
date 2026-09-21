@@ -40,6 +40,14 @@ WITHOUT_DEFECTS = FIXTURES / "repo_without_defects"
 
 REPO_TASK = "granska repo och hitta defekter"
 
+#: The same fixture, asked a question the plan can narrow. `REPO_TASK` cannot
+#: be narrowed — no topic's keywords appear in it — so every run above is
+#: graded on the route's criteria alone and none of them reaches
+#: `findings_are_on_topic`. What an empty review is worth therefore depends on
+#: which of the two it was asked, and the benchmark has to measure both or it
+#: describes half the gate.
+SECRETS_TASK = "granska repot efter hårdkodade lösenord"
+
 PROSE = """# Repogranskning
 
 Granskningen nedan bygger på de källor som lästes denna körning och går igenom
@@ -80,6 +88,26 @@ class _Adapter:
             model="scripted",
             metadata={"usage_tokens": "1"},
         )
+
+
+class _Host:
+    """Resolves a review plan's patterns against the fixture directory."""
+
+    def __init__(self, root: Path, snapshot: Any):
+        self.root = root
+        self.snapshot = snapshot
+
+    def observe(self, request: Any) -> list[Observation]:
+        from fnmatch import fnmatch
+
+        names = sorted(
+            path.name
+            for path in self.root.iterdir()
+            if path.is_file()
+            and path.name != "ground_truth.json"
+            and any(fnmatch(path.name, pattern) for pattern in request.patterns)
+        )
+        return [collect_observation(self.snapshot, name) for name in names]
 
 
 class _Fixture(unittest.TestCase):
@@ -156,6 +184,24 @@ class _Fixture(unittest.TestCase):
         adapter = _Adapter(output)
         run = AtlasController(max_iterations=iterations, model_adapter=adapter).run(
             REPO_TASK, evidence=self.base, json_mode=True, limits=LIMITS
+        )
+        self.run_document = run
+        return measure(run, self.truth)
+
+    def _measure_narrowed(self, output: str) -> Any:
+        """The same output, under a task the plan can narrow to a topic.
+
+        Two iterations and a host, because a narrowed plan names patterns this
+        repository may not have — only a host can establish that there is no
+        `config*` here — and the question is graded once that is settled.
+        """
+        adapter = _Adapter(output)
+        run = AtlasController(max_iterations=2, model_adapter=adapter).run(
+            SECRETS_TASK,
+            evidence=self.base,
+            json_mode=True,
+            limits=LIMITS,
+            observer=_Host(self.root, self.snapshot),
         )
         self.run_document = run
         return measure(run, self.truth)
@@ -307,6 +353,53 @@ class TestAnEmptyResultIsNotACleanBillOfHealth(_Fixture):
 
         self.assertIn("asserted no finding", trailer)
         self.assertIn("not a statement that", trailer)
+
+
+class TestSilenceIsWorthWhatTheTaskAsked(_Fixture):
+    """The same empty review, measured under both kinds of task.
+
+    `TestAnEmptyResultIsNotACleanBillOfHealth` measures silence under a task
+    the plan could not narrow, and there it still passes: there is no question
+    to have left unanswered, so only the route's criteria apply and an output
+    with no claims meets all of them. Under a narrowed task the gate closes.
+
+    Both rows belong in the published results. Reporting only the first would
+    have `docs/benchmark.md` say an empty review passes, full stop, which
+    stopped being true for a narrowed task when `findings_are_on_topic`
+    landed — and a benchmark has to describe the code it actually runs.
+    """
+
+    root = WITH_DEFECTS
+
+    def test_the_broad_task_is_the_one_that_cannot_be_narrowed(self):
+        """Stated rather than assumed: this is why the rows differ."""
+        self._measure(self._output([]))
+
+        self.assertEqual(self.run_document["plan"]["review"]["topic"], "unknown")
+
+    def test_an_empty_review_no_longer_passes_a_narrowed_task(self):
+        result = self._measure_narrowed(self._output([]))
+        evaluation = self.run_document["evaluations"][-1]
+
+        self.assertEqual(self.run_document["plan"]["review"]["topic"], "secrets")
+        self.assertFalse(result.passed)
+        self.assertIn("findings_are_on_topic", evaluation["unmet_criteria"])
+        # Still measured as a miss, and now also stopped. The flag is about
+        # what the run asserted, not about whether it passed.
+        self.assertEqual(result.recall, 0.0)
+
+    def test_the_committed_password_still_passes_under_the_same_task(self):
+        """Negative control: the narrowed task is not simply harder to pass.
+
+        One settled claim about the source the question named, and the run is
+        done — the same defect `D3` the broad task scores.
+        """
+        finding = self._finding("settings.env", ClaimKind.CONTAINS, "PASSWORD=admin")
+        result = self._measure_narrowed(self._output([finding]))
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.found_defects, ["D3"])
+        self.assertFalse(result.overstates_completeness)
 
 
 class TestTheAnswerKeyItself(unittest.TestCase):

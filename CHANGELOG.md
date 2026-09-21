@@ -27,7 +27,10 @@ numbers say.
   that asserts nothing meets every criterion it owes and passes at a full
   score. That is the right answer to "did your claims hold" and not an answer
   to "is this repository sound", and the two read alike. On the fixture with
-  three real defects, an empty review passes with recall 0.0.
+  three real defects, an empty review passes with recall 0.0 — for a task the
+  plan could not narrow. The same fixture under a task that narrows stops on
+  `findings_are_on_topic` instead, and both rows are published, because a
+  benchmark has to describe the code it actually runs against.
 - **The trailer no longer leaves that impression unremarked.** A passing run
   that graded no claim now says so, and says that it is not a statement about
   the sources.

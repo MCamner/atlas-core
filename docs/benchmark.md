@@ -59,7 +59,11 @@ is the honest value.
 
 ## Results
 
-Scripted producers, one pass each, `max_iterations=1`.
+Scripted producers, one pass each, `max_iterations=1`, on the task `granska
+repo och hitta defekter`. No topic's keywords appear in it, so the review plan
+reports that it could not narrow, and these runs are graded on the route's
+criteria alone. The two rows at the bottom re-run the same fixture under a task
+the plan *can* narrow — see **What the task changes**.
 
 | Repo | Scenario | asserted | verified | refuted | precision | recall | backed | stop reason | overstates |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
@@ -72,6 +76,8 @@ Scripted producers, one pass each, `max_iterations=1`.
 | without defects | one claimed | 1 | 0 | 1 | — | — | 0.0 | `max_iterations` | no |
 | without defects | three + a true non-defect | 4 | 1 | 3 | 0.0 | — | 0.25 | `max_iterations` | no |
 | without defects | **empty review** | 0 | 0 | 0 | — | — | — | **`passed`** | **yes** |
+| with defects, narrowed | **empty review** | 0 | 0 | 0 | — | **0.0** | — | **`no_progress`** | no |
+| with defects, narrowed | the password claimed | 1 | 1 | 0 | 1.0 | 0.33 | 1.0 | `passed` | no |
 
 Cost for the first row: 1 model call, 1 token, 1912 output bytes.
 
@@ -82,19 +88,43 @@ that are true of the other one are false, each naming a real file with a real
 citation. Only comparing them against the source tells them apart, and the loop
 does: three refutations, nothing established, no pass.
 
-**An empty review passes, at a full score, having missed every defect.** Three
-real defects sat in the files it read. Asserting nothing is the right answer to
-"did your claims hold" — there were none — and it is not an answer to "is this
-repository sound". Those two read alike in a run document. `recall` is 0.0,
-`overstates_completeness` is true, and the text trailer now says in as many
-words that the run established nothing and that this is not a statement about
-the sources.
+**An empty review passes, at a full score, having missed every defect** — when
+the task could not be narrowed. Three real defects sat in the files it read.
+Asserting nothing is the right answer to "did your claims hold" — there were
+none — and it is not an answer to "is this repository sound". Those two read
+alike in a run document. `recall` is 0.0, `overstates_completeness` is true,
+and the text trailer says in as many words that the run established nothing and
+that this is not a statement about the sources.
+
+## What the task changes
+
+The last two rows are the same fixture and the same producers, asked `granska
+repot efter hårdkodade lösenord`. That narrows to a topic, so the plan names
+sources and the run owes `findings_are_on_topic` as well. The empty review now
+**stops** — `findings_are_on_topic` unmet, next action `answer_the_question` —
+and a single settled claim about the committed password passes, scoring `D3`
+and nothing else.
+
+Two consequences worth reading off the table rather than inferring:
+
+- `overstates_completeness` is `no` on the narrowed empty review. The flag is
+  `passed and asserted == 0`, and that run does not pass. The flag was a
+  warning for a case the gate now closes, and it still covers the case the gate
+  does not: a broad task, where there is no question to have left unanswered.
+- The gate is only as narrow as the plan. `granska repo och hitta defekter`
+  reaches no topic, so eight of the ten rows never exercise
+  `findings_are_on_topic` at all. The topic comes from keyword matching, which
+  is stated as a limit in ROADMAP.md P1.1 box one, and it is a limit of these
+  numbers too.
 
 ## Limitations
 
 - The producers are scripted. Nothing here measures a model.
 - Three defects in one small repository is an answer key, not a dataset. It
   catches a regression in the gate; it does not characterise performance.
+- Eight of the ten rows are graded without the question criterion, because
+  their task narrows to nothing. They measure the route's criteria, which is
+  most of the gate and not all of it.
 - Only defects expressible as literal presence or absence are in the key. A
   real review makes claims that cannot be written that way, and the loop
   cannot settle those either — `insufficient_evidence` is the honest outcome
