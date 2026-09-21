@@ -49,6 +49,7 @@ CURRENT_SCORE_METHOD = "criteria_met_share"
 
 NextActionKind = Literal[
     "observe_again",
+    "answer_the_question",
     "repair_findings_block",
     "drop_refuted_claim",
     "restate_claim",
@@ -64,6 +65,10 @@ NextActionKind = Literal[
 #: all — so those come before anything about the text of a claim.
 NEXT_ACTION_KINDS: tuple[str, ...] = (
     "observe_again",
+    # After reading and before anything about the findings' quality: an answer
+    # about the wrong subject cannot be repaired into an answer about the right
+    # one, and polishing its citations would only make it read better.
+    "answer_the_question",
     "repair_findings_block",
     "drop_refuted_claim",
     "restate_claim",

@@ -339,6 +339,15 @@ class AtlasController:
                 }
                 return "stopped"
 
+            already_resolved = {
+                pattern
+                for previous in state.metadata.get("observation_rounds", [])
+                for pattern in previous.get("patterns", [])
+            }
+            newly_resolved = [
+                pattern for pattern in patterns if pattern not in already_resolved
+            ]
+
             record = round_result.to_dict()
             record["iteration"] = state.iteration
             # What the host was asked to resolve. A pattern it came back from
@@ -347,10 +356,17 @@ class AtlasController:
             # way without listing directories itself.
             record["patterns"] = list(patterns)
             state.metadata.setdefault("observation_rounds", []).append(record)
-            if not round_result.has_new_material:
+            if not round_result.has_new_material and not newly_resolved:
                 # Rule three. The host answered and nothing it returned changes
                 # what the run can check, so another pass would grade the same
                 # evidence and fail the same way.
+                #
+                # A round that resolved a pattern for the first time is the
+                # exception, and it is not a loophole: the run learned that
+                # the repository has no such file, which is knowledge it had
+                # no other way to get. It can only happen once per pattern,
+                # because the pattern is recorded as resolved and the gap that
+                # asked for it closes.
                 return "nothing"
 
             state.evidence_base = base.with_observations(merged)

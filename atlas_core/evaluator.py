@@ -113,6 +113,10 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
     # one is about whether the run looked where its question pointed, which is
     # a different failure and needs a different fix — a read, not a re-write.
     "plan_targets_unread": ("plan_targets_read",),
+    # The question's own criterion. Distinct from every other gap here: those
+    # say the findings are not worth what they claim, this one says they are
+    # not about what was asked.
+    "question_unanswered": ("question_addressed",),
     # All three, because on this path none of them was evaluated at all. A
     # criterion reported met while no deterministic check ran is the run
     # document asserting something nobody established, which is the failure
@@ -129,9 +133,35 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
 MIN_SUBSTANCE = 300
 
 
-def criteria_for(route_name: str | None) -> tuple[tuple[str, str], ...]:
-    """The criteria a route must meet. Generic ones when it declares none."""
-    return EXIT_CRITERIA.get(route_name or "", EXIT_CRITERIA["__generic__"])
+def criteria_for(
+    route_name: str | None, review: ReviewPlan | None = None
+) -> tuple[tuple[str, str], ...]:
+    """The criteria this run must meet: the route's, plus its question's.
+
+    A route declares what *any* review owes. It cannot declare what **this**
+    review owes, because until the review plan existed there was no "this" —
+    every run of the route was graded against the same list whatever it had
+    been asked. P1.1 box three asks for criteria derived from the concrete
+    question, and this is where the two are joined.
+
+    The question's criterion is added only when the plan narrowed to a topic.
+    A task nothing narrowed has no question to be off-topic about, and holding
+    a broad task to a question nobody posed would punish it for being broad.
+
+    The requirement text is the question itself, verbatim, so the run document
+    says what the answer was supposed to settle rather than leaving a reader
+    to infer it from a code.
+    """
+    base = EXIT_CRITERIA.get(route_name or "", EXIT_CRITERIA["__generic__"])
+    if review is None or not review.narrowed():
+        return base
+    return base + (
+        (
+            "question_addressed",
+            "At least one finding is settled against a source the plan named, "
+            f"answering: {review.question}",
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -188,6 +218,11 @@ EVIDENCE_PROSE = {
     "uncheckable_findings": (
         "Some findings carry no machine-readable citation, so nothing about "
         "them could be checked against what was read."
+    ),
+    "question_unanswered": (
+        "Nothing this run established is about a source the question named. "
+        "The answer may be well formed, cited and true, and it answers "
+        "something else."
     ),
     "plan_targets_unread": (
         "The review plan named sources its question needs and nothing read "
@@ -279,7 +314,7 @@ def evaluate(
     reasons: list[str] = []
     missing: list[str] = []
 
-    criteria = criteria_for(route_name)
+    criteria = criteria_for(route_name, review)
     declared = {code for code, _ in criteria}
     unmet: set[str] = set()
 
@@ -334,6 +369,15 @@ def evaluate(
     gap_codes = list(evidence.gaps)
     if waiting_on:
         gap_codes.insert(0, "plan_targets_unread")
+    # Asked only when a question exists and the run is not still waiting to
+    # read for it. A run that has not read the sources yet has not failed to
+    # answer; it has not had the chance.
+    if (
+        "question_addressed" in declared
+        and not waiting_on
+        and not _question_addressed(review, evidence, evidence_base)
+    ):
+        gap_codes.append("question_unanswered")
     for gap in gap_codes:
         unmet.update(_CRITERION_FOR_GAP.get(gap, ("claims_are_settled",)))
     unmet &= declared
@@ -348,7 +392,13 @@ def evaluate(
     # executor knows how to close. Re-running a deterministic executor with
     # identical input cannot improve anything, so never burn an iteration on it.
     # Formatting cannot repair a missing or stale source.
-    actionable = evidence.actionable if evidence.gaps else bool(gaps)
+    # A question answered about the wrong subject is something the producer
+    # can fix with what the run already holds: the sources are read, and the
+    # finding is about the wrong one. That is a retry worth an iteration.
+    off_topic = "question_unanswered" in gap_codes
+    actionable = (
+        off_topic or (evidence.actionable if evidence.gaps else bool(gaps))
+    )
     # Split deliberately: what could still be tried, and what will be tried.
     # A run that stops with something actionable left stopped because of its
     # bound; one that stops with nothing left had nowhere to go. They are
@@ -378,7 +428,15 @@ def evaluate(
         # an answer can pass with a section missing, and telling a caller to act
         # on a run that met its gate is an instruction it did not ask for.
         next_action=(
-            _next_action(gaps, evidence, sources, evidence_base, review, waiting_on)
+            _next_action(
+                gaps,
+                evidence,
+                sources,
+                evidence_base,
+                review,
+                waiting_on,
+                off_topic=off_topic,
+            )
             if not passed
             else None
         ),
@@ -760,6 +818,38 @@ def _citation_record(
     }
 
 
+def _question_addressed(
+    review: ReviewPlan | None,
+    evidence: _Evidence,
+    base: EvidenceBase | None,
+) -> bool:
+    """Whether anything this run established is about what was asked.
+
+    A finding counts when it was settled **in its favour** against a source
+    matching one of the plan's patterns. `contradicted` does not count: it
+    says the producer was wrong, which is worth knowing and is not the same as
+    the question being settled by what it wrote. A producer that wants to
+    establish the negative can claim `source_lacks_literal`, which is
+    expressible and which a verified verdict then carries.
+    """
+    from fnmatch import fnmatch
+
+    if review is None or not review.narrowed() or base is None:
+        return True
+
+    paths = {
+        observation.source_id: observation.path for observation in base.observations
+    }
+    for record in evidence.citation_checks:
+        if record.get("verdict") != "verified":
+            continue
+        for status in record.get("statuses") or []:
+            path = paths.get(str(status.get("source_id")))
+            if path and any(fnmatch(path, pattern) for pattern in review.patterns):
+                return True
+    return False
+
+
 def _next_action(
     gaps: list[str],
     evidence: _Evidence,
@@ -767,6 +857,7 @@ def _next_action(
     base: EvidenceBase | None = None,
     review: ReviewPlan | None = None,
     waiting_on: list[str] | None = None,
+    off_topic: bool = False,
 ) -> NextAction | None:
     """The one thing that has to happen first, as data.
 
@@ -782,6 +873,8 @@ def _next_action(
     codes = list(evidence.gaps) + list(gaps)
     if waiting_on:
         codes.insert(0, "plan_targets_unread")
+    if off_topic:
+        codes.append("question_unanswered")
     if not codes:
         return None
 
@@ -832,6 +925,22 @@ def _next_action(
                     for record in evidence.citation_checks
                     if not record["citations_are_sound"]
                 ],
+            },
+        )
+
+    if off_topic and review is not None:
+        # After reading, before anything about how good the findings are. An
+        # answer about the wrong subject cannot be repaired into an answer
+        # about the right one, and improving its citations would only make it
+        # read better. The sources are already in hand; what is missing is a
+        # claim about them.
+        return NextAction(
+            kind="answer_the_question",
+            gap_codes=codes,
+            details={
+                "question": review.question,
+                "patterns": list(review.patterns),
+                "available_source_ids": base.source_ids() if base else [],
             },
         )
 

@@ -123,9 +123,32 @@ arithmetic that never said what the route owed, and under which an answer could
 pass with a section the route had declared still missing. `PASS_THRESHOLD`,
 `SECTION_WEIGHTS` and the coverage factor are gone with it.
 
-`repo_review` declares `sources_documented`, `findings_are_checkable`,
-`citations_hold`, `claims_are_settled`, `recommendation`, `next_step` and
-`confidence`. A route that checks nothing against a source declares
+Criteria come from two places: the route, and — since P1.1 box three — the
+**question**. A route declares what any review owes; it cannot declare what
+*this* review owes, because before the review plan existed there was no
+"this". When the plan narrowed to a topic, `question_addressed` is added, and
+its requirement text is that question verbatim: at least one finding must be
+settled **in its favour** against a source the plan named.
+
+`contradicted` does not satisfy it. A refutation says the producer was wrong,
+which is worth knowing and is not the same as the question being settled by
+what it wrote; a producer that wants to establish a negative can claim
+`source_lacks_literal`, which a verified verdict then carries.
+
+A task the plan could not narrow is not held to a question. There is nothing
+to be off-topic about, and holding a broad task to a question nobody posed
+would punish it for being broad.
+
+The consequence worth stating: a review that **asserts nothing** no longer
+passes a narrowed review. It meets every criterion about what findings are
+worth — there are none to be worth anything — and it has not answered what it
+was asked. The gap code is `question_unanswered` and the next action is
+`answer_the_question`, the producer's: the sources are already in hand and
+what is missing is a claim about them.
+
+`repo_review` declares `plan_targets_read`, `sources_documented`,
+`findings_are_checkable`, `citations_hold`, `claims_are_settled`,
+`recommendation`, `next_step` and `confidence`. A route that checks nothing against a source declares
 `substance` instead of the evidence criteria — length remains a proxy where
 there is nothing better, and it is now named as one rather than folded into a
 sum. A route that does check its claims does not need it: a short review whose
