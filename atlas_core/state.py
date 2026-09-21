@@ -6,6 +6,7 @@ from typing import Any
 import uuid
 
 from .evidence_base import EvidenceBase
+from .redaction import redact_document
 from .machine import (
     STATE_MACHINE_VERSION,
     Status,
@@ -133,11 +134,20 @@ class AtlasRunState:
         `asdict` deep-copies as it walks, and the base holds source readers a
         host supplied — one wrapping a network client cannot be copied at all,
         so filtering after the walk would raise while rendering a run.
+
+        The whole document is then masked. The evidence manifest was masked
+        from the start, but it is not the only channel a source reaches: the
+        prose `observations` list an adapter formats, and the output that
+        repeats it back, used to leave verbatim — so a run whose manifest was
+        clean could publish the same credential one key away. Masking the
+        assembled document covers every channel at once, including ones added
+        later, and `redaction.VERBATIM_KEYS` keeps the ids and digests that a
+        reader follows back.
         """
         fields = asdict(replace(self, evidence_base=None))
         fields.pop("evidence_base", None)
         manifest = self.evidence_base.to_manifest() if self.evidence_base else None
-        return {
+        document = {
             "schema": "atlas-run.v1",
             **fields,
             # Which vocabulary the status and stop reason are drawn from, and
@@ -147,3 +157,5 @@ class AtlasRunState:
             "stop_class": stop_class_of(self.stop_reason),
             "evidence_manifest": manifest,
         }
+        redacted: dict[str, Any] = redact_document(document)
+        return redacted

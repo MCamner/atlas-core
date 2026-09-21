@@ -25,6 +25,7 @@ from atlas_core.evaluator import evaluate
 from atlas_core.evidence import FINDINGS_FENCE, structured_findings
 from atlas_core.evidence_base import EvidenceBase
 from atlas_core.observation import Observation
+from atlas_core.redaction import redact_text
 from atlas_core.snapshot import collect_observation, take_snapshot
 
 README = (
@@ -447,9 +448,18 @@ class TestBackwardsCompatibilityIsExplicit(_Loop):
             )
 
     def test_the_prose_channel_still_reaches_the_executor(self):
+        """Unchanged as a channel; masked on the way out.
+
+        The export now redacts the whole document, so the exported list is the
+        given context with credentials and personal data masked — not a
+        different set of observations.
+        """
         run = self._run(self._output())
 
-        self.assertEqual(run["observations"], self.context)
+        self.assertEqual(
+            run["observations"], [redact_text(item) for item in self.context]
+        )
+        self.assertEqual(len(run["observations"]), len(self.context))
 
 
 class TestTheEvidenceBaseItself(_Loop):
@@ -574,23 +584,25 @@ class TestTheExportIsSanitised(_Loop):
     def test_the_whole_run_document_is_free_of_the_raw_base(self):
         """Not only the manifest: nothing else may carry it either."""
         run = self._run(self._output())
-        run.pop("observations")  # the prose channel; see below
         document = json.dumps(run, ensure_ascii=False)
 
         self.assertNotIn("evidence_base", document)
         self.assertNotIn(str(self.root), document)
         self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", document)
 
-    def test_the_prose_channel_is_still_exported_verbatim(self):
-        """Stated, not fixed. This is 1.0 behaviour and out of this PR's scope.
+    def test_the_prose_channel_is_masked_as_well(self):
+        """The hole this closes. It used to export verbatim.
 
-        An adapter that puts file contents in `observations` still exports
-        them. Asserting it keeps the boundary visible instead of letting the
-        sanitised manifest imply the whole document is safe.
+        The sanitised manifest covered the evidence channel only, so an adapter
+        that put file contents into `observations` published the same secret
+        one key away from a masked manifest. Masking is now applied to the
+        assembled run document, which covers every channel including this one.
         """
         run = self._run(self._output())
+        exported = json.dumps(run["observations"])
 
-        self.assertIn("privat@example.com", json.dumps(run["observations"]))
+        self.assertNotIn("privat@example.com", exported)
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", exported)
 
     def test_the_digest_survives_so_the_manifest_still_points_somewhere(self):
         """Negative control: redaction must not mask the verification pointer."""

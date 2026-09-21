@@ -385,74 +385,43 @@ class TestTheReadIsSingleAndContained(_Run):
 
         self.assertEqual(result.statuses[0][1], EvidenceStatus.INTACT)
 
-    def test_an_observation_path_that_escapes_the_snapshot_is_refused(self):
-        """`Observation.path` is a plain string; it accepts `../` today."""
+    def test_an_observation_cannot_record_a_path_that_escapes_the_snapshot(self):
+        """The escape is refused at the record, which is earlier than the read.
+
+        `Observation.path` used to be a plain string that accepted `../` and
+        absolute forms, and every reader had to defend itself against one. It
+        is now refused at construction, so the record cannot exist. The read
+        still refuses too — see the symlink case below, where a legal name
+        becomes an escape after it was recorded.
+        """
         outside = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, outside, True)
         (outside / "hemlig.md").write_text("hemligt\n", encoding="utf-8")
 
-        escaping = Observation.create(
-            source_type="local_file",
-            path=f"../{outside.name}/hemlig.md",
-            collected_at=self.observation.collected_at,
-            content_sha256=self.observation.content_sha256,
-            excerpt="hemligt",
-            line_start=1,
-            line_end=1,
-            snapshot_id=self.observation.snapshot_id,
-        )
-        result = check_finding(
-            self._finding(
-                evidence=[
-                    # Within the observation's own line range, so the path
-                    # check is what this test exercises — the range check is a
-                    # pure comparison and runs first, before any read.
-                    self._ref(
-                        source_id=escaping.source_id,
-                        line_start=1,
-                        line_end=1,
-                        quoted="hemligt",
-                    )
-                ]
-            ),
-            [escaping],
-            self.root,
-        )
-
-        self.assertEqual(result.statuses[0][1], EvidenceStatus.PATH_REFUSED)
-        self.assertEqual(result.verdict, "insufficient_evidence")
-        self.assertFalse(result.citations_are_sound())
+        with self.assertRaises(ValueError):
+            Observation.create(
+                source_type="local_file",
+                path=f"../{outside.name}/hemlig.md",
+                collected_at=self.observation.collected_at,
+                content_sha256=self.observation.content_sha256,
+                excerpt="hemligt",
+                line_start=1,
+                line_end=1,
+                snapshot_id=self.observation.snapshot_id,
+            )
 
     def test_an_absolute_observation_path_is_refused(self):
-        absolute = Observation.create(
-            source_type="local_file",
-            path="/etc/passwd",
-            collected_at=self.observation.collected_at,
-            content_sha256=self.observation.content_sha256,
-            excerpt="root",
-            line_start=1,
-            line_end=1,
-            snapshot_id=self.observation.snapshot_id,
-        )
-        result = check_finding(
-            self._finding(
-                evidence=[
-                    # Within the observation's own line range, so the path
-                    # check is what this test exercises — the range check is a
-                    # pure comparison and runs first, before any read.
-                    self._ref(
-                        source_id=absolute.source_id,
-                        line_start=1,
-                        line_end=1,
-                        quoted="root",
-                    )
-                ]
-            ),
-            [absolute],
-            self.root,
-        )
-
-        self.assertEqual(result.statuses[0][1], EvidenceStatus.PATH_REFUSED)
+        with self.assertRaises(ValueError):
+            Observation.create(
+                source_type="local_file",
+                path="/etc/passwd",
+                collected_at=self.observation.collected_at,
+                content_sha256=self.observation.content_sha256,
+                excerpt="root",
+                line_start=1,
+                line_end=1,
+                snapshot_id=self.observation.snapshot_id,
+            )
 
     @unittest.skipUnless(os.name != "nt", "symlinks unavailable")
     def test_a_symlinked_observation_path_pointing_outside_is_refused(self):

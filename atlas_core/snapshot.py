@@ -32,13 +32,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from .containment import PathRefused, read_within
 from .observation import UNKNOWN, Observation, WorktreeState
+from .redaction import classify_confidentiality
 
 #: Excerpts are bounded so a manifest stays reviewable. The digest is taken
 #: over the whole file, so this bound never weakens verification.
 DEFAULT_MAX_LINES = 80
 
-VerificationResult = Literal["fresh", "stale", "missing", "unverifiable"]
+VerificationResult = Literal["fresh", "stale", "missing", "refused", "unverifiable"]
 
 _GIT_TIMEOUT = 10
 
@@ -153,17 +155,26 @@ def collect_observation(
     relative_path: str,
     *,
     max_lines: int = DEFAULT_MAX_LINES,
-    confidentiality: str = UNKNOWN,
+    confidentiality: str | None = None,
 ) -> Observation:
     """Read one file under the snapshot and record it with its provenance.
 
     Raises `FileNotFoundError` rather than returning an observation with an
     `unknown` digest: a file that is not there was not read, and recording it
     as a source would be the fabrication this phase exists to prevent.
+
+    `confidentiality` is derived from the content when the caller states
+    nothing, rather than staying `unknown` because nobody filled it in. It is
+    classified from the **full** content, not the excerpt, so a credential
+    below the excerpt bound still marks the source. A caller that states a
+    class is not overruled: someone who knows the source knows more than a
+    pattern does.
     """
     path = Path(snapshot.root) / relative_path
     content = path.read_text(encoding="utf-8", errors="replace")
     excerpt, line_start, line_end = _excerpt(content, max_lines)
+    if confidentiality is None:
+        confidentiality = classify_confidentiality(content)
 
     return Observation.create(
         source_type="local_file",
@@ -196,9 +207,29 @@ def verify_observation(observation: Observation, root: str | Path) -> Verificati
             observed_sha256=UNKNOWN,
         )
 
-    path = Path(root).expanduser().resolve() / observation.path
+    if observation.source_type != "local_file":
+        # A `ci` path is `ci://provider/workflow@ref`, and a `github_file` path
+        # names a file in another checkout. Joining either onto this root would
+        # either miss or, worse, hit an unrelated local file and report on it.
+        # Those sources are re-read through their own adapter; see
+        # `finding.SourceReader`.
+        return Verification(
+            result="unverifiable",
+            reason=f"a {observation.source_type} source is not re-read from the snapshot root",
+            observed_sha256=UNKNOWN,
+        )
+
+    # Containment belongs to this read. The path was refused at construction if
+    # it named an escape, but a component can become a symlink out of the root
+    # afterwards, and re-verification is exactly the moment that matters.
     try:
-        content = path.read_text(encoding="utf-8", errors="replace")
+        content = read_within(root, observation.path)
+    except PathRefused as refusal:
+        return Verification(
+            result="refused",
+            reason=str(refusal),
+            observed_sha256=UNKNOWN,
+        )
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
         return Verification(
             result="missing",

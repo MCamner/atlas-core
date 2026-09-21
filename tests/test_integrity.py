@@ -452,9 +452,12 @@ class TestTheOpenRefusesALateSwap(_Dir):
 
     def _swap_during_resolve(self):
         """Replace the resolved file with a link out, inside the window."""
-        import atlas_core.integrity as integrity
+        # Patched where it is defined, not where it is re-exported: `integrity`
+        # publishes the name for callers, but the read binds the one in
+        # `containment`.
+        import atlas_core.containment as containment
 
-        genuine = integrity.resolve_within
+        genuine = containment.resolve_within
 
         def swapping(root, relative_path):
             target = genuine(root, relative_path)
@@ -462,8 +465,8 @@ class TestTheOpenRefusesALateSwap(_Dir):
             target.symlink_to(self.secret)
             return target
 
-        integrity.resolve_within = swapping
-        self.addCleanup(setattr, integrity, "resolve_within", genuine)
+        containment.resolve_within = swapping
+        self.addCleanup(setattr, containment, "resolve_within", genuine)
 
     @unittest.skipUnless(HAS_SYMLINKS, "symlinks unavailable")
     def test_a_file_swapped_for_a_link_after_the_check_is_refused_at_the_open(self):

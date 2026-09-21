@@ -35,7 +35,8 @@
     },
     "path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Relative to the snapshot root, or an identifier for a source that is not a file (a ci run is \"ci://provider/workflow@ref\"). Absolute forms and a \"..\" component are refused at construction, in both POSIX and Windows spelling: an observation is a provenance claim, and one naming a file outside the snapshot cannot be recorded."
     },
     "collected_at": {
       "type": "string",
@@ -131,7 +132,8 @@
         "internal",
         "secret",
         "unknown"
-      ]
+      ],
+      "description": "Derived from the content at collection time when the caller states nothing: \"secret\" for a credential shape, \"internal\" for personal data, \"unknown\" otherwise. Never assigned \"public\" automatically — detection is narrow, so no match is a statement about the patterns rather than about the source. A caller that states a class is not overruled."
     }
   }
 }
