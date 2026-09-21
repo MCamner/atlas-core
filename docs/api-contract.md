@@ -447,7 +447,6 @@ adapter capable of mutation must obtain explicit approval immediately before
 performing that mutation; the core's keyword detection is advisory and does not
 replace adapter-side authorization.
 
-
 ### Optional cooperative run budget (P0.3, partial)
 
 `AtlasController.run(..., limits=RunLimits(...))` shares one `RunBudget` with
