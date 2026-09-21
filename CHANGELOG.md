@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+Roadmap P0.1, the three boxes that were left partly closed: drift that reaches
+a run, a citation that can be followed to its lines, and containment and
+masking on every path.
+
+- **A run now stops when the state it read moves under it.** `detect_drift`
+  has existed since the snapshot work and nothing in a run called it, so only
+  half the box was covered, and by accident: checking a citation re-reads what
+  it points at, so a *cited* source that moved was caught. A source no finding
+  cited, or a HEAD that moved while the model was thinking, was not caught
+  anywhere. `AtlasController` runs one gate after grading; a drifted run stops
+  `blocked`, and `metadata.drift` records `head_moved`, the per-source
+  verification results and the paths behind those ids.
+- The gate runs **after** grading on purpose. Refusing earlier would save a
+  model call and lose the per-finding record that says which claim rested on
+  what moved — and it would fire or not depending on whether the root is a git
+  checkout, since an edit there flips clean to dirty. The evaluation survives
+  as history; the run still ends `blocked`.
+- The text trailer says what moved. A finding can check out against a
+  still-fresh README while another source moved, so the trailer could read
+  "Status: passed" beside "Stop reason: blocked". It now names the moved paths
+  and states that any grade describes the state that was read.
+- Where the line sits is asserted, not assumed: a branch label at the same
+  commit is not drift, because no byte the run relies on changed. Separation
+  between branches is kept by recording the ref and by `EvidenceBase` refusing
+  observations from more than one snapshot.
+- **Each citation now carries the span it rests on.** `citation_checks[]
+  .statuses` gains `line_start`, `line_end` and `quoted` beside the status, so
+  a finding can be followed to a `source_id` *and* to the exact lines without
+  re-reading the file and guessing which part was meant. The spans come from
+  the finding's own citations, never copied from the observation, and a length
+  mismatch raises rather than attaching one citation's span to another's
+  verdict. `schemas/atlas-evaluation.v1.json` declares the three fields.
+- **Containment covers every read.** `Observation.path` refuses an absolute
+  form or a `..` component at construction, in both POSIX and Windows
+  spelling, so a record naming a file outside its snapshot cannot exist.
+  `verify_observation` reads through `read_within` like everything else and
+  reports the new result `refused` when a component became a link after the
+  name was recorded. It also stops guessing for a source it cannot re-read: a
+  `ci` path is an identifier, not a file name, and joining it onto a local
+  root could hit an unrelated file and report on it.
+- **`confidentiality` is derived from the content** at collection instead of
+  staying `unknown` because nobody filled it in: `secret` for a credential
+  shape, `internal` for personal data, `unknown` otherwise. Never `public` —
+  the detection is narrow, so no match says something about the patterns
+  rather than about the source. A caller that states a class is not overruled.
+- **Masking covers the whole exported run document**, not only the evidence
+  manifest. The prose `observations` channel and the output that repeats it
+  back used to leave verbatim, so a run whose manifest was clean could publish
+  the same credential one key away. Two tests asserted that leak as known
+  behaviour; they now assert the masking.
+- Two leaf modules make that possible without an import cycle: `redaction`
+  (what is sensitive) and `containment` (where a read may go). Both are needed
+  below the collection layer as well as above it, which is exactly why the
+  verification read was unprotected while the export was not. `integrity`
+  re-exports their names, so its callers are unchanged.
+
 Roadmap P0.3, box one: a versioned state machine, and a stop reason that says
 which kind of ending it was.
 
