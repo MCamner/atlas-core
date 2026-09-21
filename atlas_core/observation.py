@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import asdict, dataclass
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Final, Literal
 
 #: The only permitted stand-in for a field that could not be verified.
@@ -106,6 +107,7 @@ class Observation:
 
         if not self.path.strip():
             raise ValueError("path must name something")
+        _check_contained_path(self.path)
         if not self.collected_at.strip():
             raise ValueError("collected_at must be a timestamp, not blank")
 
@@ -198,6 +200,35 @@ def _check_known_or_unknown(name: str, value: str) -> None:
         )
     if value != value.strip():
         raise ValueError(f"{name} must not be padded with whitespace: {value!r}")
+
+
+def _check_contained_path(path: str) -> None:
+    """A recorded path names something inside the snapshot, or nothing at all.
+
+    An observation is a provenance claim, and `../../etc/passwd` is a claim
+    about a file the snapshot does not contain. Refusing it here means no such
+    record can exist, which is earlier and cheaper than every later reader
+    having to defend itself against one.
+
+    This does not replace containment at the read. A name that is legal now can
+    resolve outside the root later — a component becomes a symlink — so
+    `integrity.read_within` still refuses at the open. The two cover different
+    moments.
+
+    Both path spellings are checked. An observation written on POSIX may be
+    re-read on Windows, where `..\\x` is an escape and `C:/x` is absolute, so
+    the refusal cannot depend on whichever host happened to construct it.
+    """
+    for flavour in (PurePosixPath, PureWindowsPath):
+        candidate = flavour(path)
+        if candidate.is_absolute() or candidate.anchor:
+            raise ValueError(
+                f"path must be relative to the snapshot root, got {path!r}"
+            )
+        if ".." in candidate.parts:
+            raise ValueError(
+                f"path must not step outside the snapshot root, got {path!r}"
+            )
 
 
 def _check_digest(content_sha256: str) -> None:

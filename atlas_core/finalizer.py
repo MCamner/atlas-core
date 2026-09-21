@@ -64,6 +64,17 @@ def render_run_text(run: dict[str, Any]) -> str:
         f"Stop reason: {run.get('stop_reason') or 'unknown'}"
         + (f" ({stop_class})" if (stop_class := run.get("stop_class")) else ""),
     ]
+    if drift := (run.get("metadata") or {}).get("drift"):
+        # Without this line the trailer can read "Status: passed" beside a
+        # blocked run: the answer was graded, and the state it was graded
+        # against is gone. The grade is true about a state that no longer
+        # holds, which is exactly the reading a human must not be left to make
+        # on their own.
+        moved = ", ".join(drift.get("paths") or []) or "the snapshot itself"
+        meta.append(
+            f"Sources moved during the run: {moved}. Any grade below describes "
+            "the state that was read, not the state now."
+        )
     if latest_eval:
         meta.append(f"Quality score: {latest_eval['quality_score']}")
         meta.append(f"Status: {'passed' if latest_eval['passed'] else 'provisional'}")

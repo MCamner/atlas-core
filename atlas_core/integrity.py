@@ -6,7 +6,9 @@ between them is the whole design:
 1. **Integrity** runs against raw bytes at the original snapshot.
    `snapshot.verify_observation` compares the digest of the full content and
    the excerpt against the line range it claims.
-2. **Redaction** runs on the way out, over the excerpt only.
+2. **Redaction** runs on the way out, over the whole exported document. The
+   patterns themselves live in `redaction`, because collection needs them too:
+   a source is classified by what it carries.
 
 Redaction touches neither `content_sha256` nor the stored excerpt. The digest
 is taken over raw content, and the excerpt an observation carries stays raw so
@@ -25,16 +27,18 @@ pointing outside is refused rather than followed and trimmed. Refusing is the
 safe failure: a path that tries to escape is a bug or an attack, and neither
 deserves a best-effort read.
 
+## Where containment applies
+
+Every read of an observation's path goes through `read_within`:
+`collect_observation_safely` at collection, `finding.LocalFileReader` when a
+citation is checked, and `snapshot.verify_observation` when an observation is
+re-verified. `Observation.path` also refuses `../` and absolute forms at
+construction, so a record naming a file outside its snapshot cannot exist in
+the first place. The two layers cover different moments — a name that is legal
+when recorded can resolve outside the root later.
+
 ## What this does not cover
 
-Path containment protects the read paths that go through
-`collect_observation_safely`. It is **not** a property of every read:
-
-- `snapshot.verify_observation` re-reads `root / observation.path` with no
-  containment check of its own, and `Observation.path` is a plain string that
-  today accepts `../` and absolute forms. A finding checker that re-reads a
-  source has to do its own safe read; relying on the collection wrapper to
-  have covered it would be wrong.
 - Resolving a name and opening a file are two steps, and `resolve_within`
   answers a question about the *name*. `read_within` is the open-side half:
   it opens with `O_NOFOLLOW`, so the kernel refuses at descriptor creation if
@@ -45,15 +49,13 @@ Path containment protects the read paths that go through
   What remains open: a **directory** component of the path can still be
   replaced by a link between the resolve and the open, which would need an
   `openat` walk per component (or Linux `openat2(RESOLVE_BENEATH)`, which
-  Python does not expose) to close. Callers that read a path directly — such
-  as `snapshot.verify_observation` — get none of this. And content can always
-  change between one check and a later one; integrity is re-established by
-  re-verifying, never assumed.
-- Redaction is best-effort. It masks credential shapes, home directories and
-  email addresses. It does not detect arbitrary personal data, and nothing
-  here classifies it.
-
-The full P0.1 security box stays open for those reasons.
+  Python does not expose) to close. And content can always change between one
+  check and a later one; integrity is re-established by re-verifying, never
+  assumed.
+- Detection is narrow, by design. `redaction` matches credential shapes, home
+  directories and email addresses; arbitrary personal data is not recognised.
+  That limit is why `classify_confidentiality` never answers `public`: no match
+  is a statement about the patterns, not about the source.
 
 Not in scope: `Finding.v1` and semantic verification are P0.2. Nothing here
 decides whether a claim is true.
@@ -61,111 +63,13 @@ decides whether a claim is true.
 
 from __future__ import annotations
 
-import errno
-import os
-import re
 from pathlib import Path
 from typing import Any
 
+from .containment import PathRefused, read_within, resolve_within
 from .observation import UNKNOWN, Observation
+from .redaction import REDACTED, VERBATIM_KEYS, redact_document, redact_text
 from .snapshot import Snapshot, collect_observation, verify_observation
-
-#: What replaces a masked span. Distinctive so a reader can tell masking from
-#: content, and stable so redaction is idempotent.
-REDACTED = "[REDACTED]"
-
-
-class PathRefused(Exception):
-    """A path resolved outside the snapshot root, or tried to.
-
-    Raised rather than clamped. Silently reading a different file than the one
-    requested is worse than failing.
-    """
-
-
-# Ordered most specific first: a private key header must not be half-matched by
-# a looser rule. Each pattern targets a shape that is a secret by construction,
-# not merely a long string, so ordinary prose and hex digests survive.
-_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # A private key is a block, not a line. Masking only the BEGIN header left
-    # the key body and END line in the clear. The first pattern takes a
-    # complete block; the second covers a header whose END is missing, by
-    # consuming the base64 run that follows it.
-    re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
-    ),
-    re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----(?:\s*\n[A-Za-z0-9+/]{16,}={0,2})*"
-    ),
-    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
-    re.compile(r"sk-ant-[A-Za-z0-9-]{20,}"),
-    re.compile(r"sk-[A-Za-z0-9]{32,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
-    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
-)
-
-#: A home directory names a person and a machine. The tail is kept because the
-#: fact that `.ssh/id_rsa` was read is exactly the context a reviewer needs.
-_HOME_PATH = re.compile(r"(?:/Users|/home)/[^/\s]+")
-
-_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-
-
-def resolve_within(root: str | Path, relative_path: str) -> Path:
-    """Resolve `relative_path` under `root`, refusing anything that escapes.
-
-    Symlinks are resolved *before* the containment check, so a link inside the
-    root pointing outside it is refused. A link that stays inside is fine —
-    the rule is about where bytes come from, not about links.
-    """
-    resolved_root = Path(root).expanduser().resolve()
-    candidate = Path(relative_path)
-
-    if candidate.is_absolute():
-        raise PathRefused(f"absolute paths are not read from a snapshot: {relative_path!r}")
-
-    target = (resolved_root / candidate).resolve()
-
-    # relative_to, not a string prefix: "/tmp/root-evil" starts with
-    # "/tmp/root" but is a different directory.
-    try:
-        target.relative_to(resolved_root)
-    except ValueError:
-        raise PathRefused(
-            f"{relative_path!r} resolves to {target}, outside the snapshot root"
-        ) from None
-    return target
-
-
-def read_within(root: str | Path, relative_path: str) -> str:
-    """Read a file under `root`, refusing an escape *at the open*.
-
-    `resolve_within` settles where a name points. Between that answer and an
-    open, the concrete file it named can be replaced by a symlink pointing out
-    of the root, and the read then serves bytes from outside while the earlier
-    check still reads as passed. `O_NOFOLLOW` moves the refusal into the same
-    operation that produces the descriptor, and the content comes from that
-    descriptor rather than from a second walk of the path.
-
-    Raises `PathRefused` for a name that escapes or a final component that has
-    become a link, and `OSError` for an ordinary read failure — a caller needs
-    to tell "refused" from "gone".
-
-    This narrows the window; it does not close it. See the module docstring.
-    """
-    path = resolve_within(root, relative_path)
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError as error:
-        if error.errno in (errno.ELOOP, errno.EMLINK):
-            raise PathRefused(
-                f"{relative_path!r} became a symbolic link before it could be read"
-            ) from None
-        raise
-    with os.fdopen(descriptor, encoding="utf-8", errors="replace") as handle:
-        return handle.read()
 
 
 def collect_observation_safely(
@@ -193,46 +97,6 @@ def collect_observation_safely(
     return collect_observation(snapshot, concrete.as_posix(), **kwargs)
 
 
-def redact_text(text: str) -> str:
-    """Mask credentials, home paths and email addresses.
-
-    Deliberately narrow. Masking anything that merely looks sensitive would cut
-    away the context a reviewer needs to check a claim, which the roadmap calls
-    out directly. Hex digests, commit ids, versions and file paths inside the
-    repo are left alone.
-    """
-    for pattern in _SECRET_PATTERNS:
-        text = pattern.sub(REDACTED, text)
-    text = _HOME_PATH.sub(REDACTED, text)
-    return _EMAIL.sub(REDACTED, text)
-
-
-#: Fields that leave the export verbatim. Everything else is masked.
-#:
-#: The digest and the ids are the pointer a reader follows back to what was
-#: verified; masking them would break the manifest's only job. They are also
-#: structurally incapable of carrying prose — hex digests and enum values —
-#: so exempting them costs nothing.
-_VERBATIM_KEYS: frozenset[str] = frozenset(
-    {
-        "schema",
-        "source_id",
-        "snapshot_id",
-        "content_sha256",
-        "commit",
-        "source_type",
-        "worktree_state",
-        "confidentiality",
-        "verification",
-        "is_evidence",
-        "line_start",
-        "line_end",
-        "collected_at",
-        "taken_at",
-    }
-)
-
-
 def redacted_manifest(
     snapshot: Snapshot,
     observations: list[Observation],
@@ -246,7 +110,7 @@ def redacted_manifest(
     leaves a run through metadata just as readily as through content, so every
     exported string is masked except the verification pointer itself —
     `content_sha256`, the ids, and the structural enums, listed in
-    `_VERBATIM_KEYS`.
+    `redaction.VERBATIM_KEYS`.
 
     The digest stays verbatim on purpose: the manifest exists to point at what
     was verified, and a masked digest points at nothing.
@@ -265,11 +129,11 @@ def redacted_manifest(
             verification = verify_observation(observation, root)
             entry["verification"] = verification.result
             entry["is_evidence"] = verification.is_evidence()
-        entries.append(_redact_export(entry))
+        entries.append(redact_document(entry))
 
     return {
         "schema": "atlas-observation-manifest.v1",
-        "snapshot": _redact_export(
+        "snapshot": redact_document(
             {
                 "snapshot_id": snapshot.snapshot_id,
                 "taken_at": snapshot.taken_at,
@@ -279,16 +143,6 @@ def redacted_manifest(
             }
         ),
         "observations": entries,
-    }
-
-
-def _redact_export(document: dict[str, Any]) -> dict[str, Any]:
-    """Mask every string in an exported document except the pointer fields."""
-    return {
-        key: value
-        if key in _VERBATIM_KEYS or not isinstance(value, str)
-        else redact_text(value)
-        for key, value in document.items()
     }
 
 

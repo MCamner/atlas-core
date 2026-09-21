@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from .observation import UNKNOWN, Observation
+from .redaction import classify_confidentiality
 from .snapshot import Snapshot, sha256_text
 
 #: Conclusions a provider may report. `unknown` is kept available for the same
@@ -130,17 +131,25 @@ class StubCIAdapter:
 
 
 def collect_ci_observation(
-    snapshot: Snapshot, adapter: CIAdapter, ref: str, *, confidentiality: str = UNKNOWN
+    snapshot: Snapshot,
+    adapter: CIAdapter,
+    ref: str,
+    *,
+    confidentiality: str | None = None,
 ) -> Observation:
     """Fetch a CI run and record it with its provenance.
 
     The excerpt is the canonical payload, so what a reviewer reads is what the
-    digest covers. `line_start`/`line_end` are 1..1: the payload is one record,
+    digest covers, and the payload is classified like any other content. `line_start`/`line_end` are 1..1: the payload is one record,
     and pretending it has a line range would invite citations into a structure
     that does not exist.
     """
     run = adapter.fetch(ref)
     payload = run.canonical()
+    if confidentiality is None:
+        # Same rule as a file: the class comes from what the payload carries.
+        # A run URL can embed a token, so this is not a formality.
+        confidentiality = classify_confidentiality(payload)
     return Observation.create(
         source_type="ci",
         path=run.identity(),

@@ -252,3 +252,48 @@ class TestSchema(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPathContainment(unittest.TestCase):
+    """An observation cannot record a path that leaves its snapshot.
+
+    Box four of P0.1 left this open: `path` was a plain string, so `../` and
+    absolute forms could be stored and every later reader had to defend itself.
+    Refusing at construction removes the record rather than the read, which is
+    the earliest point it can be refused — and `integrity.read_within` still
+    refuses at the open, because a legal name can become a link afterwards.
+    """
+
+    def test_a_relative_escape_is_refused(self):
+        for escaping in ("../outside.md", "docs/../../outside.md", "a/b/../../../x"):
+            with self.subTest(escaping):
+                with self.assertRaises(ValueError):
+                    _observation(path=escaping)
+
+    def test_an_absolute_path_is_refused(self):
+        for absolute in ("/etc/passwd", "C:/Windows/system.ini", r"\\server\share"):
+            with self.subTest(absolute):
+                with self.assertRaises(ValueError):
+                    _observation(path=absolute)
+
+    def test_a_windows_separator_escape_is_refused(self):
+        """`..\\x` is one filename on POSIX and an escape on Windows.
+
+        The observation may be written on one platform and re-read on another,
+        so the refusal is decided by both spellings rather than by whichever
+        host happens to construct it.
+        """
+        with self.assertRaises(ValueError):
+            _observation(path=r"..\outside.md")
+
+    def test_an_identifier_that_is_not_a_file_path_is_still_accepted(self):
+        """A `ci` source names a run, not a file. It escapes nothing."""
+        observation = _observation(
+            source_type="ci", path="ci://github/test.yml@main", excerpt="{}", line_end=1
+        )
+
+        self.assertEqual(observation.path, "ci://github/test.yml@main")
+
+    def test_a_dotted_file_name_is_not_an_escape(self):
+        """`..` as a component is the escape; `..` inside a name is not."""
+        self.assertEqual(_observation(path="docs/..hidden.md").path, "docs/..hidden.md")

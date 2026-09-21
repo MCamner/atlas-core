@@ -25,6 +25,7 @@ from atlas_core.evaluator import evaluate
 from atlas_core.evidence import FINDINGS_FENCE, structured_findings
 from atlas_core.evidence_base import EvidenceBase
 from atlas_core.observation import Observation
+from atlas_core.redaction import redact_text
 from atlas_core.snapshot import collect_observation, take_snapshot
 
 README = (
@@ -447,9 +448,18 @@ class TestBackwardsCompatibilityIsExplicit(_Loop):
             )
 
     def test_the_prose_channel_still_reaches_the_executor(self):
+        """Unchanged as a channel; masked on the way out.
+
+        The export now redacts the whole document, so the exported list is the
+        given context with credentials and personal data masked — not a
+        different set of observations.
+        """
         run = self._run(self._output())
 
-        self.assertEqual(run["observations"], self.context)
+        self.assertEqual(
+            run["observations"], [redact_text(item) for item in self.context]
+        )
+        self.assertEqual(len(run["observations"]), len(self.context))
 
 
 class TestTheEvidenceBaseItself(_Loop):
@@ -574,23 +584,25 @@ class TestTheExportIsSanitised(_Loop):
     def test_the_whole_run_document_is_free_of_the_raw_base(self):
         """Not only the manifest: nothing else may carry it either."""
         run = self._run(self._output())
-        run.pop("observations")  # the prose channel; see below
         document = json.dumps(run, ensure_ascii=False)
 
         self.assertNotIn("evidence_base", document)
         self.assertNotIn(str(self.root), document)
         self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", document)
 
-    def test_the_prose_channel_is_still_exported_verbatim(self):
-        """Stated, not fixed. This is 1.0 behaviour and out of this PR's scope.
+    def test_the_prose_channel_is_masked_as_well(self):
+        """The hole this closes. It used to export verbatim.
 
-        An adapter that puts file contents in `observations` still exports
-        them. Asserting it keeps the boundary visible instead of letting the
-        sanitised manifest imply the whole document is safe.
+        The sanitised manifest covered the evidence channel only, so an adapter
+        that put file contents into `observations` published the same secret
+        one key away from a masked manifest. Masking is now applied to the
+        assembled run document, which covers every channel including this one.
         """
         run = self._run(self._output())
+        exported = json.dumps(run["observations"])
 
-        self.assertIn("privat@example.com", json.dumps(run["observations"]))
+        self.assertNotIn("privat@example.com", exported)
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", exported)
 
     def test_the_digest_survives_so_the_manifest_still_points_somewhere(self):
         """Negative control: redaction must not mask the verification pointer."""
@@ -699,3 +711,84 @@ class TestOneBlockingGapStopsTheRetry(_Loop):
             ["uncheckable_findings", "unsound_citations"],
         )
         self.assertTrue(evaluation["should_retry"])
+
+
+class TestACitationCanBeFollowedToItsExcerpt(_Loop):
+    """P0.1 box three: finding → `source_id` **and the exact excerpt**.
+
+    The run document already named the source per citation, which is half the
+    link. The other half is the text the claim actually rests on: without it a
+    reader has the id of a file and no way to see which lines were relied on
+    short of re-reading the file and guessing. The manifest holds the source;
+    the citation record has to hold the span.
+    """
+
+    def _statuses(self, run):
+        return run["evaluations"][-1]["citation_checks"][0]["statuses"]
+
+    def test_a_citation_records_the_lines_it_relied_on(self):
+        run = self._run(self._passing_output())
+        citation = self._statuses(run)[0]
+
+        self.assertEqual(citation["source_id"], self.observation.source_id)
+        self.assertEqual(citation["line_start"], 1)
+        self.assertEqual(citation["line_end"], 1)
+        self.assertEqual(citation["quoted"], "# Atlas Core")
+        self.assertEqual(citation["status"], "intact")
+
+    def test_the_source_id_resolves_in_the_manifest_of_the_same_run(self):
+        """The link is only worth something if both ends are in one document."""
+        run = self._run(self._passing_output())
+        source_id = self._statuses(run)[0]["source_id"]
+
+        entry = {
+            item["source_id"]: item for item in run["evidence_manifest"]["observations"]
+        }[source_id]
+
+        self.assertEqual(entry["path"], "README.md")
+        self.assertEqual(entry["content_sha256"], self.observation.content_sha256)
+
+    def test_each_citation_keeps_its_own_span_when_a_finding_cites_several(self):
+        """Two citations, and the broken one must not borrow the other's span."""
+        good = self._citation()
+        wrong_line = self._citation(line_start=3, line_end=3, quoted="# Atlas Core")
+        run = self._run(self._output(citations=[good, wrong_line]))
+
+        first, second = self._statuses(run)
+
+        self.assertEqual(first["status"], "intact")
+        self.assertEqual((first["line_start"], first["line_end"]), (1, 1))
+        self.assertEqual(second["status"], "quote_mismatch")
+        self.assertEqual((second["line_start"], second["line_end"]), (3, 3))
+
+    def test_a_quoted_span_is_masked_on_the_way_out(self):
+        """Bounded and sanitised, like the manifest excerpt beside it.
+
+        The quote is a slice of a real file, so it can carry a credential just
+        as an excerpt can. It is exported through the same masking.
+        """
+        citation = self._citation(line_start=7, line_end=7, quoted=README.splitlines()[6])
+        run = self._run(self._output(citations=[citation]))
+        quoted = self._statuses(run)[0]["quoted"]
+
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEF0123", quoted)
+        self.assertIn("[REDACTED]", quoted)
+
+    def test_the_emitted_citation_matches_the_published_schema(self):
+        """Schema and document must not drift; nothing else exercises this one.
+
+        The schema tests run the loop without an evidence base, so
+        `citation_checks` is empty there and the nested citation object is
+        never compared with what is published.
+        """
+        schema = json.loads(
+            (Path(__file__).resolve().parents[1] / "schemas" / "atlas-evaluation.v1.json")
+            .read_text(encoding="utf-8")
+        )
+        declared = schema["properties"]["citation_checks"]["items"]["properties"][
+            "statuses"
+        ]["items"]
+        citation = self._statuses(self._run(self._passing_output()))[0]
+
+        self.assertEqual(set(citation), set(declared["properties"]))
+        self.assertEqual(set(declared["required"]) - set(citation), set())

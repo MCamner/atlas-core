@@ -163,6 +163,27 @@
       "properties": {
         "safety_notice": {
           "type": "string"
+        },
+        "drift": {
+          "type": "object",
+          "description": "Present when the state the run read moved under it, which is why it stopped `blocked`. Written after grading, so the evaluation beside it is history: it describes the state that was read, not the state now. Absent on a run whose sources all still verified, and on a run with no evidence base — prose context cannot be re-read, so there is nothing to check.",
+          "properties": {
+            "head_moved": {
+              "type": "boolean",
+              "description": "Whether the snapshot identity changed: HEAD, or clean/dirty. False for a worktree that was already dirty and changed again, which is why the per-source check below exists as well."
+            },
+            "not_evidence": {
+              "type": "object",
+              "description": "Every observation that no longer verifies, keyed by source_id, with the verification result and its reason."
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The paths behind those ids, so a reader knows which files to look at without resolving ids through the manifest."
+            }
+          }
         }
       }
     },

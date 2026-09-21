@@ -134,11 +134,28 @@
               "additionalProperties": false,
               "required": [
                 "source_id",
-                "status"
+                "status",
+                "line_start",
+                "line_end",
+                "quoted"
               ],
+              "description": "One citation: which source it named, which span of it the claim rests on, and what the deterministic check made of the pointer. The source_id resolves in the same run's evidence_manifest, so a finding can be followed to a source and to the exact lines without re-reading the file.",
               "properties": {
                 "source_id": {
                   "type": "string"
+                },
+                "line_start": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "1-based first line the citation relied on, as the finding claimed it."
+                },
+                "line_end": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "quoted": {
+                  "type": "string",
+                  "description": "The text the claim rests on, as the finding quoted it — masked on export like every other string in the document. This is the finding's assertion about the source, not a copy from the observation; that is what makes the check meaningful."
                 },
                 "status": {
                   "type": "string",

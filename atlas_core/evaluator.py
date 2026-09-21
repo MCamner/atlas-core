@@ -567,8 +567,27 @@ def _blocking_statuses(unsound: list[tuple[Finding, Any]]) -> list[EvidenceStatu
 def _citation_record(
     finding: Finding, check: Any, claim: ClaimVerdict | None
 ) -> dict[str, Any]:
-    """One finding's full record: the pointer, the claim, and the verdict."""
+    """One finding's full record: the pointer, the claim, and the verdict.
+
+    Each citation carries the span it relied on, not only the id of the source.
+    P0.1 asks that a finding be traceable to a `source_id` *and* an exact
+    excerpt; an id alone leaves a reader with the name of a file and no way to
+    see which lines the claim rests on without re-reading it and guessing. The
+    id resolves in the same run's `evidence_manifest`, so both ends of the link
+    are in one document.
+
+    The spans come from the finding's own citations, paired with the statuses
+    positionally because `check_finding` produces one status per citation in
+    order. A length mismatch would silently attach one citation's span to
+    another's verdict, which is the kind of quiet misattribution this phase
+    exists to prevent, so it raises instead.
+    """
     decided = apply_verdict(finding, check, claim) if claim else check.apply_to(finding)
+    if len(check.statuses) != len(finding.evidence):
+        raise ValueError(
+            f"{len(check.statuses)} statuses for {len(finding.evidence)} citations: "
+            "a record cannot say which span a verdict belongs to"
+        )
     return {
         "finding_id": finding.finding_id,
         "claim": finding.claim,
@@ -576,8 +595,16 @@ def _citation_record(
         "verification_method": decided.verification_method,
         "citations_are_sound": check.citations_are_sound(),
         "statuses": [
-            {"source_id": source_id, "status": status.value}
-            for source_id, status in check.statuses
+            {
+                "source_id": source_id,
+                "status": status.value,
+                "line_start": ref.line_start,
+                "line_end": ref.line_end,
+                # Masked on the way out with the rest of the document; a quote
+                # is a slice of a real file and can carry what an excerpt can.
+                "quoted": ref.quoted,
+            }
+            for (source_id, status), ref in zip(check.statuses, finding.evidence)
         ],
         "claim_check": claim.to_dict() if claim else None,
     }

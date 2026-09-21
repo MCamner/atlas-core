@@ -14,6 +14,7 @@ from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
 from .evidence_base import EvidenceBase
 from .machine import classify_stop
+from .snapshot import detect_drift
 from .budget import BudgetExceeded, RunBudget, RunCancelled, RunLimits
 from .tool_gateway import ToolDefinition, ToolGateway
 
@@ -145,6 +146,66 @@ class AtlasController:
                 state.stop("budget_exhausted")
                 return True
             return False
+
+        def drifted() -> bool:
+            """Stop the run if the state its sources were read from has moved.
+
+            The roadmap's second P0.1 box asks a run to notice a changed HEAD
+            or file *during* the read. Two things already existed and were
+            never connected to a run: `detect_drift`, which pairs the HEAD
+            check with a content check per source, and the stop reason for it.
+
+            What citation checking cannot see is why this is separate. Checking
+            a citation re-reads what it points at, so a cited source that moves
+            is caught there. Nothing looked at the rest — a branch switched
+            mid-run, or a source no finding happened to cite — and a review
+            resting on a state that no longer exists is not a weaker answer, it
+            is an answer about something else.
+
+            `blocked` rather than a verdict: the ground moved, which is not a
+            judgement about the answer. The state machine already says so.
+
+            One gate, after grading, rather than a pre-flight one as well. An
+            earlier refusal would save a model call, and it would cost the
+            per-finding record that says *which* claim rested on what moved —
+            and it would fire or not depending on whether the root happens to
+            be a git checkout, since an edit there also flips clean to dirty.
+            Grading first keeps one rule and loses nothing: the evaluation is
+            history, and the run still ends `blocked`.
+
+            Not separately metered. The gate re-reads exactly the observations
+            the caller handed the run, a set fixed before the run starts and
+            not one the model or a tool can grow — the same treatment
+            caller-supplied prose context gets. The deadline and cancellation
+            still apply, through the `expired()` call that precedes each gate.
+            """
+            base = state.evidence_base
+            if base is None or base.is_empty():
+                return False
+            report = detect_drift(base.snapshot, base.observations)
+            if report.is_consistent():
+                return False
+            by_id = {
+                observation.source_id: observation for observation in base.observations
+            }
+            state.metadata["drift"] = {
+                "head_moved": report.head_moved,
+                "not_evidence": {
+                    source_id: {"result": v.result, "reason": v.reason}
+                    for source_id, v in report.not_evidence.items()
+                },
+                # The paths beside the ids, because a reader who has to act on
+                # this needs to know which files to look at, and resolving ids
+                # through the manifest to find that out is work the run can do.
+                "paths": sorted(
+                    by_id[source_id].path
+                    for source_id in report.not_evidence
+                    if source_id in by_id
+                ),
+            }
+            state.stop("blocked")
+            return True
+
         state.enter("observing")
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
@@ -278,6 +339,17 @@ class AtlasController:
             )
             state.evaluations.append(evaluation)
             if expired():
+                break
+            # The second gate, after grading rather than before it. A provider
+            # call is where a run spends its time, so it is where the state is
+            # most likely to move — but stopping before the evaluator runs
+            # would throw away the per-finding record that says *which* claim
+            # rested on what moved, which is what a reader needs in order to
+            # act. So the answer is graded, the record is kept, and the run
+            # still ends `blocked`: the grade is history, not this run's
+            # outcome. It also takes precedence over `approval_required`, since
+            # an approval bound to a state that has moved is worse than none.
+            if drifted():
                 break
             # In bounded runs, two identical unsuccessful model outputs with
             # no new observation establish that another call is unproductive.
