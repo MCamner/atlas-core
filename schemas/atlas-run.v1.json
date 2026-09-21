@@ -128,6 +128,41 @@
           "items": {
             "type": "string"
           }
+        },
+        "review": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "What this run is looking into, for a route that reviews a repository. Null for a route that has a goal but no question, and for a review with no snapshot to be about. The step list beside it is per route and says what the route generally does; this says what this run is asking.",
+          "properties": {
+            "schema": {
+              "const": "atlas-review-plan.v1"
+            },
+            "snapshot_id": {
+              "type": "string",
+              "description": "The one state the review is about. The plan binds to the snapshot the run carries and records its id; it does not go and take one, because taking a snapshot is reading and reading is the host's."
+            },
+            "topic": {
+              "type": "string",
+              "description": "The review topic the task matched, or \"unknown\". Chosen by keyword against a declared vocabulary — a real mechanism and a narrow one, and its limit is reported rather than hidden."
+            },
+            "question": {
+              "type": "string",
+              "description": "The question in one sentence. The task itself when nothing narrowed it: inventing a plausible question would send a host reading files nobody asked about and then grade the answer against a question nobody posed."
+            },
+            "patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Glob patterns the question needs, for the host to resolve against the snapshot. Patterns rather than paths because Core does not list directories. Empty when the plan could not narrow, and bounded, because a review that wants everything has not chosen a question."
+            },
+            "rationale": {
+              "type": "string",
+              "description": "Why these patterns, so a reader can disagree with the selection rather than only with the answer."
+            }
+          }
         }
       }
     },

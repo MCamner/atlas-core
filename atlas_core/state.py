@@ -6,6 +6,7 @@ from typing import Any, Literal
 import uuid
 
 from .evidence_base import EvidenceBase
+from .review_plan import ReviewPlan
 from .redaction import redact_document
 from .machine import (
     STATE_MACHINE_VERSION,
@@ -175,6 +176,10 @@ class AtlasPlan:
     steps: list[str]
     stop_conditions: list[str]
     validation_focus: list[str]
+    # What this run is actually looking into, for a route that reviews a
+    # repository: the state, the question and the sources it needs. None for a
+    # route with no review contract, which has a goal but not a question.
+    review: ReviewPlan | None = None
 
 @dataclass
 class AtlasRunState:

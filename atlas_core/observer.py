@@ -76,6 +76,13 @@ class ObservationRequest:
     #: The claims that rested on them, so a host can tell what the re-read is
     #: for rather than only that one is wanted.
     claims: list[str] = field(default_factory=list)
+    #: Glob patterns the review plan asked for and nothing has answered yet.
+    #: A host resolves these against the snapshot; `paths` is what the run has
+    #: already read. On a first read `paths` is empty and this is the request.
+    patterns: list[str] = field(default_factory=list)
+    #: The question the read is in service of, so a host that can choose has
+    #: something to choose by.
+    question: str = ""
     iteration: int = 0
 
 
@@ -223,6 +230,8 @@ def request_from(
     blocked_by: list[str],
     claims: list[str],
     iteration: int,
+    patterns: list[str] | None = None,
+    question: str = "",
 ) -> ObservationRequest:
     """Build the request from what the run could not stand behind.
 
@@ -236,6 +245,8 @@ def request_from(
         paths=[observation.path for observation in observations],
         blocked_by=list(blocked_by),
         claims=list(claims),
+        patterns=list(patterns or []),
+        question=question,
         iteration=iteration,
     )
 
