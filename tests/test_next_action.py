@@ -220,18 +220,21 @@ class TestTheActionIsNamedAsData(_Repo):
         self.assertIn("recommendation", action["gap_codes"])
 
     def test_a_formatting_gap_alone_asks_for_the_sections(self):
-        """A route with no evidence contract still gets a named action."""
-        output = (
-            "# Svar\n\n" + ("innehåll " * 60) + "\n\n## Recommendation\nx\n\n"
-            "## Next step\ny\n"
-        )
+        """A route with no evidence contract still gets a named action.
+
+        Short enough to miss the substance threshold as well, so the run does
+        not pass — a passing run is told nothing, which the test below covers.
+        """
         run = AtlasController(
-            max_iterations=1, model_adapter=_ScriptedAdapter(output)
+            max_iterations=1, model_adapter=_ScriptedAdapter("# Svar\n\nKort.\n")
         ).run("hej", json_mode=True)
         action = run["evaluations"][-1]["next_action"]
 
         self.assertEqual(action["kind"], "add_sections")
-        self.assertEqual(action["details"]["sections"], ["confidence"])
+        self.assertEqual(
+            sorted(action["details"]["sections"]),
+            ["confidence", "next_step", "recommendation"],
+        )
         self.assertEqual(action["actor"], "producer")
 
     def test_a_passing_run_has_nothing_to_do_next(self):
@@ -255,6 +258,26 @@ class TestTheActionIsNamedAsData(_Repo):
         )
 
         self.assertEqual(run["stop_reason"], "passed")
+        self.assertIsNone(run["evaluations"][-1]["next_action"])
+
+    def test_a_run_that_met_its_gate_is_not_told_to_do_more(self):
+        """Found by driving the loop, not by reading it.
+
+        Formatting weights are not a gate: an answer can clear the threshold
+        with a section missing. The gap is real and the run passed, and a
+        caller handed "do this next" about a run that met its gate would be
+        acting on an instruction it did not ask for.
+        """
+        output = (
+            "# Svar\n\n" + ("innehåll " * 60) + "\n\n## Recommendation\nx\n\n"
+            "## Next step\ny\n"
+        )
+        run = AtlasController(
+            max_iterations=1, model_adapter=_ScriptedAdapter(output)
+        ).run("hej", json_mode=True)
+
+        self.assertEqual(run["stop_reason"], "passed")
+        self.assertEqual(run["evaluations"][-1]["missing_sections"], ["confidence"])
         self.assertIsNone(run["evaluations"][-1]["next_action"])
 
     def test_the_prose_is_still_there_for_a_human(self):

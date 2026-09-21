@@ -233,11 +233,18 @@ def evaluate(
         suggested_adjustment=(
             _adjustment(gaps, evidence, sources, evidence_base) if should_retry else None
         ),
-        # Emitted whenever something is outstanding, including when no retry is
-        # offered. A run that stops `blocked` has a next action too — it is
-        # simply the host's to take, not the producer's, and saying nothing
-        # there would leave the one case that needs a human the least served.
-        next_action=_next_action(gaps, evidence, sources, evidence_base),
+        # Emitted whenever the answer did not clear its gate, including when
+        # no retry is offered. A run that stops `blocked` has a next action too
+        # — it is simply the host's to take, not the producer's, and saying
+        # nothing there would leave the one case that needs a human the least
+        # served. Never on a passing run: formatting weights are not a gate, so
+        # an answer can pass with a section missing, and telling a caller to act
+        # on a run that met its gate is an instruction it did not ask for.
+        next_action=(
+            _next_action(gaps, evidence, sources, evidence_base)
+            if not passed
+            else None
+        ),
         evidence_gaps=evidence.gaps,
         unverified_claims=evidence.unverified,
         evidence_coverage=evidence.coverage,
