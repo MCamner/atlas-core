@@ -75,6 +75,33 @@ collapse them:
 | `missing_sections` | Does the output have the shape the route promised? |
 | `evidence_gaps` | Are the claims in it supported by something that was read? |
 
+### What it takes to be done
+
+Each route declares its **exit criteria**: named requirements, all of which
+must be met. `met_criteria` and `unmet_criteria` say which, and `passed` is
+exactly `unmet_criteria == [] and not requires_user_approval`.
+
+`quality_score` is the share met, rounded to two places. It **reports**;
+nothing compares it against a threshold. Until P1.1 it was the gate: a weighted
+sum over output length and headings, times an evidence factor, against 0.78 —
+arithmetic that never said what the route owed, and under which an answer could
+pass with a section the route had declared still missing. `PASS_THRESHOLD`,
+`SECTION_WEIGHTS` and the coverage factor are gone with it.
+
+`repo_review` declares `sources_documented`, `findings_are_checkable`,
+`citations_hold`, `claims_are_settled`, `recommendation`, `next_step` and
+`confidence`. A route that checks nothing against a source declares
+`substance` instead of the evidence criteria — length remains a proxy where
+there is nothing better, and it is now named as one rather than folded into a
+sum. A route that does check its claims does not need it: a short review whose
+findings were settled against observed lines is done.
+
+A finding's `severity` survives checking only on a `verified` verdict and is
+`unknown` otherwise, `contradicted` included — a refutation weighs an impact
+for something that is not the case. What the producer stated is kept in
+`declared_severity` beside `severity_rationale`, so the assessment is not
+discarded, only prevented from reading as established.
+
 ### Reading again, mid-run
 
 A run may be given an `observer`: a host callable that reads on the run's

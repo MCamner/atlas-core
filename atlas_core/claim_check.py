@@ -63,7 +63,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .finding import Finding, SourceReader, resolve_readers
+from .finding import Finding, SourceReader, resolve_readers, severity_after
 from .integrity import PathRefused
 from .observation import Observation
 from .snapshot import sha256_text
@@ -488,7 +488,10 @@ def apply_verdict(finding: Finding, evidence: Any, claim: ClaimVerdict) -> Findi
         finding_id=finding.finding_id,
         claim=finding.claim,
         scope=finding.scope,
-        severity=finding.severity,
+        # P1.1 box three: a declared severity survives only a verdict that
+        # established the claim. See `finding.severity_after`.
+        severity=severity_after(verdict, finding),
+        declared_severity=finding.declared_severity,
         severity_rationale=finding.severity_rationale,
         evidence=finding.evidence,
         verification_method=method,  # type: ignore[arg-type]

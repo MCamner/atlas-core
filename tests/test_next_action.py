@@ -261,23 +261,25 @@ class TestTheActionIsNamedAsData(_Repo):
         self.assertIsNone(run["evaluations"][-1]["next_action"])
 
     def test_a_run_that_met_its_gate_is_not_told_to_do_more(self):
-        """Found by driving the loop, not by reading it.
+        """A caller handed "do this next" about a finished run would act on an
+        instruction it did not ask for.
 
-        Formatting weights are not a gate: an answer can clear the threshold
-        with a section missing. The gap is real and the run passed, and a
-        caller handed "do this next" about a run that met its gate would be
-        acting on an instruction it did not ask for.
+        The first version of this test rested on a run that *passed with a
+        declared section missing*, which is how the weighted score behaved.
+        P1.1 box three removed that: a section the route declared is now a
+        criterion, and an answer missing one does not pass. The invariant is
+        unchanged and the fixture is now a run that genuinely met everything.
         """
         output = (
             "# Svar\n\n" + ("innehåll " * 60) + "\n\n## Recommendation\nx\n\n"
-            "## Next step\ny\n"
+            "## Next step\ny\n\n## Confidence\nHög.\n"
         )
         run = AtlasController(
             max_iterations=1, model_adapter=_ScriptedAdapter(output)
         ).run("hej", json_mode=True)
 
         self.assertEqual(run["stop_reason"], "passed")
-        self.assertEqual(run["evaluations"][-1]["missing_sections"], ["confidence"])
+        self.assertEqual(run["evaluations"][-1]["unmet_criteria"], [])
         self.assertIsNone(run["evaluations"][-1]["next_action"])
 
     def test_the_prose_is_still_there_for_a_human(self):

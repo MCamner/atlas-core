@@ -101,8 +101,15 @@ class NextAction:
 
 @dataclass
 class AtlasEvaluation:
+    # The share of its route's exit criteria this answer met. A report: nothing
+    # branches on it. `passed` is decided by `unmet_criteria` being empty.
     quality_score: float
     passed: bool
+    # What the route declared it owed, and what it delivered. Named rather
+    # than weighted: a requirement that can be outvoted by other requirements
+    # is not one.
+    met_criteria: list[str] = field(default_factory=list)
+    unmet_criteria: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     missing_sections: list[str] = field(default_factory=list)

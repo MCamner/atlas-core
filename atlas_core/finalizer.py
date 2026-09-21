@@ -76,8 +76,13 @@ def render_run_text(run: dict[str, Any]) -> str:
             "the state that was read, not the state now."
         )
     if latest_eval:
-        meta.append(f"Quality score: {latest_eval['quality_score']}")
+        # The share of what the route declared it owed. It reports; it does
+        # not decide, and a reader who only sees a number cannot tell what is
+        # still outstanding — so the unmet criteria are named beside it.
+        meta.append(f"Criteria met: {latest_eval['quality_score']}")
         meta.append(f"Status: {'passed' if latest_eval['passed'] else 'provisional'}")
+        if latest_eval.get("unmet_criteria"):
+            meta.append("Not met: " + ", ".join(latest_eval["unmet_criteria"]))
         if latest_eval.get("evidence_gaps"):
             meta.append("Evidence gaps: " + ", ".join(latest_eval["evidence_gaps"]))
         if latest_eval["requires_user_approval"]:

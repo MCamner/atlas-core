@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+Roadmap P1.1 box three (partly): what it takes to be done, named per route
+instead of priced.
+
+- **Exit criteria replace the score as the gate.** A run used to pass by
+  collecting enough weight: 0.45 to begin with, 0.15 for clearing three hundred
+  characters, a little per heading present, times an evidence factor, against
+  `PASS_THRESHOLD = 0.78`. Nothing in that arithmetic said what the route owed,
+  and an answer could clear the bar with a section the route had declared still
+  missing — a run reporting that it had met its gate while one of its own
+  requirements went unmet.
+- Each route now declares named criteria in `EXIT_CRITERIA`, and **all** of
+  them must be met. There is no weighting, because a requirement that can be
+  outvoted by other requirements is not one. `passed` is exactly
+  `unmet_criteria == [] and not requires_user_approval`.
+- `repo_review` declares `sources_documented`, `findings_are_checkable`,
+  `citations_hold`, `claims_are_settled` and its three sections. It does **not**
+  declare `substance`: a short review whose findings were settled against
+  observed lines is done, and words are not what makes it so. A route that
+  checks nothing against a source keeps the length proxy — named, and visible
+  in the run document, rather than folded into a sum.
+- `quality_score` is now the share of criteria met, and it **reports** rather
+  than decides; nothing compares it against a threshold. `PASS_THRESHOLD`,
+  `SECTION_WEIGHTS` and the evidence coverage factor are removed, not
+  deprecated: a constant that no longer describes the system is worse than an
+  absent one.
+- The text trailer names what was not met beside the number. A reader who only
+  sees a share cannot tell what is still outstanding.
+- **No verified severity without coverage.** A producer declares `P1` before
+  anything is checked. That number survives the check only on a `verified`
+  verdict and is `unknown` otherwise — `contradicted` included, because a
+  refutation weighs an impact for something that is not the case. What the
+  producer stated is kept in the new `Finding.declared_severity` beside its
+  rationale: losing it would discard an assessment, while presenting it as
+  established is what must not happen.
+- `citation_checks[]` carries `severity`, `declared_severity` and
+  `severity_rationale`, so the difference is visible per finding.
+- `schemas/atlas-evaluation.v1.json` gains `met_criteria` and
+  `unmet_criteria` and redefines `quality_score`;
+  `schemas/atlas-finding.v1.json` gains `declared_severity` and redefines
+  `severity`.
+
 Roadmap P1.1: a run can read again, mid-loop, without loosening what evidence
 means.
 

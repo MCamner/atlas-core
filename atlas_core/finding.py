@@ -210,6 +210,11 @@ class Finding:
     evidence: list[EvidenceRef]
     verification_method: VerificationMethod = "none"
     verdict: Verdict = "insufficient_evidence"
+    #: What the producer said the impact was, kept whatever happens to
+    #: `severity`. It is worth recording — it is the producer's own assessment
+    #: — and it is not a finding about the repository until the claim it
+    #: describes has been established.
+    declared_severity: Severity = UNKNOWN
     limitations: list[str] = field(default_factory=list)
     reproducible_command: str = UNKNOWN
 
@@ -247,6 +252,7 @@ class Finding:
             claim=claim,
             scope=scope,
             severity=severity,  # type: ignore[arg-type]
+            declared_severity=severity,  # type: ignore[arg-type]
             severity_rationale=severity_rationale,
             evidence=list(evidence),
             limitations=list(limitations or []),
@@ -295,7 +301,8 @@ class EvidenceCheck:
             finding_id=finding.finding_id,
             claim=finding.claim,
             scope=finding.scope,
-            severity=finding.severity,
+            severity=severity_after(self.verdict, finding),
+            declared_severity=finding.declared_severity,
             severity_rationale=finding.severity_rationale,
             evidence=finding.evidence,
             verification_method="deterministic_evidence_check",
@@ -426,6 +433,26 @@ def _lines(content: str, line_start: int, line_end: int) -> str:
     return "\n".join(content.splitlines()[line_start - 1 : line_end])
 
 
+def severity_after(verdict: str, finding: Finding) -> Severity:
+    """The severity a checked finding may carry.
+
+    ROADMAP.md P1.1 box three: *ingen finding med okänd täckning får tilldelas
+    verifierad severity*. A producer declares `P1` before anything is checked,
+    and that number reads as an assessment. It is only an assessment of
+    something real once the claim it describes has been established, so it
+    survives the check only on `verified`.
+
+    `contradicted` loses it too, and deliberately. A refutation is decisive
+    about the claim and says nothing in the severity's favour: whatever impact
+    the producer weighed, it was weighing something that is not the case.
+
+    What the producer said is not thrown away — `declared_severity` keeps it,
+    beside the rationale. Losing it would discard an assessment; presenting it
+    as established is what must not happen.
+    """
+    return finding.declared_severity if verdict == "verified" else UNKNOWN
+
+
 def _derive_finding_id(claim: str, scope: str) -> str:
     digest = hashlib.sha256("\0".join((claim, scope)).encode("utf-8")).hexdigest()
     return digest[:16]
@@ -446,4 +473,5 @@ __all__ = [
     "VerificationMethod",
     "Verdict",
     "check_finding",
+    "severity_after",
 ]

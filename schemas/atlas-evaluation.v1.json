@@ -17,7 +17,8 @@
     "quality_score": {
       "type": "number",
       "minimum": 0,
-      "maximum": 1
+      "maximum": 1,
+      "description": "The share of its route's exit criteria this answer met, rounded to two places. A report, not a gate: since P1.1 nothing compares it against a threshold, and `passed` is decided by `unmet_criteria` being empty. Before that change it was a weighted sum over output length and headings, multiplied by an evidence factor, compared against 0.78."
     },
     "passed": {
       "type": "boolean"
@@ -294,6 +295,20 @@
           }
         }
       ]
+    },
+    "met_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The exit criteria this route declared and this answer met."
+    },
+    "unmet_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The exit criteria this route declared and this answer did not meet. Empty exactly when `passed` is true and no approval is required. Each code names a requirement the route stated, not a fraction of a score: a requirement that can be outvoted by other requirements is not one."
     }
   }
 }
