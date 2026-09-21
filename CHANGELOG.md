@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+Post-merge review of #36: a citation is not a check, and the run document must
+not say it was.
+
+- **Fixed: `repo_review` could pass on the citation-only path.** Where a run
+  carries no evidence base, a finding counts as covered when it merely *names*
+  a source that was read. That measurement is unchanged and it settles
+  nothing, so a route declaring `claims_are_settled` now fails closed there:
+  the gap code is `claims_not_checked`, and `claims_are_settled`,
+  `citations_hold` and `findings_are_checkable` all go unmet.
+- The `passed` itself is **older than #36** and was recorded in
+  `docs/api-contract.md` as a known limitation — a factually wrong statement
+  mentioning `README.md` cleared that gate at 0.9. What #36 added was a
+  positive claim about *why* it cleared it: three criteria reported met beside
+  an empty `citation_checks`. Both are closed by the same rule, and the
+  contract text that described the hole is corrected.
+- A true claim fares exactly the same as a false one there. The rule is about
+  what was established, not about what happens to be true; passing a correct
+  claim would mean the gate had judged it, and it did not.
+- **The vacuous case is kept apart.** A review that records its sources and
+  asserts no finding still passes: there is nothing to settle,
+  `evidence_coverage` stays `null`, and the ledger is empty.
+- The next action is the host's — `observe_again` with
+  `details.reason = "no_evidence_base"`. Re-wording cannot produce an evidence
+  base, so the retry is not offered and no iteration is spent failing again.
+- **`score_method` on every evaluation.** `quality_score` changed meaning under
+  an unchanged field name in #36, which a consumer written against 1.0 would
+  never have found out. The field names the method: `criteria_met_share` now,
+  and a document without the field predates P1.1 and carries
+  `weighted_sections_and_length`.
+- Five tests encoded the old behaviour, including one whose name asserted that
+  a citation-only finding "is verified". None were deleted; each now asserts
+  the rule that replaced it, and keeps the point it was originally making.
+  `tests/test_citation_only_fail_closed.py` adds the negative regression,
+  including the invariant rather than only the instance: no evidence criterion
+  may be met while `citation_checks` is empty.
+
 Roadmap P1.1 box three (partly): what it takes to be done, named per route
 instead of priced.
 

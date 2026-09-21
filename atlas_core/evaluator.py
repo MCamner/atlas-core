@@ -91,16 +91,25 @@ EXIT_CRITERIA: dict[str, tuple[tuple[str, str], ...]] = {
 
 #: Which criterion an evidence gap fails. The gap codes are unchanged; this
 #: says what each one means for being done.
-_CRITERION_FOR_GAP: dict[str, str] = {
-    "no_sources_observed": "sources_documented",
-    "sources_not_documented": "sources_documented",
-    "uncited_findings": "findings_are_checkable",
-    "uncheckable_findings": "findings_are_checkable",
-    "malformed_findings": "findings_are_checkable",
-    "unsound_citations": "citations_hold",
-    "contradicted_findings": "claims_are_settled",
-    "unverified_findings": "claims_are_settled",
-    "claim_text_mismatch": "claims_are_settled",
+_CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
+    "no_sources_observed": ("sources_documented",),
+    "sources_not_documented": ("sources_documented",),
+    "uncited_findings": ("findings_are_checkable",),
+    "uncheckable_findings": ("findings_are_checkable",),
+    "malformed_findings": ("findings_are_checkable",),
+    "unsound_citations": ("citations_hold",),
+    "contradicted_findings": ("claims_are_settled",),
+    "unverified_findings": ("claims_are_settled",),
+    "claim_text_mismatch": ("claims_are_settled",),
+    # All three, because on this path none of them was evaluated at all. A
+    # criterion reported met while no deterministic check ran is the run
+    # document asserting something nobody established, which is the failure
+    # this whole phase exists to remove.
+    "claims_not_checked": (
+        "claims_are_settled",
+        "citations_hold",
+        "findings_are_checkable",
+    ),
 }
 
 #: The shortest output that is an answer rather than a stub. A proxy, and
@@ -167,6 +176,12 @@ EVIDENCE_PROSE = {
     "uncheckable_findings": (
         "Some findings carry no machine-readable citation, so nothing about "
         "them could be checked against what was read."
+    ),
+    "claims_not_checked": (
+        "Findings name a source that was read, and nothing compared them "
+        "against it. Naming a file is not evidence about what the file says, "
+        "so no claim here is established — whether or not it happens to be "
+        "true. Collect observations and run with an evidence base."
     ),
     "unsound_citations": (
         "Some findings cite a source that does not hold up: unknown id, a "
@@ -284,7 +299,7 @@ def evaluate(
     # codes are unchanged; what is new is that each one names a requirement
     # rather than costing a fraction of a score.
     for gap in evidence.gaps:
-        unmet.add(_CRITERION_FOR_GAP.get(gap, "claims_are_settled"))
+        unmet.update(_CRITERION_FOR_GAP.get(gap, ("claims_are_settled",)))
     unmet &= declared
 
     met = sorted(declared - unmet)
@@ -406,15 +421,20 @@ def _grade_evidence(
                 reasons=[],
                 actionable=True,
                 )
+        # Every finding names a source that was read, and nothing compared
+        # any of them against it. That is not a weaker pass, it is no check:
+        # a false claim and a true one are indistinguishable here, and a
+        # route that declares `claims_are_settled` has had none of its
+        # evidence criteria evaluated. Fail closed.
+        #
+        # Not actionable. Re-wording cannot produce an evidence base; only the
+        # caller can collect observations, so burning an iteration on another
+        # identical pass would fail the same way.
         return _Evidence(
-            gaps=[],
-            unverified=[],
+            gaps=["claims_not_checked"],
+            unverified=list(findings),
             coverage=coverage,
-            reasons=[
-                f"All {len(findings)} finding(s) name an observed source. "
-                "Citation only: the source was read, the claim is not checked "
-                "against its contents."
-            ],
+            reasons=[],
             actionable=False,
         )
 
@@ -724,6 +744,24 @@ def _next_action(
     codes = list(evidence.gaps) + list(gaps)
     if not codes:
         return None
+
+    if "claims_not_checked" in evidence.gaps:
+        # Ahead of everything else for the same reason `observe_again` is:
+        # nothing a producer can write closes it. The run has no evidence base,
+        # so no citation it could offer would be checked against anything.
+        return NextAction(
+            kind="observe_again",
+            gap_codes=codes,
+            actor="host",
+            details={
+                "reason": "no_evidence_base",
+                "sources_named": list(sources),
+                "requirement": (
+                    "Collect Observation.v1 values and pass them as `evidence` "
+                    "so the claims can be checked against what was read."
+                ),
+            },
+        )
 
     if evidence.blocked_by:
         return NextAction(

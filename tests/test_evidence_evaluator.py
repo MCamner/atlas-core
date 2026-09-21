@@ -127,7 +127,14 @@ class TestEvidenceGate(unittest.TestCase):
         self.assertEqual(evaluation.evidence_coverage, 0.5)
         self.assertIn("uncited_findings", evaluation.evidence_gaps)
 
-    def test_a_finding_citing_an_observed_file_is_verified(self):
+    def test_a_finding_citing_an_observed_file_is_still_not_verified(self):
+        """Was: `..._is_verified`. The name was the bug.
+
+        Citation coverage and verification are different measurements, and
+        this path only makes the first. Coverage stays 1.0 — every finding
+        does name a source that was read — and the claim is unestablished all
+        the same, because nothing compared it against that source.
+        """
         output = (
             "# Repo Review\n\n## Verified findings\n"
             "- `README.md` saknar installationssteg\n\n"
@@ -135,9 +142,10 @@ class TestEvidenceGate(unittest.TestCase):
         )
         evaluation = _evaluate(output, [README_OBS])
 
-        self.assertEqual(evaluation.unverified_claims, [])
         self.assertEqual(evaluation.evidence_coverage, 1.0)
-        self.assertEqual(evaluation.evidence_gaps, [])
+        self.assertEqual(evaluation.evidence_gaps, ["claims_not_checked"])
+        self.assertIn("`README.md` saknar installationssteg", evaluation.unverified_claims)
+        self.assertFalse(evaluation.passed)
 
     def test_a_finding_citing_durable_memory_is_still_unverified(self):
         output = (
@@ -166,11 +174,16 @@ class TestEvidenceGate(unittest.TestCase):
         self.assertIn("README.md", adjustment)
 
     def test_formatting_check_remains_a_separate_secondary_signal(self):
-        """P1: keep formatting checks, but do not confuse them for evidence."""
+        """P1: keep formatting checks, but do not confuse them for evidence.
+
+        The point is unchanged and the fixture now shows it from both sides:
+        the sections are reported missing as formatting, and the unchecked
+        claim is reported separately as evidence. Two signals, two lists.
+        """
         output = "# Repo Review\n\n## Verified findings\n- `README.md` saknar installationssteg\n"
         evaluation = _evaluate(output, [README_OBS])
 
-        self.assertEqual(evaluation.evidence_gaps, [])
+        self.assertEqual(evaluation.evidence_gaps, ["claims_not_checked"])
         self.assertEqual(
             sorted(evaluation.missing_sections), ["confidence", "next_step", "recommendation"]
         )

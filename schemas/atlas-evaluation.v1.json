@@ -309,6 +309,14 @@
         "type": "string"
       },
       "description": "The exit criteria this route declared and this answer did not meet. Empty exactly when `passed` is true and no approval is required. Each code names a requirement the route stated, not a fraction of a score: a requirement that can be outvoted by other requirements is not one."
+    },
+    "score_method": {
+      "type": "string",
+      "enum": [
+        "criteria_met_share",
+        "weighted_sections_and_length"
+      ],
+      "description": "How `quality_score` was computed. `criteria_met_share` is the share of the route's exit criteria the answer met, and reports rather than decides. A document with no `score_method` predates P1.1 and carries `weighted_sections_and_length`: a weighted sum over output length and headings, times an evidence factor, compared against 0.78. The field exists because `quality_score` kept its name while its meaning changed, which a consumer written against 1.0 would otherwise never find out."
     }
   }
 }
