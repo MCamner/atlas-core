@@ -4,6 +4,47 @@ Atlas Core 1.x keeps its public Python types, JSON documents, stop semantics,
 and adapter boundaries stable. Incompatible changes require a new major
 version or a new schema identifier.
 
+## The append-only event log
+
+`AtlasController(..., events=sink)` records what a run did, when it did it.
+`None` is the default and changes nothing: the log records, it decides nothing,
+and a run with one produces the same document as a run without.
+
+`JsonlSink(path)` is the durable one — one JSON object per line, opened in
+append mode, flushed and fsynced per write. A crash truncates the last line
+rather than corrupting the file, and `read_jsonl` drops a torn final line while
+raising on a malformed line anywhere else: the first is interruption, the second
+is corruption.
+
+**A call is two events**, `call_started` and `call_finished`, joined by a
+`call_id` the log issues. That is the only way a reader can tell three
+situations apart:
+
+| what the log holds | what it means |
+|---|---|
+| no `call_started` | the call never began |
+| `call_started` alone | it began; the outcome is **unknown** |
+| both | it began and the outcome is recorded |
+
+`call_states(events)` returns that, and `unfinished_calls(events)` returns the
+middle case. A design with one record per call collapses it into one of the
+others, and both readings are dangerous: "failed" invites a retry that repeats a
+side effect the first attempt may already have had, and "never happened" is
+worse. There is no `unknown` outcome value — `unknown` is the absence of a
+report, not something anything writes.
+
+Nothing rewrites an event. The log assigns the sequence number, a call cannot
+be finished twice or finished without being started, and an `observation_recorded`
+event for a source already recorded is a **new** event carrying both digests —
+a source that changed under a run is something the log shows rather than hides.
+
+Payloads are masked by `redact_document` before they are written, because this
+file persists whether or not anyone exports the run. The task reaches the log as
+a digest rather than as text, and a call's input as `input_sha256`.
+
+**Resume is not here.** This records enough to tell the three states apart and
+stops: no locking, no replay, no `interrupted` or `resumed` events.
+
 ## Versioned contracts and migration
 
 `atlas_core.contracts` names every document this package emits or accepts, at

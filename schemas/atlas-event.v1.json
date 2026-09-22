@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-event.v1.json",
+  "title": "Atlas Event",
+  "description": "One record in a run's append-only log, written when the thing happens rather than when the run ends. The run document says where a run ended up; it cannot say what happened on the way, and it cannot say it while the run is still happening. Every field is the core's: a log a producer could write would be a log of what it said it did. A call is recorded as TWO events joined by `call_id` — `call_started` and `call_finished` — because that is the only way a reader can tell a call that never began from one that began and whose outcome nobody recorded. The second is the state that matters: a crash between issuing a request and receiving the answer leaves a call that may already have had every effect it was going to have, and calling that `failed` would invite a retry that repeats a side effect. There is no `unknown` outcome, because `unknown` is not something anything reports — it is what a missing `call_finished` means.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "event_id",
+    "run_id",
+    "sequence",
+    "iteration",
+    "kind",
+    "recorded_at",
+    "call_id",
+    "payload"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-event.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The run and the position, which together are what identifies an event. Derived, never supplied."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Position in the run's log, assigned by the log and starting at 0. A caller that could choose it could write an event before one already recorded, which is the one thing an append-only log promises cannot happen."
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "0 before the first pass begins — a run that stopped during setup has events and no iterations."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "run_started",
+        "plan_selected",
+        "call_started",
+        "call_finished",
+        "observation_recorded",
+        "decision_recorded",
+        "run_stopped"
+      ]
+    },
+    "recorded_at": {
+      "type": "string",
+      "description": "ISO 8601, when the event was appended."
+    },
+    "call_id": {
+      "type": ["string", "null"],
+      "description": "Present on `call_started` and `call_finished` and null on every other kind, so an unpaired call is visible rather than merely likely. Issued by the log when the call starts, so a call cannot be finished that was never started under that name."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Everything specific to the kind. A dict rather than one flat record with mostly-null columns, because a field that is null for six of seven kinds teaches a reader nothing. Masked by `redact_document` before it is written: this file persists whether or not anyone exports the run, and a source's bytes reach it the same way they reach the run document. `call_started` carries `call_kind`, `target` and `input_sha256` — the digest, never the input, so a replay can be compared against what was sent without the input being kept. `call_finished` carries `outcome` (`ok`, `denied` or `failed`) and `error`. An `observation_recorded` event for a source already recorded is a NEW event appended after the old one, never a replacement: a source that changed under a run is something the log shows rather than something it hides."
+    }
+  }
+}

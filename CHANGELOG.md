@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+Roadmap v1.3 box two: an append-only event log, and the three states it can
+honestly attest.
+
+- **`AtlasController(..., events=sink)`** records a run as it happens:
+  `run_started`, `plan_selected`, `call_started`, `call_finished`,
+  `observation_recorded`, `decision_recorded`, `run_stopped`. Off by default,
+  and a run with a log produces the same document as one without — the log
+  records, it decides nothing.
+- **A call is two events**, joined by a `call_id` the log issues. That is what
+  separates *never began*, *began and the outcome is unknown*, and *began and
+  finished*. The middle one is why: a crash between issuing a request and
+  receiving the answer leaves a call that may already have had every effect it
+  was going to have, so reading it as failed invites a retry that repeats a
+  side effect, and reading it as never-happened is worse. `call_states()` and
+  `unfinished_calls()` answer it. There is no `unknown` outcome value, because
+  `unknown` is the absence of a report rather than something anything writes.
+- **Nothing is rewritten.** The log assigns the sequence, a call cannot be
+  finished twice or finished without being started, and an
+  `observation_recorded` event for a source already recorded is a new event
+  carrying both digests.
+- **`JsonlSink`** appends one object per line and fsyncs per write, so a crash
+  truncates the last line rather than corrupting the file. `read_jsonl` drops a
+  torn final line and raises on a malformed line anywhere else — interruption
+  and corruption are not the same thing.
+- **Payloads are masked** by `redact_document` before they are written: a
+  durable log persists whether or not anyone exports the run. The task reaches
+  it as a digest, and a call's input as `input_sha256`.
+- `ToolGateway` takes the log, which is where `denied` is knowable. A refused
+  call is recorded as one that happened and was refused, never left unfinished.
+- New contract `atlas-event.v1`, registered in `atlas_core.contracts`.
+- **Resume is not here**: no locking, no replay, no `interrupted`/`resumed`.
+
 Roadmap v1.3 box one: the versioned contracts, who owns which field, and
 `atlas-run.v1` into `Run.v2` without silent loss.
 
