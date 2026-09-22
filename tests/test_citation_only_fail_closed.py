@@ -112,12 +112,23 @@ class TestACitedFindingIsNotASettledOne(unittest.TestCase):
         self.assertEqual(action["details"]["reason"], "no_evidence_base")
 
     def test_no_iteration_is_burned_trying_to_re_word_it(self):
+        """Still one pass. The reason it stops got more specific in box four.
+
+        The action is `observe_again` and its actor is the host; no host is
+        attached, so the one thing that could change the outcome cannot
+        happen. `insufficient_evidence` said what was wrong with the answer;
+        `blocked` says why another pass would not fix it, which is what a
+        caller has to act on.
+        """
         run = AtlasController(
             max_iterations=3, model_adapter=_Adapter(_output(FALSE_CLAIM))
         ).run(REPO_TASK, observations=[README_OBS], json_mode=True)
 
         self.assertEqual(run["iteration"], 1)
-        self.assertEqual(run["stop_reason"], "insufficient_evidence")
+        self.assertEqual(run["stop_reason"], "blocked")
+        self.assertEqual(run["metadata"]["blocked"]["reason"], "no_new_material")
+        self.assertFalse(run["metadata"]["blocked"]["observer_attached"])
+        self.assertIn("claims_not_checked", run["evaluations"][-1]["evidence_gaps"])
 
     def test_a_true_finding_fares_exactly_the_same(self):
         """The rule is about what was established, not about what is true.

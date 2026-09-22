@@ -353,13 +353,25 @@ class TestARetryHasToBeWorthIt(_Repo):
         self.assertEqual(adapter.calls, 2)
         self.assertNotEqual(run["stop_reason"], "no_progress")
 
-    def test_an_unbudgeted_run_keeps_its_legacy_verdict(self):
-        """Out of scope on purpose, and asserted so the boundary is visible."""
+    def test_an_unbudgeted_run_is_held_to_the_same_rule(self):
+        """The boundary #29 drew, removed by P1.1 box four.
+
+        #29 put this behind a budget because it was a cost rule: another call
+        costs money, so stop paying for a failure that has already been had.
+        Box four states it as a contract rule instead, and identical material
+        answered with identical feedback is unproductive whether or not anyone
+        is counting. The unbudgeted path keeps its verdict semantics in every
+        other respect — this changes when a run stops, not how it is graded.
+        """
         run = AtlasController(
             max_iterations=2, model_adapter=_ScriptedAdapter(self._output(block=False))
         ).run(REPO_TASK, evidence=self.base, json_mode=True)
 
-        self.assertEqual(run["stop_reason"], "max_iterations")
+        self.assertEqual(run["stop_reason"], "no_progress")
+        self.assertEqual(
+            run["metadata"]["no_progress"]["reason"], "unchanged_feedback"
+        )
+        self.assertEqual(run["metadata"]["no_progress"]["material"], "unchanged")
 
 
 if __name__ == "__main__":

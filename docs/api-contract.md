@@ -465,6 +465,35 @@ adapter capable of mutation must obtain explicit approval immediately before
 performing that mutation; the core's keyword detection is advisory and does not
 replace adapter-side authorization.
 
+### What another pass rests on (P1.1)
+
+A `next_action` declares what a retry of it would rest on, in
+`atlas_core.state.RETRY_CLASSES`:
+
+- **`restatement`** — everything the next pass needs is already in the run. The
+  fault is in what was written: a block that will not parse, a claim stated so
+  it cannot be settled, a missing section, a finding about the wrong source
+  while the right one sits in the evidence base. Changed feedback is what such
+  a pass needs, and it is enough.
+- **`investigation`** — the next pass needs material the run does not hold.
+  `observe_again` is the only one. A run that cannot get it — no observer, or a
+  round that returned nothing new — stops `blocked`, with
+  `metadata.blocked.reason` set to `no_new_material`. Feedback cannot produce
+  bytes.
+
+A new test result is not a third channel. It reaches a run as an observation
+through its own adapter, so it changes the evidence base like any other read. A
+changed plan is the other channel, and it is recorded in the run document.
+
+Every kind must appear in the table; an unclassified one is refused at import,
+because defaulting it to `restatement` would quietly grant the permissive half.
+
+A run whose feedback repeats over unchanged material stops `no_progress` with
+`metadata.no_progress.reason = "unchanged_feedback"` and
+`metadata.no_progress.material = "unchanged"`. This applies to every run.
+Before P1.1 box four it applied only to budgeted ones, which changes when an
+unbudgeted run stops — not how it is graded.
+
 ### Optional cooperative run budget (P0.3, partial)
 
 `AtlasController.run(..., limits=RunLimits(...))` shares one `RunBudget` with

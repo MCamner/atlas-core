@@ -65,17 +65,69 @@ NextActionKind = Literal[
 #: all — so those come before anything about the text of a claim.
 NEXT_ACTION_KINDS: tuple[str, ...] = (
     "observe_again",
-    # After reading and before anything about the findings' quality: an answer
-    # about the wrong subject cannot be repaired into an answer about the right
-    # one, and polishing its citations would only make it read better.
-    "answer_the_question",
     "repair_findings_block",
     "drop_refuted_claim",
     "restate_claim",
     "recite_from_source",
     "cite_sources",
+    # Last but one. "Nothing on topic" is true whenever nothing was settled,
+    # so every fault above is a more specific true thing to say: a block that
+    # will not parse is why nothing was read, not a second problem beside it.
+    # Ahead of `add_sections`, because an answer about the wrong subject is not
+    # improved by filling in a missing heading.
+    "answer_the_question",
     "add_sections",
 )
+
+#: What another pass would rest on, per action. ROADMAP.md P1.1 box four asks
+#: that a new investigation round bring new material, and that a plain citation
+#: repair not be held to the same bar. That is this table: the distinction is
+#: declared per kind, beside the vocabulary it classifies, so a kind cannot be
+#: added without saying which it is.
+#:
+#: - **`restatement`** — everything the next pass needs is already in the run.
+#:   The fault is in what was written: a block that will not parse, a claim
+#:   stated so it cannot be settled, a missing section, a finding about the
+#:   wrong subject while the right sources sit in the evidence base. Changed
+#:   feedback is exactly what such a pass needs, and it is enough.
+#: - **`investigation`** — the next pass needs something the run does not hold.
+#:   Feedback cannot produce bytes. Granting a pass on feedback alone would
+#:   spend an iteration to fail in the same way, which is why a run that cannot
+#:   get the material stops instead of trying again.
+#:
+#: A new test result is not a third channel: it reaches a run as an observation
+#: through its own adapter, so it changes the evidence base like any other
+#: read. A changed plan is the other channel, and it is recorded in the run
+#: document rather than inferred.
+RETRY_CLASSES: dict[str, str] = {
+    "observe_again": "investigation",
+    # The sources are in hand; what is missing is a claim about them. Asking
+    # for a read here would deadlock a run that already holds what it needs.
+    "answer_the_question": "restatement",
+    "repair_findings_block": "restatement",
+    "drop_refuted_claim": "restatement",
+    "restate_claim": "restatement",
+    # Re-quoting comes from an observation the run holds. A source that moved
+    # cannot be re-cited at all, and that is `observe_again`.
+    "recite_from_source": "restatement",
+    "cite_sources": "restatement",
+    "add_sections": "restatement",
+}
+
+RETRY_CLASS_NAMES: tuple[str, ...] = ("restatement", "investigation")
+
+# Checked at import: an unclassified kind would be silently treated as a
+# restatement by the loop, which is the permissive half of the contract.
+assert set(RETRY_CLASSES) == set(NEXT_ACTION_KINDS), (
+    "every next action declares what a retry of it rests on"
+)
+assert set(RETRY_CLASSES.values()) <= set(RETRY_CLASS_NAMES)
+
+
+def retry_class(kind: str) -> str:
+    """What another pass after `kind` would rest on. See `RETRY_CLASSES`."""
+    return RETRY_CLASSES[kind]
+
 
 #: Who can carry the action out. `observe_again` is the one a producer cannot
 #: do: re-reading a source is the host's job, and a producer told to "try
