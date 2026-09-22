@@ -370,6 +370,7 @@ def check_typed_claim(
             checked={"expected_claim": expected},
         )
 
+    read_in_full = observation.read_in_full()
     checked = {
         "kind": claim.kind.value,
         "source_id": claim.source_id,
@@ -377,11 +378,33 @@ def check_typed_claim(
         "path": observation.path,
         "line_start": observation.line_start,
         "line_end": observation.line_end,
+        # Carried on the verdict, not only on the source. A reader who reaches
+        # a `lacks` result has the range in the sentence and needs to know
+        # whether the range was the file.
+        "read_in_full": read_in_full,
+        "total_lines": observation.total_lines,
     }
     if claim.holds_for(observed):
+        reason = f"{expected} — settled against the lines this run recorded"
+        # Absence is the asymmetric one. "Contains" over a partial read is as
+        # strong as over a whole file: the text was found, and more text
+        # elsewhere cannot unfind it. "Lacks" is only ever as wide as what was
+        # searched, and the sentence names its range — but a reader can
+        # summarise that range away, so the verdict says it too.
+        if claim.kind is ClaimKind.LACKS and read_in_full is not True:
+            extent = (
+                f" of {observation.total_lines}"
+                if observation.total_lines is not None
+                else ""
+            )
+            reason += (
+                f". Only lines {observation.line_start}-{observation.line_end}"
+                f"{extent} were read, so this establishes absence from what was "
+                "searched and not from the source"
+            )
         return ClaimVerdict(
             result=ClaimResult.VERIFIED,
-            reason=f"{expected} — settled against the lines this run recorded",
+            reason=reason,
             checked=checked,
         )
     return ClaimVerdict(
