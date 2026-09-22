@@ -3,13 +3,18 @@
 Read-only, and reproducible:
 
     ollama serve                      # or have it running already
-    python3 scripts/live_smoke_measure.py runs.jsonl qwen3:4b-instruct llama3.2:latest
+    python3 scripts/live_smoke_measure.py out.jsonl qwen3:4b-instruct llama3.2:latest
 
 One JSON object per run, appended as it completes. The table in
 `docs/live-smoke.md` is derived from such a file rather than from anything
 anybody remembered — the first version of that table was assembled by hand
 across three ad-hoc batches with different output truncation, and its totals
 disagreed with its own rows.
+
+**The file that table was built from is kept**, at
+`docs/evidence/live-smoke-2026-09-22.jsonl`. Running this script again does not
+reproduce it: the results are non-deterministic, so a second run is a second
+measurement. Write new output to a new dated file rather than over that one.
 
 Nothing is written outside the temporary fixture this creates for each run. The
 findings are the model's, and what is measured is whether the loop establishes

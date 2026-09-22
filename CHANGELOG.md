@@ -53,8 +53,12 @@ run that says when it cannot be reproduced.
   shape, different implementation of the same schema.
 - **Measured, and written down in `docs/live-smoke.md`** — including what it
   does not prove. `scripts/live_smoke_measure.py` produces the measurement one
-  JSON row per run, and the table is derived from that file: the first version
-  of it was assembled by hand and its totals disagreed with its own rows.
+  JSON row per run, and the table is derived from that file — which is kept, at
+  `docs/evidence/live-smoke-2026-09-22.jsonl`. These results are
+  non-deterministic, so running the script again is a second measurement and not
+  a reproduction of the first; a table with no preserved rows behind it would be
+  a conclusion kept without its evidence. The first version of that table was
+  assembled by hand and its totals disagreed with its own rows.
 - An endpoint carrying a token in its query string is now asserted absent from
   the run document, which is the reason `config_id` is a digest and not the
   address.

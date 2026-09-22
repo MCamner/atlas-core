@@ -53,14 +53,25 @@ installation*, one iteration, `max_prompt_chars=6000`, request timeout 120s.
 **Nine runs, three each of three models**, produced by:
 
 ```bash
-python3 scripts/live_smoke_measure.py runs.jsonl
+python3 scripts/live_smoke_measure.py docs/evidence/live-smoke-2026-09-22.jsonl
 ```
 
 That script appends one JSON object per run as it completes, and the table
-below is derived from that file. An earlier version of this table was assembled
-by hand across three ad-hoc batches with different output truncation, and its
-totals disagreed with its own rows; the script exists so that cannot happen
-again.
+below is derived from that file — which is **kept**, at
+[`docs/evidence/live-smoke-2026-09-22.jsonl`](evidence/live-smoke-2026-09-22.jsonl),
+one line per run.
+
+Keeping it is the point, not tidiness. These results are non-deterministic, so
+running the script again produces a *different* measurement; it cannot
+reproduce these nine observations. A table with no preserved rows behind it
+would be a conclusion preserved without its evidence, which is the thing this
+repository refuses from a producer. An earlier version of this table was
+assembled by hand across three ad-hoc batches with different output truncation,
+and its totals disagreed with its own rows.
+
+The rows carry the model, the schema and conformity fields, token usage, wall
+time, the stop reason and what the evaluator concluded. They carry no endpoint
+and no key, for the same reason the run document does not.
 
 | Model | Runs | Replies | Conformed | Tokens | Wall (s) |
 |---|---|---|---|---|---|
