@@ -375,32 +375,42 @@ class TestTheGateReadsTheSourceThatWasChecked(_Repo):
 
 
 class TestWhatTheGateDoesNotDecide(_Repo):
-    """The limit, asserted rather than only written down.
+    """The limit this class used to pin, and the one that replaced it.
 
-    This test exists so the gap is visible where the behaviour is, not only in
-    a roadmap note. It passes today and it is not describing something
-    desirable: it is the reason P1.1 box three stays open.
+    It used to assert that `TIMEOUT=30` in `settings.env` cleared the gate:
+    settled, about a source the plan named, and no answer to whether a
+    credential is committed. That is now closed for `secrets`, which declares
+    what would bear on its question — see `test_predicates_close_it` in
+    `tests/test_question_predicates.py`.
+
+    What is left is the declaration itself, and this class keeps pinning it.
+    The judgement about what counts is made in advance, per topic, by a person.
+    A topic that has not made it is held to relevance alone, and a credential
+    that does not name itself matches nothing that was declared.
     """
 
-    def test_a_trivial_claim_about_the_right_file_clears_the_gate(self):
-        """`TIMEOUT=30` settles, is about `settings.env`, and answers nothing.
+    def test_a_topic_with_no_declared_answer_is_still_relevance_only(self):
+        """`documentation` declares no answering set, so any settled claim
+        about a source it named clears its gate.
 
-        The question is whether a credential is committed. Nothing here
-        decides whether a settled claim bears on a question — that is
-        entailment, which `claim_check` refuses to guess at for the same
-        reason. The gate therefore stops at relevance, and passing it is not
-        evidence that the review looked into what it was asked.
+        Not a defect and not an oversight: declaring a list for a question
+        nobody has thought through would be worse, because the criterion would
+        then pass or fail on a list assembled to have a list.
         """
-        output = self._output([self._finding(self.settings, "TIMEOUT=30")], long=False)
-        run = self._run(output)
+        run = self._run(
+            self._output([self._finding(self.readme, "# Demorepo")], long=True),
+            task="granska dokumentationen i repot",
+        )
         evaluation = run["evaluations"][-1]
 
-        self.assertEqual(run["stop_reason"], "passed")
+        self.assertEqual(run["plan"]["review"]["topic"], "documentation")
+        self.assertEqual(run["plan"]["review"]["answering"], [])
         self.assertIn("findings_are_on_topic", evaluation["met_criteria"])
-        self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
-        # And the thing an unwary reader would take from that PASS is not in
-        # the document: nothing here says the credentials question is settled.
-        self.assertNotIn("PASSWORD", json.dumps(evaluation["citation_checks"]))
+        self.assertNotIn(
+            "findings_answer_the_question",
+            evaluation["met_criteria"] + evaluation["unmet_criteria"],
+        )
+        self.assertEqual(run["stop_reason"], "passed")
 
 
 class TestSeverityRuleSurvives(_Repo):

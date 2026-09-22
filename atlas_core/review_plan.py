@@ -67,6 +67,18 @@ class ReviewTopic:
     keywords: tuple[str, ...]
     #: Glob patterns, relative to the snapshot root, for the host to resolve.
     patterns: tuple[str, ...]
+    #: Literals a settled claim must name for that claim to bear on this
+    #: topic's question. **Declared, not inferred**: the judgement about what
+    #: answers the question is made here, once, where it can be read and
+    #: disagreed with — not derived from the claim at grading time, which would
+    #: be entailment, which needs a model.
+    #:
+    #: Empty means this topic has not declared one. A topic with no answering
+    #: set is held to relevance only: something settled about a source it
+    #: named. Declaring a set for a question nobody has thought through would
+    #: be worse than declaring none, because the criterion would then pass or
+    #: fail on a list assembled to have a list.
+    answering: tuple[str, ...] = ()
 
 
 #: Ordered: the first topic whose keywords appear in the task wins. Order is by
@@ -85,6 +97,19 @@ TOPICS: tuple[ReviewTopic, ...] = (
             "credential", "nyckel",
         ),
         patterns=("*.env", "settings*", "config*", ".env*"),
+        # An assignment, not a mention. `PASSWORD=admin` names a credential
+        # being set; `TIMEOUT=30` in the same file is true, settled, about a
+        # source this topic named, and says nothing about whether a credential
+        # is committed. That pair is the completion criterion in ROADMAP P1.1.
+        #
+        # The limit is worth stating where the list is: a credential that does
+        # not name itself — a bare `AKIA…` key, a base64 blob — matches none of
+        # these and is a miss. Fail-closed: the run stops and asks for an
+        # answer rather than passing on something unrelated.
+        answering=(
+            "password=", "passwd=", "pwd=", "lösenord=", "secret=",
+            "token=", "api_key=", "apikey=", "access_key=", "private key",
+        ),
     ),
     ReviewTopic(
         code="ci",
@@ -137,6 +162,10 @@ class ReviewPlan:
     #: Why these patterns, so a reader can disagree with the selection rather
     #: than only with the answer.
     rationale: str = ""
+    #: The topic's declared answering literals, carried into the run document
+    #: so a reader sees what the run was willing to accept as an answer.
+    #: Empty when the topic declared none.
+    answering: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.question.strip():
@@ -181,6 +210,7 @@ def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
                     f"The task names {topic.code}; these are the paths that "
                     "carry the answer in a repository of this shape."
                 ),
+                answering=list(topic.answering),
             )
 
     return ReviewPlan(
@@ -194,6 +224,26 @@ def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
             "nobody asked."
         ),
     )
+
+
+def answers_question(plan: ReviewPlan, claim_text: str) -> bool:
+    """Whether a settled claim names something this topic calls an answer.
+
+    Case-insensitive substring against the topic's declared literals. A narrow
+    mechanism, and the narrowness is the point: deciding whether an arbitrary
+    settled claim *answers* an arbitrary question is entailment, and a guess at
+    it would sit behind a PASS. This asks a smaller question that has a
+    definite answer — did the claim name one of the things declared in advance
+    to count?
+
+    A plan that declared nothing answers True. There is no set to be outside
+    of, and failing every claim against an empty list would make the criterion
+    unmeetable rather than strict.
+    """
+    if not plan.answering:
+        return True
+    text = claim_text.lower()
+    return any(literal.lower() in text for literal in plan.answering)
 
 
 def unread_patterns(
@@ -235,6 +285,7 @@ __all__ = [
     "UNKNOWN_TOPIC",
     "ReviewPlan",
     "ReviewTopic",
+    "answers_question",
     "build_review_plan",
     "unread_patterns",
 ]

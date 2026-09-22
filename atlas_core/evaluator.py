@@ -27,7 +27,7 @@ from typing import Any
 from .state import AtlasEvaluation, NextAction
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
-from .review_plan import ReviewPlan, unread_patterns
+from .review_plan import ReviewPlan, answers_question, unread_patterns
 from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
@@ -116,6 +116,8 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
     # say the findings are not worth what they claim, this one says none of
     # them is about what was asked.
     "no_on_topic_finding": ("findings_are_on_topic",),
+    # A step past relevance, and only where a topic declared what would count.
+    "no_answering_finding": ("findings_answer_the_question",),
     # All three, because on this path none of them was evaluated at all. A
     # criterion reported met while no deterministic check ran is the run
     # document asserting something nobody established, which is the failure
@@ -164,7 +166,7 @@ def criteria_for(
     base = EXIT_CRITERIA.get(route_name or "", EXIT_CRITERIA["__generic__"])
     if review is None or not review.narrowed():
         return base
-    return base + (
+    criteria = base + (
         (
             "findings_are_on_topic",
             "At least one finding is settled in its favour against a source "
@@ -173,6 +175,20 @@ def criteria_for(
             f"was answered: {review.question}",
         ),
     )
+    if review.answering:
+        # Only for a topic that declared what would count. A topic that has
+        # not thought the question through is held to relevance alone, which
+        # is weaker and honest, rather than to a list assembled to have one.
+        criteria += (
+            (
+                "findings_answer_the_question",
+                "At least one settled finding names something this topic "
+                "declared in advance as bearing on its question — one of "
+                + ", ".join(repr(literal) for literal in review.answering)
+                + f". Asked: {review.question}",
+            ),
+        )
+    return criteria
 
 
 @dataclass(frozen=True)
@@ -235,6 +251,12 @@ EVIDENCE_PROSE = {
         "answer may be well formed, cited and true, and be about something "
         "else entirely. The converse does not follow: a settled claim about "
         "the right source is not by itself an answer to the question."
+    ),
+    "no_answering_finding": (
+        "Something was settled about the right source, and none of it names "
+        "anything this topic declared would bear on its question. A true "
+        "statement about a file is not an answer to a question about that "
+        "file."
     ),
     "plan_targets_unread": (
         "The review plan named sources its question needs and nothing read "
@@ -390,6 +412,15 @@ def evaluate(
         and not _on_topic_finding(review, evidence, evidence_base)
     ):
         gap_codes.append("no_on_topic_finding")
+    elif (
+        "findings_answer_the_question" in declared
+        and not waiting_on
+        and not _answering_finding(review, evidence, evidence_base)
+    ):
+        # `elif`, because a run with nothing on topic has nothing to test
+        # against the answering set either, and saying both would be saying
+        # the same absence twice.
+        gap_codes.append("no_answering_finding")
     for gap in gap_codes:
         unmet.update(_CRITERION_FOR_GAP.get(gap, ("claims_are_settled",)))
     unmet &= declared
@@ -407,7 +438,9 @@ def evaluate(
     # A question answered about the wrong subject is something the producer
     # can fix with what the run already holds: the sources are read, and the
     # finding is about the wrong one. That is a retry worth an iteration.
-    off_topic = "no_on_topic_finding" in gap_codes
+    off_topic = (
+        "no_on_topic_finding" in gap_codes or "no_answering_finding" in gap_codes
+    )
     actionable = (
         off_topic or (evidence.actionable if evidence.gaps else bool(gaps))
     )
@@ -877,6 +910,46 @@ def _on_topic_finding(
         checked = (record.get("claim_check") or {}).get("checked") or {}
         path = paths.get(str(checked.get("source_id")))
         if path and any(fnmatch(path, pattern) for pattern in review.patterns):
+            return True
+    return False
+
+
+def _answering_finding(
+    review: ReviewPlan | None,
+    evidence: _Evidence,
+    base: EvidenceBase | None,
+) -> bool:
+    """Whether anything settled names something declared to bear on the question.
+
+    One step past `_on_topic_finding`, and the same shape: the source must be
+    one the plan named, and the source is the one the claim was *checked
+    against*. What is added is the claim's own literal, matched against the
+    topic's declared answering set.
+
+    The limit is the declaration. `PASSWORD=admin` counts and `TIMEOUT=30`
+    does not, which is the pair ROADMAP P1.1 names — but a credential that
+    does not name itself matches nothing and is a miss. Fail-closed: such a run
+    stops and asks for an answer rather than passing on a claim about
+    something else.
+    """
+    from fnmatch import fnmatch
+
+    if review is None or not review.narrowed() or base is None:
+        return True
+    if not review.answering:
+        return True
+
+    paths = {
+        observation.source_id: observation.path for observation in base.observations
+    }
+    for record in evidence.citation_checks:
+        if record.get("verdict") != "verified":
+            continue
+        checked = (record.get("claim_check") or {}).get("checked") or {}
+        path = paths.get(str(checked.get("source_id")))
+        if not path or not any(fnmatch(path, p) for p in review.patterns):
+            continue
+        if answers_question(review, str(checked.get("text") or "")):
             return True
     return False
 
