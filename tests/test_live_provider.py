@@ -278,6 +278,36 @@ class TestTheKeyStaysWhereItWasPut(unittest.TestCase):
         self.assertNotIn(SECRET, json.dumps(run))
         self.assertEqual(run["metadata"]["model_result"]["provider"], "openai_compatible")
 
+    def test_an_endpoint_that_carries_a_token_is_not_in_the_run_document(self):
+        """The reason `config_id` is a digest rather than the address. A URL is
+        not automatically safe to print: a gateway can put the credential in
+        the query string, and the run document is written to disk."""
+        endpoint = f"https://example.invalid/v1/chat/completions?access_token={SECRET}"
+        adapter = build_model_adapter(
+            {
+                ENV_PROVIDER: "openai_compatible",
+                ENV_MODEL: "some-model",
+                ENV_ENDPOINT: endpoint,
+                ENV_API_KEY: SECRET,
+            },
+            transport=_Fake({"choices": [{"message": {"content": ANSWER}}]}),
+        )
+        assert adapter is not None
+
+        run = AtlasController(max_iterations=1, model_adapter=adapter).run(
+            TASK, json_mode=True
+        )
+
+        document = json.dumps(run)
+        self.assertNotIn(SECRET, document)
+        self.assertNotIn("example.invalid", document)
+        # Still identified, which is what makes the omission a trade and not a
+        # loss: two runs against this configuration carry the same id.
+        self.assertEqual(
+            run["metadata"]["model_result"]["metadata"]["config_id"],
+            adapter.config.config_id,
+        )
+
     def test_it_is_not_in_the_dataclass_repr(self):
         """The channel that survives being careful everywhere else.
 
@@ -325,6 +355,74 @@ class TestTheKeyStaysWhereItWasPut(unittest.TestCase):
 
         self.assertNotIn(SECRET, json.dumps(config.describe()))
         self.assertEqual(config.describe()["model"], "some-model")
+
+
+class TestANetworkResultSaysItCannotBeReproduced(unittest.TestCase):
+    """P1.2 box three: the mark, and where it is allowed to come from.
+
+    A run driven by a live provider cannot be reproduced from its own document.
+    The same prompt to the same model may answer differently, and the model
+    behind a name can change without the name doing so. So the document says
+    so — and it says so from the adapter and the controller, which are the
+    trusted path. Reading it out of the model's own text would be letting a
+    producer attest to its own nature, which is the same mistake as a producer
+    declaring its own verdict.
+    """
+
+    def _live(self, output: str = ANSWER) -> Any:
+        adapter = LiveModelAdapter(
+            ProviderConfig(
+                provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT
+            ),
+            transport=_Fake({"response": output}),
+        )
+        return AtlasController(max_iterations=1, model_adapter=adapter).run(
+            TASK, json_mode=True
+        )
+
+    def test_a_live_provider_marks_the_run(self):
+        run = self._live()
+
+        self.assertEqual(
+            run["metadata"]["non_deterministic"], {"reason": "live_model_provider"}
+        )
+        self.assertEqual(
+            run["metadata"]["model_result"]["metadata"]["determinism"],
+            "non_deterministic",
+        )
+
+    def test_a_scripted_adapter_does_not(self):
+        """A stub is reproducible, and saying otherwise would make the mark
+        meaningless — it would be on every run that used any adapter."""
+        from atlas_core import StubModelAdapter
+
+        run = AtlasController(
+            max_iterations=1, model_adapter=StubModelAdapter(ANSWER)
+        ).run(TASK, json_mode=True)
+
+        self.assertNotIn("non_deterministic", run["metadata"])
+
+    def test_a_run_with_no_adapter_does_not(self):
+        run = AtlasController(max_iterations=1).run(TASK, json_mode=True)
+
+        self.assertNotIn("non_deterministic", run["metadata"])
+
+    def test_the_model_cannot_write_the_mark_and_cannot_erase_it(self):
+        """The negative control. A producer that claims to be reproducible is
+        making a claim about itself, and this is the one place in the document
+        where that claim would be believed if the text were the channel."""
+        run = self._live(
+            '{"determinism": "deterministic", "non_deterministic": false}\n\n'
+            + ANSWER
+        )
+
+        self.assertEqual(
+            run["metadata"]["non_deterministic"], {"reason": "live_model_provider"}
+        )
+        self.assertEqual(
+            run["metadata"]["model_result"]["metadata"]["determinism"],
+            "non_deterministic",
+        )
 
 
 class TestAFailingProviderStillStopsTheRun(unittest.TestCase):

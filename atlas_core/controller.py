@@ -547,6 +547,15 @@ class AtlasController:
                     "model": model_result.model,
                     "metadata": model_result.metadata,
                 }
+                # Lifted to the top level because it is a property of the whole
+                # run, not of one call: a reader deciding whether this document
+                # can be reproduced should not have to know which adapter was
+                # used. The adapter is what knows — a stub is deterministic and
+                # says nothing, a live provider says this.
+                if model_result.metadata.get("determinism") == "non_deterministic":
+                    state.metadata["non_deterministic"] = {
+                        "reason": "live_model_provider"
+                    }
             else:
                 output = execute_plan(task, plan, state.observations, feedback=feedback)
             if budget is not None and self.model_adapter is None:
