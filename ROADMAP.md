@@ -150,8 +150,26 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - Avsiktligt formulerat som *deklarerade predikat per ämne*, inte som semantisk förståelse. Det senare är entailment och kräver en modell; det förra är en smal mekanism som går att pröva och vars gräns går att skriva ned. Att kräva det första innan något får kryssas är att aldrig kryssa något.
 - [ ] **Vidga `no_progress` på oförändrad återkoppling till obudgeterade körningar.** #29 la regeln bakom en budget som en kostnadsregel. Som kontraktsregel gäller den lika mycket utan budget.
   - **Klart när:** en obudgeterad körning som misslyckas identiskt två gånger stoppar `no_progress`, och de tester som i dag håller 1.0-semantiken synlig är omskrivna så att de beskriver den nya regeln i stället för att tas bort. Egen PR, eftersom det ändrar när en körning stoppar för konsumenter skrivna mot 1.0.
-- [ ] Verifiera med ett aktuellt publikt repo vid pinad commit och jämför med fixture; dokumentera manuellt kontrollerade fynd och kända missar.
-  - **Klart när:** den sammansatta loopen körts mot ett pinnat publikt repo, verifierade fynd och kända missar är redovisade, och P1.1 avslutas med en samlad begränsningslista. E2E-mätningen från noll observationer (ruta två) är förarbetet till den här rutan.
+- [x] Verifiera med ett aktuellt publikt repo vid pinad commit och jämför med fixture; dokumentera manuellt kontrollerade fynd och kända missar.
+  - **Kört mot `MCamner/mq-image-analyze` vid `e5c4064`**, skrivskyddat. Snapshoten binder till den commiten med `worktree_state: clean`. Frågan kom ur planen, inte ur operatören: *Does the CI configuration run the checks it claims to run?* Loopen avgjorde fyra påståenden mot lästa rader, i två iterationer, och stoppade `passed`. Metod, fynd, missar och gränser i `docs/pinned-repo-review.md`.
+  - **Producenten är operatören**, inte en modell — Atlas Core levererar ingen. Det som mäts är om loopen *fastställer eller avvisar*, inte om något är bra på att upptäcka. Ingen defekt förutsattes, och ingen påstås.
+  - **Tre missar som en manuell kontroll gick rakt förbi.** Alla tre är fynd om Atlas Core, inte om det granskade repot, och ligger som egna poster nedan.
+  - **Två spår som kontrollerades och inte höll**, redovisade i dokumentet: en misstänkt skillnad i markdownlint-omfång och en i testkommandot. Ingen blev ett fynd. En granskning som bara redovisar det den hittade är inget bevis för att den tittat.
+- [ ] **Routern och planens ämnesval är två oberoende nyckelordslistor.** `granska CI-workflow och release-gate` väljer route `general` — ingen granskningsplan, inga mönster, ingen läsning — medan `build_review_plan` på samma sträng ger ämnet `ci`. Ämnet beräknas och kastas.
+  - **Klart när:** en uppgift som planens vokabulär kan avgränsa också når en route som bygger en plan, eller körningen säger uttryckligen att den inte gjorde det. Negativt test med just den strängen. Osynligt för alla rader i `docs/benchmark.md` och för samtliga 563 tester, eftersom fixturens uppgiftssträng valdes en gång och alltid nådde `repo_review`.
+- [ ] **`ci`-ämnets mönster namnger inte den lokala grinden.** De är `.github/workflows/*`, `Makefile` och `*.yml`. En fråga om *lokal mot CI*-paritet kan därför bara läsa CI-halvan genom planen.
+  - **Klart när:** ett ämne kan namnge källor som inte är konfigurationsfiler, prövat med just den här frågan mot just det här repot.
+- [ ] **Observationsgränsen stoppar före det som ska läsas.** `DEFAULT_MAX_LINES` är 80; `release-check.sh` är 169 rader och dess gate-anrop ligger på rad 104–138. Ett `source_lacks_literal` om filen avgörs `verified` mot utdraget. Renderingen är ärlig — den skriver ut `lines 1-80` — men meningen går att sammanfatta som något som är falskt om filen.
+  - **Klart när:** en körning antingen läser hela filen eller säger i dokumentet att den inte gjorde det, så att ett `lacks`-utslag inte kan läsas som att gälla mer än det som söktes igenom.
+
+**P1.1 begränsningar vid avslut.** Samlade, eftersom rutorna var för sig kan läsas som mer än de är:
+
+1. Producenten är skriptad eller manuell. Ingenting i P1.1 mäter en modell; det kräver en live-provider och hör till P1.2.
+2. Ämnesvalet är nyckelordsmatchning mot fem deklarerade ämnen, och routern är en sjätte lista som inte är bunden till dem.
+3. Exitkriteriet ur frågan prövar *relevans* — vilken källa ett avgjort påstående handlar om — inte om påståendet besvarar frågan.
+4. Endast påståenden som går att uttrycka som ordagrann förekomst eller frånvaro över lästa rader kan avgöras. Allt annat stannar på `insufficient_evidence`, vilket är det ärliga utfallet och också fasens tak.
+5. Läsning är avgränsad till 80 rader per observation som standard.
+6. Underlaget är tre defekter i ett litet facit plus en skrivskyddad körning mot ett publikt repo vid en pinad commit. Det fångar regressioner i grinden; det karakteriserar ingen prestanda.
 
 ### P1.2 Live modellprovider som valfri adapter
 
