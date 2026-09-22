@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Roadmap P1.1, filed items: closing what was pulled out of the boxes.
+
+- **`no_progress` on unchanged feedback applies to every run**, not only
+  budgeted ones. #29 put it behind a budget because it was a cost rule —
+  another provider call costs money, so stop paying for a failure already had.
+  As a contract rule it does not depend on anyone counting: a producer told
+  this once and answering it the same way has answered it, and the next pass
+  would deliver the same feedback over the same material.
+  - **Compatibility:** a caller written against 1.0 that drives *unbudgeted*
+    runs will see `no_progress` where it saw `max_iterations`, on an earlier
+    iteration. The evaluation itself is unchanged — this is when a run stops,
+    not how it is graded.
+  - The byte-equality rule from #29 stays bounded-runs-only. Byte equality is a
+    statement about spend; the failure signature is a statement about the
+    contract.
+  - The three tests that held the old boundary visible are rewritten, not
+    removed. One needed a fixture that fails *differently* on each pass, so the
+    claim "`max_iterations` is only the reason when the bound bound something"
+    still has a run that reaches its bound.
+
 Roadmap P1.1 box four: what another pass has to rest on.
 
 - **`RETRY_CLASSES`**, beside the action vocabulary it classifies. Taken
