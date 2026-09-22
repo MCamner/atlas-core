@@ -161,6 +161,13 @@
             "rationale": {
               "type": "string",
               "description": "Why these patterns, so a reader can disagree with the selection rather than only with the answer."
+            },
+            "answering": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The literals this topic declares as bearing on its question, carried so a reader sees what the run was willing to accept as an answer. Empty when the topic declared none, in which case the run is held to relevance alone and `findings_answer_the_question` is not among its criteria. Declared per topic by a person, not derived from a claim: deciding whether an arbitrary settled claim answers a question is entailment, which nothing here performs."
             }
           }
         },
