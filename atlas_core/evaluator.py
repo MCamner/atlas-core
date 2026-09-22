@@ -249,8 +249,8 @@ EVIDENCE_PROSE = {
     ),
     "uncited_findings": "Some findings cite no observed source.",
     "malformed_findings": (
-        "The machine-readable findings block is present but could not be read, "
-        "so no citation in it could be checked."
+        "The machine-readable findings block is missing, or present and "
+        "unreadable, so no citation in it could be checked."
     ),
     "uncheckable_findings": (
         "Some findings carry no machine-readable citation, so nothing about "
@@ -354,6 +354,7 @@ def evaluate(
     evidence_base: EvidenceBase | None = None,
     review: ReviewPlan | None = None,
     resolved_patterns: list[str] | None = None,
+    structured_output_required: bool = False,
 ) -> AtlasEvaluation:
     reasons: list[str] = []
     missing: list[str] = []
@@ -400,7 +401,11 @@ def evaluate(
 
     sources = observed_sources(observations)
     evidence = _grade_evidence(
-        ROUTE_EVALUATORS.get(route_name or ""), output, sources, evidence_base
+        ROUTE_EVALUATORS.get(route_name or ""),
+        output,
+        sources,
+        evidence_base,
+        structured_output_required=structured_output_required,
     )
     reasons.extend(evidence.reasons)
     missing.extend(EVIDENCE_PROSE[code] for code in evidence.gaps)
@@ -528,6 +533,8 @@ def _grade_evidence(
     output: str,
     sources: list[str],
     base: EvidenceBase | None = None,
+    *,
+    structured_output_required: bool = False,
 ) -> _Evidence:
     """Grade support for the claims, or stay silent when the route makes none.
 
@@ -539,6 +546,13 @@ def _grade_evidence(
     Which path runs is decided by what the run carries. A run with an
     `EvidenceBase` gets the deterministic check; a run without one keeps the
     citation-only grading it always had. There is no conversion between them.
+
+    `structured_output_required` is the one thing here that cannot be read off
+    the output. A producer that was *asked* for a machine-readable block and
+    wrote none has made a mistake; a producer that was asked for nothing and
+    wrote none has honestly asserted nothing, and the two outputs are the same
+    text. Only the caller that sent the schema knows which happened, so it says
+    so — see `LiveModelAdapter`, which sets it from the request it made.
     """
     if contract is None:
         return _Evidence(
@@ -546,7 +560,9 @@ def _grade_evidence(
         )
 
     if base is not None:
-        return _grade_against_evidence(contract, output, base)
+        return _grade_against_evidence(
+            contract, output, base, structured_output_required=structured_output_required
+        )
 
     if contract.requires_sources and not sources:
         # Nothing to cite, so another identical pass cannot fix this. Saying so
@@ -559,6 +575,8 @@ def _grade_evidence(
             actionable=False,
         )
 
+    if structured_output_required and not structured_findings(output).present:
+        return _missing_block()
     findings = findings_in(output, contract.finding_headings)
     if findings:
         unverified = [f for f in findings if not cites_a_source(f, sources)]
@@ -608,8 +626,29 @@ def _grade_evidence(
     )
 
 
+def _missing_block() -> _Evidence:
+    """A producer asked for a machine-readable block that wrote none.
+
+    Same gap code and same next action as a block that cannot be parsed,
+    because the fix is the same one: write the block. Built here rather than
+    written out at both grading paths, so the two cannot drift — and built
+    fresh each call, because `_Evidence` is frozen around lists that are not.
+    """
+    return _Evidence(
+        gaps=["malformed_findings"],
+        unverified=[],
+        coverage=None,
+        reasons=[],
+        actionable=True,
+    )
+
+
 def _grade_against_evidence(
-    contract: RouteEvaluator, output: str, base: EvidenceBase
+    contract: RouteEvaluator,
+    output: str,
+    base: EvidenceBase,
+    *,
+    structured_output_required: bool = False,
 ) -> _Evidence:
     """Grade findings against observations that can actually be re-read.
 
@@ -627,14 +666,13 @@ def _grade_against_evidence(
         )
 
     parsed = structured_findings(output)
-    if parsed.malformed:
-        return _Evidence(
-            gaps=["malformed_findings"],
-            unverified=[],
-            coverage=None,
-            reasons=[],
-            actionable=True,
-        )
+    # Two ways to owe a block and not have one. Unreadable is the old case.
+    # Absent is only a failure when one was asked for — otherwise it is a
+    # review that honestly claims nothing, which is not a defect and must not
+    # become one. Checked before the prose is read, because a producer that
+    # wrote no block cannot be told anything useful about the bullets in it.
+    if parsed.malformed or (structured_output_required and not parsed.present):
+        return _missing_block()
 
     # Prose and structure are matched, not derived from one another. A bullet
     # with no matching claim is a finding nobody can check, which is exactly
@@ -1154,7 +1192,10 @@ def _adjustment(
             f"a source_id read this run" + (f"; available: {available}." if available else ".")
         )
     if "malformed_findings" in evidence.gaps:
-        parts.append(f"Repair the `{FINDINGS_FENCE}` block so it parses as a list of findings.")
+        parts.append(
+            f"Write an `{FINDINGS_FENCE}` block that parses as a list of findings, "
+            "or repair the one that is there."
+        )
     refuted = [
         f"{record['claim'][:60]}: {(record['claim_check'] or {}).get('reason', '')}"
         for record in evidence.citation_checks

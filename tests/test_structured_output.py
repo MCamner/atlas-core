@@ -376,6 +376,134 @@ class TestAWrongShapeIsRepairableAndNotAFailedRun(unittest.TestCase):
             evaluation["next_action"]["kind"], "repair_findings_block"
         )
 
+    def test_prose_with_no_block_reaches_repair_when_a_schema_was_asked_for(self):
+        """The failure a provider is most likely to produce, and the one the
+        earlier version of this suite did not establish.
+
+        The output is well formed by every older measure: it records its
+        sources under the heading the route wants and carries every required
+        section. Read as text alone it is indistinguishable from a review that
+        honestly asserts nothing — so the text cannot settle it, and the fact
+        that a machine-readable block was *required* has to travel from the
+        adapter that asked for one.
+        """
+        prose = REPORT.format(claim="README.md nämner pip install")
+        run = self._run(prose)
+        evaluation = run["evaluations"][-1]
+
+        self.assertNotIn(FINDINGS_FENCE, prose)
+        self.assertIn("## Observed sources", prose)
+        self.assertIn("malformed_findings", evaluation["evidence_gaps"])
+        self.assertEqual(evaluation["next_action"]["kind"], "repair_findings_block")
+        self.assertFalse(evaluation["passed"])
+        self.assertNotEqual(run["stop_reason"], "tool_error")
+
+    def test_a_producer_that_was_asked_for_nothing_may_still_assert_nothing(self):
+        """The compatibility limit of the rule above. Without a schema on the
+        wire, prose with no block is the case this repository has always had:
+        a review that records its sources and claims nothing. It is not a
+        defect, and it must not become one."""
+        adapter = LiveModelAdapter(
+            ProviderConfig(
+                provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT
+            ),
+            transport=_Fake(REPORT.format(claim="README.md nämner pip install")),
+            structured_output=False,
+        )
+        run = AtlasController(max_iterations=1, model_adapter=adapter).run(
+            "granska repo atlas-core", evidence=self.base, json_mode=True
+        )
+        evaluation = run["evaluations"][-1]
+
+        self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
+
+    def test_an_explicitly_empty_findings_list_is_not_a_missing_block(self):
+        """A conforming envelope that asserts nothing keeps asserting nothing.
+        The rule is about a block that is missing, not about one that is empty,
+        and `[]` is the producer saying so."""
+        run = self._run(json.dumps({"report": REPORT.format(claim="inget"), "findings": []}))
+        evaluation = run["evaluations"][-1]
+
+        self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
+
+    def test_a_valid_handwritten_block_is_not_a_missing_block(self):
+        """A provider that ignored the schema and answered correctly anyway.
+        The rule must not punish it for the form it arrived in."""
+        run = self._run(
+            REPORT.format(claim="inget")
+            + "\n```"
+            + FINDINGS_FENCE
+            + "\n[]\n```\n"
+        )
+        evaluation = run["evaluations"][-1]
+
+        self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
+
+    def test_nothing_observed_outranks_a_missing_block(self):
+        """A run with no sources cannot be repaired by rewriting the answer, so
+        the gap that says so must survive. Asking for a findings block when
+        there is nothing to make findings about would be the wrong next step."""
+        adapter = LiveModelAdapter(
+            ProviderConfig(
+                provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT
+            ),
+            transport=_Fake(REPORT.format(claim="inget")),
+        )
+        run = AtlasController(max_iterations=1, model_adapter=adapter).run(
+            "granska repo atlas-core", json_mode=True
+        )
+        evaluation = run["evaluations"][-1]
+
+        self.assertIn("no_sources_observed", evaluation["evidence_gaps"])
+        self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
+
+    def test_a_route_that_makes_no_findings_owes_no_block(self):
+        """The rule is bounded by the route's own contract. A route that does
+        not make findings is not failing by having none, and asking it for a
+        block would be asking for something it was never for."""
+        adapter = LiveModelAdapter(
+            ProviderConfig(
+                provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT
+            ),
+            transport=_Fake("Ett svar i ren prosa, utan block."),
+        )
+        run = AtlasController(max_iterations=1, model_adapter=adapter).run(
+            "hej", json_mode=True
+        )
+        evaluation = run["evaluations"][-1]
+
+        self.assertEqual(
+            run["metadata"]["model_result"]["metadata"]["output_schema_sent"], "true"
+        )
+        self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
+
+    def test_the_rule_holds_on_the_citation_only_path_too(self):
+        """The older grading path, reached by a run with no `EvidenceBase`. It
+        has its own "records its sources and asserts nothing" branch, which is
+        the one that would otherwise read a missing block as an honest silence.
+        """
+        adapter = LiveModelAdapter(
+            ProviderConfig(
+                provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT
+            ),
+            transport=_Fake(
+                "# Repogranskning\n\n"
+                + "Genomgången är lång nog för substanskravet. " * 12
+                + "\n\n## Observed sources\n- `README.md`\n\n"
+                "## Recommendation\nInget.\n\n## Next step\nInget.\n\n"
+                "## Confidence\nHög.\n"
+            ),
+        )
+        run = AtlasController(max_iterations=1, model_adapter=adapter).run(
+            "granska repo atlas-core",
+            observations=["README.md:\n# Atlas Core"],
+            json_mode=True,
+        )
+        evaluation = run["evaluations"][-1]
+
+        self.assertIn("malformed_findings", evaluation["evidence_gaps"])
+        self.assertEqual(evaluation["next_action"]["kind"], "repair_findings_block")
+
     def test_each_wrong_shape_says_which_one_it_was(self):
         """A reader of the run document is told what to fix, not that something
         was wrong."""
@@ -396,6 +524,38 @@ class TestAWrongShapeIsRepairableAndNotAFailedRun(unittest.TestCase):
                 self.assertFalse(envelope.conformed)
                 self.assertEqual(envelope.reason, reason)
                 self.assertEqual(envelope.text, reply)
+
+    def test_an_extra_top_level_field_is_not_conformity(self):
+        """`additionalProperties: false` is in the schema that was sent, so a
+        reply carrying a field it does not allow did not match it. `verdict` is
+        the pointed example: a producer declaring its own success is the one
+        thing this repository refuses everywhere else."""
+        envelope = read_envelope(
+            json.dumps({"report": "x", "findings": [], "verdict": "verified"})
+        )
+
+        self.assertFalse(envelope.conformed)
+        self.assertIn("verdict", envelope.reason or "")
+
+    def test_a_findings_entry_the_parser_cannot_use_is_not_conformity(self):
+        """Judged by `structured_findings`, not by a second set of rules here.
+        That module is the authority on what a finding must look like, and a
+        validator beside it could only drift."""
+        envelope = read_envelope(json.dumps({"report": "x", "findings": [42]}))
+
+        self.assertFalse(envelope.conformed)
+        self.assertIn("not usable", envelope.reason or "")
+
+    def test_an_unusable_entry_is_still_rebuilt_so_the_evaluator_can_ask_for_a_repair(self):
+        """Two different questions. The envelope held, so the reply is rebuilt
+        and the findings reach the reader that reports `malformed_findings`.
+        What did not hold is the claim that the whole reply matched the schema,
+        and that is what `output_conformed` says."""
+        envelope = read_envelope(json.dumps({"report": "x", "findings": [42]}))
+
+        self.assertTrue(envelope.envelope_conformed)
+        self.assertIn("```" + FINDINGS_FENCE, envelope.text)
+        self.assertIsNotNone(structured_findings(envelope.text).malformed)
 
     def test_markdown_that_already_carries_a_block_passes_through_untouched(self):
         """A provider that ignored the schema and answered correctly anyway.

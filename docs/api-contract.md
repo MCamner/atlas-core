@@ -528,12 +528,28 @@ markdown the loop already reads. `LiveModelAdapter(..., structured_output=False)
 sends no schema field.
 
 Asking is not getting: an endpoint can accept the field and ignore it, so the
-envelope is checked on every reply. **A reply of the wrong shape does not
-raise.** It passes through untouched, so the evaluator reports
-`malformed_findings` and the next action is `repair_findings_block` — a
-producer error the next pass can fix, not a `tool_error` that ends the run.
+reply is checked on every call. `output_conformed` is a claim about the whole
+reply — the envelope holds, carries no field the schema forbids, and every
+entry is one `structured_findings` can use. The last of those is put to
+`atlas_core.evidence`, which stays the sole authority on what a finding must
+look like.
+
+**A reply of the wrong shape does not raise.** It reaches the evaluator, which
+reports `malformed_findings` with `repair_findings_block` — a producer error
+the next pass can fix, not a `tool_error` that ends the run. An envelope that
+held is rebuilt even when its entries are unusable, so they reach the reader
+that reports them; an envelope that did not hold passes through untouched.
 `metadata.model_result.metadata` carries `output_schema`, `output_schema_sent`,
 `output_conformed` and, when it did not conform, `output_schema_gap`.
+
+A producer that was asked for a findings block and wrote none gets the same gap
+and the same next action. Nothing in the output distinguishes it from a review
+that honestly asserts nothing, so `evaluate()` takes
+`structured_output_required` and the controller sets it from what the adapter
+recorded about its own request. Without a schema on the wire nothing changes,
+and neither a handwritten `atlas-findings` block nor an explicit empty
+`findings: []` counts as missing. `no_sources_observed` outranks it, because a
+run with nothing to read cannot be repaired by rewriting the answer.
 
 What identifies a live run carries no secret. `config_id` is a digest over
 provider, model, endpoint, timeout and whether a key is set — the endpoint is

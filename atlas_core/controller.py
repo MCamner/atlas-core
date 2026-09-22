@@ -578,6 +578,17 @@ class AtlasController:
                     for round_record in state.metadata.get("observation_rounds", [])
                     for pattern in round_record.get("patterns", [])
                 ],
+                # Whether a machine-readable findings block was asked for. It
+                # cannot be read off the output: a producer that was asked and
+                # wrote none, and one that was asked for nothing and honestly
+                # claims nothing, produce the same text. Only the adapter that
+                # sent the schema knows, so it records it and this reads it.
+                structured_output_required=(
+                    state.metadata.get("model_result", {})
+                    .get("metadata", {})
+                    .get("output_schema_sent")
+                    == "true"
+                ),
             )
             state.evaluations.append(evaluation)
             # Recorded next to the evaluation it belongs with, so "unchanged

@@ -41,15 +41,32 @@ asked for in a schema and checked locally either way.
   `structured_output=False` sends no schema field, for an endpoint that rejects
   one it does not know.
 - **And checked locally either way.** An endpoint can accept the field and
-  ignore it, so asking is not getting. The envelope check runs on every reply,
-  and it checks the envelope only — `atlas_core.evidence` remains the authority
-  on what a finding must look like, and a second validator beside it could only
-  drift. A test binds the schema held in code to
+  ignore it, so asking is not getting. The check runs on every reply, and
+  `output_conformed` is the whole reply: the envelope holds, carries no field
+  the schema forbids — `verdict` being the pointed example — and every entry is
+  one `structured_findings` can use. That last question is put to
+  `atlas_core.evidence` rather than answered again here, because it is the
+  authority on what a finding must look like and a second validator beside it
+  could only drift. A test binds the schema held in code to
   `schemas/atlas-findings-block.v1.json`, which is not packaged.
 - **A reply of the wrong shape is repairable, not a failed run.** It passes
-  through untouched, the evaluator reports `malformed_findings`, and the next
-  action is `repair_findings_block`. Raising would turn a producer error into a
-  machine error and spend the run's stop reason on `tool_error`.
+  through, the evaluator reports `malformed_findings`, and the next action is
+  `repair_findings_block`. Raising would turn a producer error into a machine
+  error and spend the run's stop reason on `tool_error`. An envelope that held
+  is still rebuilt when its entries are unusable, so they reach the reader that
+  reports them.
+- **A producer asked for a findings block that wrote none now gets the same
+  gap.** This cannot be read off the output: a producer that was asked and
+  wrote nothing, and one that was asked for nothing and honestly claims
+  nothing, produce the same text. So `evaluate()` takes
+  `structured_output_required`, and the controller sets it from what the
+  adapter recorded about its own request. Unchanged without a schema on the
+  wire, for a handwritten `atlas-findings` block, and for an explicit empty
+  `findings: []` — an empty list is a producer asserting nothing, not a missing
+  block. `no_sources_observed` still outranks it: a run with nothing to read
+  cannot be repaired by rewriting the answer.
+- `EVIDENCE_PROSE["malformed_findings"]` and the repair instruction now cover
+  both cases — a block that is missing and one that is present and unreadable.
 - **`config_id`** identifies which configuration answered without publishing
   any of it: a digest over provider, model, endpoint, timeout and *whether* a
   key is set. The endpoint is hashed rather than recorded because a URL can

@@ -28,7 +28,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ..evidence import FINDINGS_FENCE
+from ..evidence import FINDINGS_FENCE, structured_findings
 
 #: Bumped when the envelope changes shape. Recorded on every live result, so a
 #: run document says which contract the producer was asked to meet rather than
@@ -185,6 +185,13 @@ def output_schema() -> dict[str, Any]:
     }
 
 
+#: Every field the envelope allows. The schema says `additionalProperties:
+#: false`, so a reply carrying anything else did not match the schema that was
+#: sent — and the field worth naming is `verdict`, which is a producer
+#: declaring its own success.
+ENVELOPE_FIELDS = ("report", "findings")
+
+
 @dataclass(frozen=True)
 class ReadEnvelope:
     """What the local check made of a reply.
@@ -193,13 +200,30 @@ class ReadEnvelope:
     conforming envelope, or the provider's own text passed through untouched.
     Passing it through is what makes a shape failure repairable: the evaluator
     reads it, finds no usable findings block, and asks for one.
+
+    **Two questions, and they have different answers.** `envelope_conformed`
+    decides which `text` the caller gets: the envelope held, so the reply could
+    be rebuilt. `conformed` is the narrower claim that the *whole* reply matched
+    the schema that was sent, which is false as soon as anything did — an
+    unknown top-level field, or an entry `structured_findings` cannot use. A
+    reply with a bad entry is still rebuilt, because the evaluator is the one
+    that reports it, and is still not conformity.
     """
 
     text: str
-    conformed: bool
-    #: Why not, in a form a person reading the run document can act on. `None`
-    #: when the envelope conformed.
+    #: The wrapper held: an object, with both required fields, of the right
+    #: types, and nothing else.
+    envelope_conformed: bool
+    #: Why the reply did not match the schema, in a form a person reading the
+    #: run document can act on. `None` exactly when it did.
     reason: str | None = None
+
+    @property
+    def conformed(self) -> bool:
+        """Whether the reply matched the schema, as far as a local check can
+        tell. Not the same as the envelope holding, and this is the one that
+        reaches `metadata.output_conformed`."""
+        return self.reason is None
 
 
 def read_envelope(text: str) -> ReadEnvelope:
@@ -220,6 +244,19 @@ def read_envelope(text: str) -> ReadEnvelope:
             text, False, f"reply is a JSON {type(payload).__name__}, not an object"
         )
 
+    unknown = sorted(set(payload) - set(ENVELOPE_FIELDS))
+    if unknown:
+        # `additionalProperties: false` was in the schema that was sent, so this
+        # reply did not match it. Rejecting the envelope rather than dropping
+        # the field is the point: the producer put it there, and silently
+        # discarding a `verdict` it wrote would hide the very habit this
+        # repository refuses everywhere else.
+        return ReadEnvelope(
+            text,
+            False,
+            "reply carries fields the schema does not allow: " + ", ".join(unknown),
+        )
+
     report = payload.get("report")
     findings = payload.get("findings")
     if not isinstance(report, str) or not report.strip():
@@ -228,7 +265,16 @@ def read_envelope(text: str) -> ReadEnvelope:
         missing = "findings is missing" if findings is None else "findings is not a list"
         return ReadEnvelope(text, False, f"reply {missing}")
 
-    return ReadEnvelope(render_output(report, findings), True)
+    rendered = render_output(report, findings)
+    # Judged by the module that owns the question, on the text it will itself
+    # read. Restating the finding rules here would be a second authority that
+    # could only drift from the first — and the entries still reach the
+    # evaluator, because `rendered` is what the caller gets either way.
+    parsed = structured_findings(rendered)
+    if parsed.malformed is not None:
+        return ReadEnvelope(rendered, True, f"findings are not usable: {parsed.malformed}")
+
+    return ReadEnvelope(rendered, True)
 
 
 def render_output(report: str, findings: list[Any]) -> str:
