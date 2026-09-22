@@ -29,7 +29,7 @@ from atlas_core.contracts import (
     owner_of,
     predecessor_of,
 )
-from atlas_core.migrate import V1_REQUIRED
+from atlas_core.migrate import V1_REQUIRED, V2_REQUIRED
 
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -164,6 +164,79 @@ class TestAProducerCannotOwnItsOwnVerdict(unittest.TestCase):
         self.assertEqual(set(action.owners.values()) - {"core", "derived"}, set())
 
 
+class TestAbsenceHasExactlyOneSpelling(unittest.TestCase):
+    """A nullable field whose pattern also accepts the empty string has two ways
+    to say nothing, and one of them reads as a value.
+
+    Found in review on `Action.v1.input_sha256`, whose pattern was
+    `^([0-9a-f]{64})?$` — the optional group made `""` valid while the
+    description said absence is `null`. Written as a rule over every schema
+    rather than as a fix to that one field, because the mistake is a shape and
+    not an instance: an optional group in an anchored pattern is easy to write
+    and invisible to read.
+
+    Tightening it later would be a narrowing inside a published version, which
+    `COMPATIBILITY` forbids — so it has to be right before the contract ships,
+    which is what makes this a blocker and not a cleanup.
+    """
+
+    def _nullable_patterns(self):
+        for path in sorted(SCHEMA_DIR.glob("*.json")):
+            schema = json.loads(path.read_text(encoding="utf-8"))
+            yield from _walk(path.name, schema)
+
+    def test_no_nullable_string_pattern_accepts_the_empty_string(self):
+        import re
+
+        found = False
+        for label, spec in self._nullable_patterns():
+            found = True
+            with self.subTest(field=label):
+                self.assertIsNone(
+                    re.fullmatch(spec["pattern"], ""),
+                    f"{label} accepts \"\" as well as null",
+                )
+        self.assertTrue(found, "no nullable patterned field to check")
+
+    def test_the_digest_pattern_still_accepts_a_digest(self):
+        """The positive control: a rule that rejected everything would pass the
+        test above and break the contract."""
+        import re
+
+        action = json.loads(
+            (SCHEMA_DIR / "atlas-action.v1.json").read_text(encoding="utf-8")
+        )
+        pattern = action["properties"]["input_sha256"]["pattern"]
+
+        self.assertIsNotNone(re.fullmatch(pattern, "a" * 64))
+        self.assertIsNone(re.fullmatch(pattern, ""))
+        self.assertIsNone(re.fullmatch(pattern, "a" * 63))
+
+
+def _walk(label: str, node: object):
+    """Every subschema that is nullable and carries a pattern, with a path.
+
+    Walks the keywords that contain subschemas, rather than every dict it meets:
+    a `properties` map's keys are field names, not schema keywords, and treating
+    them alike is how the first version of this walker found nothing and passed.
+    """
+    if not isinstance(node, dict):
+        return
+    declared = node.get("type")
+    types = declared if isinstance(declared, list) else [declared]
+    if "null" in types and isinstance(node.get("pattern"), str):
+        yield label, node
+    for keyword in ("properties", "$defs", "patternProperties"):
+        for name, sub in (node.get(keyword) or {}).items():
+            yield from _walk(f"{label}.{name}", sub)
+    for keyword in ("items", "if", "then", "else", "not", "additionalProperties"):
+        if isinstance(node.get(keyword), dict):
+            yield from _walk(f"{label}.{keyword}", node[keyword])
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        for index, sub in enumerate(node.get(keyword) or []):
+            yield from _walk(f"{label}.{keyword}[{index}]", sub)
+
+
 class TestASuccessorIsActuallyOne(unittest.TestCase):
     """The compatibility rule, made mechanical. A version bump is allowed to add
     requirements; it is not allowed to lose a field and say nothing."""
@@ -229,6 +302,13 @@ class TestTheCodeAndTheFilesAgreeOnWhatV1Required(unittest.TestCase):
         filed = load("atlas-run.v1.json")["required"]
 
         self.assertEqual(sorted(V1_REQUIRED), sorted(filed))
+
+    def test_the_v2_required_list_matches_the_file(self):
+        """The list `is_complete` is answered from. Drift here would make a
+        migration report a document complete that its own schema rejects."""
+        filed = load("atlas-run.v2.json")["required"]
+
+        self.assertEqual(sorted(V2_REQUIRED), sorted(filed))
 
 
 class TestTheRunDeclaresWhichSubContractsItCarries(unittest.TestCase):

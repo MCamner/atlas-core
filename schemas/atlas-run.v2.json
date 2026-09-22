@@ -462,6 +462,7 @@
         "migrated_at",
         "unmapped",
         "missing",
+        "unfilled",
         "not_recorded"
       ],
       "properties": {
@@ -485,6 +486,13 @@
             "type": "string"
           },
           "description": "Fields the source schema required and the source document did not have. Recorded rather than filled in: a default here would be indistinguishable from a value the run actually produced."
+        },
+        "unfilled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Fields this version requires that the result does not carry, so a reader sees why the document does not validate without re-running the migration. Different from `missing`, which is about the source: a source can hold a key whose value is not something the target field can contain, and then the key was neither absent from the source nor present in the result."
         },
         "not_recorded": {
           "type": "array",

@@ -165,6 +165,48 @@ class TestNothingDisappears(SchemaAssertions):
 
         self.assertNotIn("experimental_counter", target)
 
+    def test_a_value_no_target_field_can_hold_is_kept_and_not_normalised(self):
+        """Found in review, and the sharpest case in this file.
+
+        A v1 document whose `evaluations` is not a list: the key is present, so
+        it is not *missing*; the value cannot go in a v2 array, so it cannot be
+        *mapped*. The first version of this migration excluded the key from
+        `unmapped` unconditionally and wrote `[]` in its place — so the source
+        value vanished, a claim of the migration's own took its place (that the
+        run was graded zero times), and the report said lossless and complete.
+        Both of this PR's headline rules, broken at once, by the same line.
+        """
+        for value in (None, {}, "none", 0):
+            with self.subTest(value=value):
+                document = self._v1(evaluations=value)
+
+                target, report = migrate_run(document)
+
+                self.assertEqual(report.unmapped["evaluations"], value)
+                self.assertNotIn("evaluations", target)
+                self.assertFalse(report.is_lossless)
+                self.assertFalse(report.is_complete)
+                self.assertIn("evaluations", report.unfilled)
+
+    def test_it_is_never_replaced_by_an_empty_list(self):
+        """Stated on its own because `[]` is the plausible value — it is what
+        every other branch of this function produces, and it is a claim."""
+        target, _ = migrate_run(self._v1(evaluations=None))
+
+        self.assertNotEqual(target.get("evaluations"), [])
+
+    def test_a_list_is_still_migrated_normally(self):
+        """The positive control. Without it the rule above could be a branch
+        that refuses every evaluations value."""
+        document = self._v1()
+        self.assertIsInstance(document["evaluations"], list)
+
+        target, report = migrate_run(document)
+
+        self.assertIn("evaluations", report.mapped)
+        self.assertNotIn("evaluations", report.unmapped)
+        self.assertEqual(len(target["evaluations"]), len(document["evaluations"]))
+
     def test_a_required_field_the_source_lacked_is_recorded_not_filled_in(self):
         document = self._v1()
         del document["max_iterations"]
@@ -186,6 +228,7 @@ class TestNothingDisappears(SchemaAssertions):
         target, report = migrate_run(document)
 
         self.assertFalse(report.is_complete)
+        self.assertIn("max_iterations", report.unfilled)
         # Lossless and incomplete at once: nothing was dropped, something was
         # never there. They fail for opposite reasons and are separate answers.
         self.assertTrue(report.is_lossless)
@@ -351,8 +394,13 @@ class TestApprovalIsRecordedWithoutBeingGranted(SchemaAssertions):
 
         ungraded = AtlasController(max_iterations=1).run("hej", json_mode=True)
         ungraded["evaluations"] = None
-        target, _ = migrate_run(ungraded)
+        target, report = migrate_run(ungraded)
         self.assertIsNone(target["approvals"])
+        # This test constructed exactly the input that hid the `evaluations`
+        # hole and asserted only the approval half of it. Asserting the other
+        # half here is what stops it being a blind spot a second time.
+        self.assertEqual(report.unmapped["evaluations"], None)
+        self.assertFalse(report.is_complete)
 
     def test_a_grant_that_names_nothing_is_not_well_formed(self):
         """The rule the contract exists to carry: an approval that does not name

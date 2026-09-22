@@ -59,6 +59,18 @@ V1_REQUIRED: tuple[str, ...] = (
     "outputs", "evaluations", "memory_candidates", "metadata",
 )
 
+#: Everything `atlas-run.v2` requires. Held here for the same reason as
+#: `V1_REQUIRED`, and used for a different question: `V1_REQUIRED` asks what the
+#: source should have had, this asks whether the result is a valid v2 document.
+#: They are not the same question, and a migration that answered only the first
+#: reported a result as complete while a required field was absent from it.
+V2_REQUIRED: tuple[str, ...] = (
+    "schema", "contracts", "task", "run_id", "created_at", "status",
+    "stop_reason", "iteration", "max_iterations", "route", "plan",
+    "observations", "outputs", "evaluations", "actions", "approvals",
+    "memory_candidates", "metadata",
+)
+
 #: Fields that move across under the same name and meaning. Listed rather than
 #: copied wholesale so that a v1 field this code has never seen ends up in
 #: `unmapped` and is noticed, instead of being carried silently into a v2
@@ -92,6 +104,13 @@ class MigrationReport:
     unmapped: Mapping[str, Any] = field(default_factory=dict)
     #: Keys the source schema required and the source did not have.
     missing: tuple[str, ...] = ()
+    #: Fields `Run.v2` requires that the result does not carry. A different
+    #: question from `missing`: a source can hold a key whose *value* is not
+    #: something the target field can contain, and then the key was neither
+    #: absent from the source nor present in the result. That gap is how a
+    #: migration once reported itself complete while replacing a value with a
+    #: claim of its own.
+    unfilled: tuple[str, ...] = ()
     #: v2 fields the source version could not have had.
     not_recorded: tuple[str, ...] = ()
     #: Contradictions in the source that were preserved rather than corrected.
@@ -112,8 +131,13 @@ class MigrationReport:
         alternative is a default indistinguishable from a value the run
         produced. A caller that needs a valid document checks this and decides;
         nothing here decides for it, and nothing pretends.
+
+        Read off the result, not off the source. Answering from `missing` alone
+        said "complete" for a source that carried `evaluations` with a value no
+        v2 array could hold — the key was present, so it was not missing, and
+        the result had no `evaluations` at all.
         """
-        return not self.missing
+        return not self.unfilled
 
     @property
     def is_lossless(self) -> bool:
@@ -133,6 +157,7 @@ class MigrationReport:
             "migrated_at": migrated_at,
             "unmapped": dict(self.unmapped),
             "missing": list(self.missing),
+            "unfilled": list(self.unfilled),
             "not_recorded": list(self.not_recorded),
         }
 
@@ -197,7 +222,16 @@ def migrate_run(document: Mapping[str, Any]) -> tuple[dict[str, Any], MigrationR
         ]
         target["approvals"] = _approvals_from(evaluations_in, run_id, document)
     else:
-        target["evaluations"] = []
+        # A value no v2 array can hold. It is *not* normalised to `[]`: that
+        # would drop what the source said and replace it with a claim of this
+        # module's own — that the run was graded zero times. It falls through to
+        # `unmapped` like any other value v2 has no place for, and the target
+        # simply has no `evaluations`, which `unfilled` then reports.
+        #
+        # This was a real hole, found in review: `unmapped` used to exclude the
+        # key unconditionally, so the value vanished, `[]` took its place, and
+        # the migration called itself both lossless and complete.
+        #
         # No evaluations to derive from. Null rather than `[]`: an empty list
         # would say nobody needed approval, and nobody asked.
         target["approvals"] = None
@@ -206,14 +240,15 @@ def migrate_run(document: Mapping[str, Any]) -> tuple[dict[str, Any], MigrationR
         target[key] = None
 
     unmapped = {
-        key: value for key, value in document.items()
-        if key not in mapped and key != "evaluations"
+        key: value for key, value in document.items() if key not in mapped
     }
+    unfilled = tuple(key for key in V2_REQUIRED if key not in target)
 
     report = MigrationReport(
         mapped=tuple(mapped),
         unmapped=unmapped,
         missing=missing,
+        unfilled=unfilled,
         not_recorded=NOT_RECORDED_IN_V1,
         inconsistent=tuple(inconsistent),
     )
@@ -312,6 +347,7 @@ __all__ = [
     "TARGET_SCHEMA",
     "UnknownSourceSchema",
     "V1_REQUIRED",
+    "V2_REQUIRED",
     "approval_is_well_formed",
     "migrate_run",
 ]

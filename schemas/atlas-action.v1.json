@@ -34,7 +34,13 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["observe", "model_call", "tool_call", "memory_read", "memory_write"],
+      "enum": [
+        "observe",
+        "model_call",
+        "tool_call",
+        "memory_read",
+        "memory_write"
+      ],
       "description": "What was done, from a closed vocabulary. A free-text kind would be a category nobody can aggregate over."
     },
     "started_at": {
@@ -42,26 +48,47 @@
       "description": "ISO 8601. When it began, not when it was recorded."
     },
     "capability": {
-      "type": ["string", "null"],
-      "enum": ["read", "write", "network", null],
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "read",
+        "write",
+        "network",
+        null
+      ],
       "description": "For a tool call, the capability the gateway checked. Null for a kind that is not a tool call — not omitted, so absence is stated rather than inferred."
     },
     "target": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "What it acted on: a tool name, a source path, a provider. Null when the kind has no single target."
     },
     "input_sha256": {
-      "type": ["string", "null"],
-      "pattern": "^([0-9a-f]{64})?$",
-      "description": "Digest of the input, so a replay can be compared without the input being stored. Null when nothing was hashed; never a digest of the empty string standing in for that."
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Digest of the input, so a replay can be compared without the input being stored. Absence is `null` and only `null` — the pattern does not admit the empty string, because a field with two ways to say nothing has a way that reads as a value. Never a digest of the empty input standing in for \"nothing was hashed\"."
     },
     "outcome": {
       "type": "string",
-      "enum": ["ok", "denied", "failed"],
+      "enum": [
+        "ok",
+        "denied",
+        "failed"
+      ],
       "description": "`denied` is a refusal by a boundary — the gateway, the capability list — and is a normal result, not an error. `failed` is an attempt that was allowed and did not succeed."
     },
     "error": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "The failure's type name, never a body. A provider can echo a request header back in an error payload, and this is written to disk."
     }
   }

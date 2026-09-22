@@ -28,9 +28,13 @@ Roadmap v1.3 box one: the versioned contracts, who owns which field, and
   `MigrationReport`. Nothing is dropped: every source key is mapped or kept
   *with its value* under `migration.unmapped`. Nothing is invented: `actions` is
   `null` and not `[]`, because an empty list would state the run did nothing,
-  and an absent `score_method` becomes `unknown` and not today's method. An
-  incomplete source is migrated anyway with `is_complete` false, and the result
-  does not validate against v2 — which is the honest outcome.
+  and an absent `score_method` becomes `unknown` and not today's method. A
+  value no v2 field can hold — `evaluations` that is not a list — is parked
+  with everything else rather than normalised to `[]`, which would be a claim
+  of the migration's own. An incomplete source is migrated anyway, with
+  `migration.unfilled` naming what `Run.v2` requires and the result lacks, and
+  `is_complete` read off that rather than off the source. The result does not
+  validate against v2, which is the honest outcome.
 - A document that does not name its own contract raises `UnknownSourceSchema`.
 - The round trip is asserted over documents the loop really produces, across
   routes and stop reasons, not over one fixture chosen to pass.

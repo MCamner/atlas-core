@@ -37,9 +37,13 @@ rather than a comment:
   becomes `unknown`, never today's method — a document old enough to lack the
   field is old enough to hold the weighted score.
 - **An incomplete source is migrated anyway, and says so.** A field the source
-  schema required and the document lacked is recorded in `migration.missing`
-  and `report.is_complete` is false. The result does not validate against
-  `atlas-run.v2`, which is the honest outcome: a default here would be
+  schema required and the document lacked is recorded in `migration.missing`.
+  A field `Run.v2` requires that the result does not carry is recorded in
+  `migration.unfilled`, and `report.is_complete` is read off *that* — the two
+  are different questions, because a source can hold a key whose value is not
+  something the target field can contain, and then the key was neither absent
+  from the source nor present in the result. The document does not validate
+  against `atlas-run.v2`, which is the honest outcome: a default here would be
   indistinguishable from a value the run produced.
 
 A document that does not name its own contract raises `UnknownSourceSchema`.
