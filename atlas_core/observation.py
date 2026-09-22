@@ -99,6 +99,19 @@ class Observation:
     commit: str = UNKNOWN
     worktree_state: WorktreeState = UNKNOWN
     confidentiality: Confidentiality = UNKNOWN
+    #: How many lines the source has, when that was established. `None` means
+    #: nobody counted — the same discipline the provenance strings apply, and
+    #: for the same reason: a plausible number here would let a reader conclude
+    #: the excerpt was the whole file.
+    #:
+    #: It exists because the excerpt is bounded. A claim settled against
+    #: `lines 1-80` of a 169-line file is settled about those lines and about
+    #: nothing else, and a `source_lacks_literal` verdict there is the case
+    #: where the distance matters: the sentence names its range, and a reader
+    #: can still summarise it into something false about the file. See
+    #: ROADMAP P1.1 and `docs/pinned-repo-review.md`, where that was found by
+    #: running the loop against a real repository.
+    total_lines: int | None = None
 
     def __post_init__(self) -> None:
         _check_enum("source_type", self.source_type, SOURCE_TYPES)
@@ -116,6 +129,17 @@ class Observation:
 
         _check_digest(self.content_sha256)
         _check_line_range(self.excerpt, self.line_start, self.line_end)
+        if self.total_lines is not None:
+            if self.total_lines < 0:
+                raise ValueError(
+                    f"total_lines cannot be negative, got {self.total_lines}"
+                )
+            if self.line_end > self.total_lines:
+                raise ValueError(
+                    f"observation covers lines {self.line_start}-{self.line_end} "
+                    f"of a source said to have {self.total_lines}; one of the two "
+                    "is wrong and a reader cannot tell which"
+                )
 
         expected = derive_source_id(self.snapshot_id, self.source_type, self.path)
         if self.source_id != expected:
@@ -141,6 +165,7 @@ class Observation:
         commit: str = UNKNOWN,
         worktree_state: str = UNKNOWN,
         confidentiality: str = UNKNOWN,
+        total_lines: int | None = None,
     ) -> Observation:
         """Build a validated observation, deriving `source_id` for you."""
         return cls(
@@ -158,6 +183,7 @@ class Observation:
             commit=commit,
             worktree_state=worktree_state,  # type: ignore[arg-type]
             confidentiality=confidentiality,  # type: ignore[arg-type]
+            total_lines=total_lines,
         )
 
     def is_verifiable(self) -> bool:
@@ -177,8 +203,24 @@ class Observation:
         """
         return self.commit != UNKNOWN and self.worktree_state == "clean"
 
+    def read_in_full(self) -> bool | None:
+        """Whether the excerpt is the whole source. `None` when nobody counted.
+
+        Three values, not two, because "we did not check" and "no, it is
+        partial" call for different things from a reader.
+        """
+        if self.total_lines is None:
+            return None
+        return self.line_end >= self.total_lines
+
     def to_dict(self) -> dict[str, Any]:
-        return {"schema": SCHEMA, **asdict(self)}
+        return {
+            "schema": SCHEMA,
+            **asdict(self),
+            # Derived rather than stored, so it cannot contradict the range it
+            # is about.
+            "read_in_full": self.read_in_full(),
+        }
 
 
 def _check_enum(name: str, value: str, allowed: tuple[str, ...]) -> None:

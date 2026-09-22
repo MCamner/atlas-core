@@ -114,7 +114,7 @@
           "const": "unknown"
         }
       ],
-      "description": "What was committed. Does NOT identify the bytes read unless worktree_state is \"clean\" — a dirty worktree serves different bytes from the same path."
+      "description": "What was committed. Does NOT identify the bytes read unless worktree_state is \"clean\" \u2014 a dirty worktree serves different bytes from the same path."
     },
     "worktree_state": {
       "type": "string",
@@ -133,7 +133,22 @@
         "secret",
         "unknown"
       ],
-      "description": "Derived from the content at collection time when the caller states nothing: \"secret\" for a credential shape, \"internal\" for personal data, \"unknown\" otherwise. Never assigned \"public\" automatically — detection is narrow, so no match is a statement about the patterns rather than about the source. A caller that states a class is not overruled."
+      "description": "Derived from the content at collection time when the caller states nothing: \"secret\" for a credential shape, \"internal\" for personal data, \"unknown\" otherwise. Never assigned \"public\" automatically \u2014 detection is narrow, so no match is a statement about the patterns rather than about the source. A caller that states a class is not overruled."
+    },
+    "total_lines": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "How many lines the source has, or null when nobody counted. Null is the honest value rather than a plausible number: a count that was never taken must not let a reader conclude the excerpt is the whole file. When it is known, `line_end` may not exceed it."
+    },
+    "read_in_full": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether the excerpt is the whole source. Derived from `line_end` and `total_lines` rather than stored, so it cannot contradict the range it describes; null when `total_lines` is null. False is the case that matters for a `source_lacks_literal` verdict: the claim is settled about the lines it names and about nothing beyond them."
     }
   }
 }
