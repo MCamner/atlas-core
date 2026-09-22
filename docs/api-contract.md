@@ -568,6 +568,17 @@ adapter. `metadata.model_result.metadata.determinism` carries the same fact per
 call. See `docs/live-smoke.md` for what a live run has actually been observed
 to do.
 
+`LiveModelAdapter(..., capabilities=[...])` declares the tool names the model
+may ask for. It is empty by default, it is a whitelist, and it can only narrow
+what `ToolGateway` already allows — a declared `write` or `network` tool is
+still denied, and a declared name that is not registered is still denied.
+`invoke_tool(gateway, name, arguments)` is the only path, and it takes the
+gateway rather than holding one: a gateway kept across calls outlives the
+budget that made its calls metered. `metadata.model_result.metadata` records
+`tools_declared`, `tools_invoked` and `tool_gateway`. Nothing in the package
+calls `invoke_tool`, so `tools_invoked` is `0` on every run this version
+produces.
+
 A failed request raises a named exception — `ProviderRateLimited` (with the
 provider's own `retry_after` when it gave one, `None` otherwise),
 `ProviderTimeout`, `ProviderUnreachable`, `ProviderRefused`,

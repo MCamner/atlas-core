@@ -103,7 +103,18 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
     "sources_not_documented": ("sources_documented",),
     "uncited_findings": ("findings_are_checkable",),
     "uncheckable_findings": ("findings_are_checkable",),
-    "malformed_findings": ("findings_are_checkable",),
+    # Three, for the reason `no_on_topic_finding` lists two: nothing was
+    # established on this path. A block nobody could read has had no citation
+    # checked and no claim settled, and since met criteria are `declared -
+    # unmet`, naming only the first would report the other two as met beside an
+    # empty `citation_checks`. The run stops either way; what would be wrong is
+    # the document saying something nobody checked. `unmet &= declared` drops
+    # the ones a route does not owe.
+    "malformed_findings": (
+        "findings_are_checkable",
+        "citations_hold",
+        "claims_are_settled",
+    ),
     "unsound_citations": ("citations_hold",),
     "contradicted_findings": ("claims_are_settled",),
     "unverified_findings": ("claims_are_settled",),

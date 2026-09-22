@@ -52,7 +52,22 @@ model adapter. Only trusted host code may register handlers. Unregistered
 names and `write`/`network` capabilities are denied **before** a handler runs,
 even when model text claims `approved: true`. Nested calls share the same
 budget; retries never reset counters. Tool outputs must be JSON and are charged
-to the UTF-8 output budget. Actual reported model tokens are mandatory. Locks
+to the UTF-8 output budget.
+
+Since P1.2 the live model adapter also declares **which** of those tools it may
+ask for. `LiveModelAdapter.capabilities` is a list of tool names, **empty by
+default**, set by host code holding the object and by nothing else — not from
+the environment, because `ATLAS_MODEL_*` is read out of a process whose
+variables a build script or a checked-in dotfile can set, which puts it closer
+to repository content than to the host. It is a whitelist, so a tool nobody
+thought about is denied rather than permitted until someone forbids it, and it
+can only narrow: a declared `write` tool is still refused by the gateway.
+`invoke_tool` is the single path and adds exactly that one check on top of the
+gateway; there is no second registry and no branch that skips it.
+
+**Tool use itself is not implemented.** The adapter sends one request and reads
+one reply, nothing in the package calls `invoke_tool`, and every run records
+`tools_invoked: 0`. What exists is the block and the declaration. Actual reported model tokens are mandatory. Locks
 prevent concurrent quota oversubscription. Unmetered memory reads/writes are
 disabled in budgeted runs.
 
