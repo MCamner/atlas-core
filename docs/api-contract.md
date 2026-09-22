@@ -481,6 +481,35 @@ adapter capable of mutation must obtain explicit approval immediately before
 performing that mutation; the core's keyword detection is advisory and does not
 replace adapter-side authorization.
 
+### A live model provider (P1.2, partial)
+
+`atlas_core.adapters.build_model_adapter()` returns a configured adapter or
+`None`. `None` is not an error and not a fallback performed inside the adapter:
+it is the absence `AtlasController` has always read as "use the deterministic
+executor".
+
+That is how two rules hold at once. A **missing key is a configuration state**,
+answered by `None`. A **failing request is a request outcome**, and the
+controller stops with `tool_error` rather than publishing a deterministic
+answer as though a model had written it. A configuration that is stated and
+wrong — an unknown provider, a non-numeric timeout — raises, because silence
+would leave a typo running the deterministic path unnoticed.
+
+Configuration is read from the environment: `ATLAS_MODEL_PROVIDER` (`ollama` or
+`openai_compatible`), `ATLAS_MODEL`, `ATLAS_MODEL_ENDPOINT`,
+`ATLAS_MODEL_API_KEY`, `ATLAS_MODEL_TIMEOUT`. A caller may pass a dict instead.
+The key stays on the config: it is not in `ModelResult.metadata`, not in the run
+document, not in the failure record, and not in the dataclass `repr`.
+`ProviderConfig.describe()` is what anything else may see.
+
+Token counts a provider reports are mapped to `metadata["usage_tokens"]`, which
+is the field `RunBudget` charges. Absent counts report nothing rather than zero.
+
+Not yet, and stated so a caller does not assume otherwise: the prompt is not
+bounded, structured output is not validated, rate limits and unknown responses
+are not handled beyond failing, results are not marked non-deterministic, and
+the adapter offers the model no tool.
+
 ### What another pass rests on (P1.1)
 
 A `next_action` declares what a retry of it would rest on, in
