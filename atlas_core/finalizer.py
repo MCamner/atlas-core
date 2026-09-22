@@ -95,6 +95,16 @@ def render_run_text(run: dict[str, Any]) -> str:
                 "establishing anything. That is not a statement that the "
                 "sources are sound; it is the absence of any statement."
             )
+        partial = _absence_from_a_partial_read(latest_eval)
+        if partial:
+            # The one place the prose can mislead where the document does not.
+            # A `lacks` claim names its range in the sentence, and a reader can
+            # summarise the range away: "the gate does not run pytest" is what
+            # "lines 1-80 do not contain ..." becomes when repeated.
+            meta.append(
+                "Absence was established only over the lines read, not over the "
+                "whole source, for: " + ", ".join(partial) + "."
+            )
         if latest_eval["requires_user_approval"]:
             meta.append("Write approval required before any mutation.")
     ledger = _claim_ledger(run)
@@ -133,6 +143,28 @@ def _asserted_nothing(evaluation: dict[str, Any]) -> bool:
         and not evaluation.get("citation_checks")
         and not evaluation.get("unverified_claims")
     )
+
+
+def _absence_from_a_partial_read(evaluation: dict[str, Any]) -> list[str]:
+    """Sources where a settled `lacks` rests on less than the whole file.
+
+    Only `lacks`. "Contains" over an excerpt is as strong as over a whole
+    file — the text was found, and more text elsewhere cannot unfind it.
+    Absence is only ever as wide as what was searched.
+    """
+    sources: list[str] = []
+    for record in evaluation.get("citation_checks") or []:
+        if record.get("verdict") != "verified":
+            continue
+        checked = (record.get("claim_check") or {}).get("checked") or {}
+        if checked.get("kind") != "source_lacks_literal":
+            continue
+        if checked.get("read_in_full") is True:
+            continue
+        path = str(checked.get("path") or "")
+        if path and path not in sources:
+            sources.append(path)
+    return sources
 
 
 def _claim_ledger(run: dict[str, Any]) -> list[str]:

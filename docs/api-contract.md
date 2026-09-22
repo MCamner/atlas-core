@@ -145,6 +145,22 @@ behind a PASS rather than beside a limitation. The requirement text carries
 the question so the distance between the gate and the question stays visible
 in the run document. P1.1 box three is open for that distance.
 
+**Past relevance, where a topic has declared what would count.** A
+`ReviewTopic` may list the literals that bear on its question — `secrets`
+declares `password=`, `token=`, `api_key=` and so on. Where it has,
+`findings_answer_the_question` is added beside the relevance gate, and a
+settled finding must name one of them. A verified claim that `settings.env`
+contains `TIMEOUT=30` clears relevance and fails this.
+
+The judgement is **declared, not inferred**: written once, per topic, where it
+can be read and disagreed with. Deriving it from an arbitrary claim at grading
+time is entailment, which needs a model. Two limits follow, and both are
+tested rather than only written down. A topic that declares nothing is held to
+relevance alone — a list assembled to have a list would be worse than none.
+And a credential that does not name itself, a bare access key or a base64
+blob, matches nothing declared and is a miss; the run stops rather than
+passing on a claim about something else.
+
 `contradicted` does not satisfy it. A refutation says the producer was wrong,
 which is worth knowing and is not the same as the question being settled by
 what it wrote; a producer that wants to establish a negative can claim

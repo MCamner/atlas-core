@@ -176,6 +176,7 @@ def collect_observation(
     path = Path(snapshot.root) / relative_path
     content = path.read_text(encoding="utf-8", errors="replace")
     excerpt, line_start, line_end = _excerpt(content, max_lines)
+    total_lines = len(content.splitlines())
     if confidentiality is None:
         confidentiality = classify_confidentiality(content)
 
@@ -187,6 +188,9 @@ def collect_observation(
         excerpt=excerpt,
         line_start=line_start,
         line_end=line_end,
+        # Counted here because here is where the whole content is in hand. A
+        # later reader has the excerpt and cannot tell it from the file.
+        total_lines=total_lines,
         snapshot_id=snapshot.snapshot_id,
         commit=snapshot.commit,
         ref=snapshot.ref,
