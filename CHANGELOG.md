@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-Roadmap P1.2 box two, request side: a bounded prompt and named failures.
+Roadmap P1.2 box two: a bounded prompt, named failures, and a reply that is
+asked for in a schema and checked locally either way.
 
 - **`PromptLimits`** bounds the prompt in characters. Tokens would need a
   tokenizer per provider — a dependency this package does not carry, and a
@@ -32,6 +33,29 @@ Roadmap P1.2 box two, request side: a bounded prompt and named failures.
   another attempt is worth it.
 - HTTP failures carry a status and never a body: a provider can echo a request
   header back in an error payload, and the message reaches the run document.
+- **The reply is asked for in a schema**, in the field each provider reads:
+  `format` for Ollama, `response_format` for an OpenAI-compatible endpoint.
+  A schema over the reply means the reply is JSON, which the prose half of an
+  answer is not, so `atlas-model-output.v1` wraps prose and findings in one
+  object and the adapter reassembles the markdown the loop already reads.
+  `structured_output=False` sends no schema field, for an endpoint that rejects
+  one it does not know.
+- **And checked locally either way.** An endpoint can accept the field and
+  ignore it, so asking is not getting. The envelope check runs on every reply,
+  and it checks the envelope only — `atlas_core.evidence` remains the authority
+  on what a finding must look like, and a second validator beside it could only
+  drift. A test binds the schema held in code to
+  `schemas/atlas-findings-block.v1.json`, which is not packaged.
+- **A reply of the wrong shape is repairable, not a failed run.** It passes
+  through untouched, the evaluator reports `malformed_findings`, and the next
+  action is `repair_findings_block`. Raising would turn a producer error into a
+  machine error and spend the run's stop reason on `tool_error`.
+- **`config_id`** identifies which configuration answered without publishing
+  any of it: a digest over provider, model, endpoint, timeout and *whether* a
+  key is set. The endpoint is hashed rather than recorded because a URL can
+  carry a token in its query string; the key is not hashed in at all. The model
+  the provider says it served is recorded beside the one that was asked for,
+  and absent when it reports none.
 
 Roadmap P1.2 box one: a real provider behind the `ModelAdapter` that existed.
 

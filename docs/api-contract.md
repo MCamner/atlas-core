@@ -519,6 +519,29 @@ prompt the producer reads *and* counted on the result, so
 cut, so a bound that cannot hold the task, question and feedback raises rather
 than being exceeded.
 
+The reply is asked for in a schema and checked locally either way. The schema
+(`schemas/atlas-model-output.v1.json`) goes in the field each provider reads —
+`format` for Ollama, `response_format` for an OpenAI-compatible endpoint — and
+wraps the prose and the findings in one object, because a schema over the reply
+means the reply is JSON and the prose half is not. The adapter reassembles the
+markdown the loop already reads. `LiveModelAdapter(..., structured_output=False)`
+sends no schema field.
+
+Asking is not getting: an endpoint can accept the field and ignore it, so the
+envelope is checked on every reply. **A reply of the wrong shape does not
+raise.** It passes through untouched, so the evaluator reports
+`malformed_findings` and the next action is `repair_findings_block` — a
+producer error the next pass can fix, not a `tool_error` that ends the run.
+`metadata.model_result.metadata` carries `output_schema`, `output_schema_sent`,
+`output_conformed` and, when it did not conform, `output_schema_gap`.
+
+What identifies a live run carries no secret. `config_id` is a digest over
+provider, model, endpoint, timeout and whether a key is set — the endpoint is
+hashed rather than published because a URL can carry a token in its query
+string, and the key is not hashed in at all. `provider_model` and
+`provider_fingerprint` record what the provider said it served, beside the
+`model` that was asked for, and are absent when it reports none.
+
 A failed request raises a named exception — `ProviderRateLimited` (with the
 provider's own `retry_after` when it gave one, `None` otherwise),
 `ProviderTimeout`, `ProviderUnreachable`, `ProviderRefused`,

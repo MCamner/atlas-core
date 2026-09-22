@@ -65,6 +65,7 @@ way out, and this module gives it nothing to mask.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.error
@@ -75,6 +76,11 @@ from typing import Any, Callable, Protocol
 from atlas_core.state import AtlasEvaluation, AtlasPlan, AtlasRoute
 
 from .model import ModelResult
+from .output_contract import (
+    OUTPUT_SCHEMA_VERSION,
+    output_schema,
+    read_envelope,
+)
 
 #: Providers this module knows how to speak to.
 PROVIDERS: tuple[str, ...] = ("ollama", "openai_compatible")
@@ -184,13 +190,30 @@ class ProviderSpec:
     #: state rather than a request failure.
     needs_key: bool
     default_endpoint: str | None
-    build: Callable[["ProviderConfig", str], dict[str, Any]]
+    #: Takes the schema the reply must match, or `None` for no schema. The
+    #: field it goes in differs per provider, which is the whole reason this is
+    #: per-spec rather than one payload with an if-statement in it.
+    build: Callable[["ProviderConfig", str, dict[str, Any] | None], dict[str, Any]]
     read_text: Callable[[dict[str, Any]], str]
     read_tokens: Callable[[dict[str, Any]], int | None]
+    #: What the provider said it is, as opposed to what was asked for. A served
+    #: model can differ from the configured name, and a run document that
+    #: records only the request cannot tell you which one answered.
+    read_version: Callable[[dict[str, Any]], dict[str, str]]
 
 
-def _ollama_request(config: ProviderConfig, prompt: str) -> dict[str, Any]:
-    return {"model": config.model, "prompt": prompt, "stream": False}
+def _ollama_request(
+    config: ProviderConfig, prompt: str, schema: dict[str, Any] | None
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": config.model,
+        "prompt": prompt,
+        "stream": False,
+    }
+    if schema is not None:
+        # `format` takes a JSON Schema object, not only the string "json".
+        payload["format"] = schema
+    return payload
 
 
 def _ollama_text(reply: dict[str, Any]) -> str:
@@ -206,12 +229,24 @@ def _ollama_tokens(reply: dict[str, Any]) -> int | None:
     return sum(numbers) if numbers else None
 
 
-def _openai_request(config: ProviderConfig, prompt: str) -> dict[str, Any]:
-    return {
+def _openai_request(
+    config: ProviderConfig, prompt: str, schema: dict[str, Any] | None
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "model": config.model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
     }
+    if schema is not None:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "atlas_model_output",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+    return payload
 
 
 def _openai_text(reply: dict[str, Any]) -> str:
@@ -222,6 +257,25 @@ def _openai_text(reply: dict[str, Any]) -> str:
     if not isinstance(message, dict):
         return ""
     return str(message.get("content", ""))
+
+
+def _ollama_version(reply: dict[str, Any]) -> dict[str, str]:
+    served = reply.get("model")
+    return {"provider_model": str(served)} if isinstance(served, str) and served else {}
+
+
+def _openai_version(reply: dict[str, Any]) -> dict[str, str]:
+    version: dict[str, str] = {}
+    served = reply.get("model")
+    if isinstance(served, str) and served:
+        version["provider_model"] = served
+    # The field an OpenAI-compatible endpoint uses to identify the backend
+    # build. Absent on most local gateways, which is why it is only recorded
+    # when it is there rather than reported as empty.
+    fingerprint = reply.get("system_fingerprint")
+    if isinstance(fingerprint, str) and fingerprint:
+        version["provider_fingerprint"] = fingerprint
+    return version
 
 
 def _openai_tokens(reply: dict[str, Any]) -> int | None:
@@ -239,6 +293,7 @@ SPECS: dict[str, ProviderSpec] = {
         build=_ollama_request,
         read_text=_ollama_text,
         read_tokens=_ollama_tokens,
+        read_version=_ollama_version,
     ),
     "openai_compatible": ProviderSpec(
         name="openai_compatible",
@@ -247,6 +302,7 @@ SPECS: dict[str, ProviderSpec] = {
         build=_openai_request,
         read_text=_openai_text,
         read_tokens=_openai_tokens,
+        read_version=_openai_version,
     ),
 }
 
@@ -348,9 +404,39 @@ class ProviderConfig:
     def spec(self) -> ProviderSpec:
         return SPECS[self.provider]
 
+    @property
+    def config_id(self) -> str:
+        """A stable name for this configuration, carrying none of it.
+
+        Two runs with the same id were produced against the same provider,
+        model, endpoint and timeout; two with different ids were not. That is
+        the whole question a reader of two run documents has, and answering it
+        by printing the endpoint would be a bad trade: an endpoint can carry a
+        token in its query string, so the safe thing to publish is the digest
+        and not the URL.
+
+        The key is not hashed in — a digest over a secret is still derived from
+        it, and whether one is set is the only part that changes what happens.
+        """
+        material = json.dumps(
+            {
+                "provider": self.provider,
+                "model": self.model,
+                "endpoint": self.endpoint,
+                "timeout": self.timeout,
+                "key_set": bool(self.api_key),
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
     def describe(self) -> dict[str, str]:
         """Everything about this configuration that is safe to record."""
-        return {"provider": self.provider, "model": self.model}
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "config_id": self.config_id,
+        }
 
 
 class UrllibTransport:
@@ -385,10 +471,17 @@ class LiveModelAdapter:
         config: ProviderConfig,
         transport: Transport | None = None,
         limits: PromptLimits | None = None,
+        *,
+        structured_output: bool = True,
     ) -> None:
         self.config = config
         self.transport = transport or UrllibTransport()
         self.limits = limits or PromptLimits()
+        #: Whether the reply schema goes on the wire. Off is for an endpoint
+        #: that refuses a request carrying a field it does not know, which is a
+        #: live-configuration matter rather than a fallback this module takes
+        #: on its own. The local check runs either way.
+        self.structured_output = structured_output
 
     def execute(
         self,
@@ -412,10 +505,11 @@ class LiveModelAdapter:
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
 
+        schema = output_schema() if self.structured_output else None
         try:
             reply = self.transport.post(
                 self.config.endpoint,
-                self.config.spec.build(self.config, prompt.text),
+                self.config.spec.build(self.config, prompt.text, schema),
                 headers,
                 self.config.timeout,
             )
@@ -478,8 +572,27 @@ class LiveModelAdapter:
             # while a scripted one is not.
             metadata["usage_tokens"] = str(tokens)
 
+        # Which configuration answered, and what the provider said it was. No
+        # secret is in either: `describe()` chooses what may be recorded, and
+        # `config_id` is a digest whose inputs include the endpoint rather than
+        # an endpoint that could carry a token in its query string.
+        metadata.update(self.config.describe())
+        metadata.update(self.config.spec.read_version(reply))
+
+        # The reply is checked locally whether or not the schema was sent, and
+        # a reply of the wrong shape is *not* raised on. It is a producer that
+        # wrote the wrong thing, and it passes through so the evaluator can
+        # report `malformed_findings` and ask for a repair — a gap the next
+        # pass can close, rather than a `tool_error` that ends the run.
+        envelope = read_envelope(text)
+        metadata["output_schema"] = OUTPUT_SCHEMA_VERSION
+        metadata["output_schema_sent"] = "true" if schema is not None else "false"
+        metadata["output_conformed"] = "true" if envelope.conformed else "false"
+        if envelope.reason is not None:
+            metadata["output_schema_gap"] = envelope.reason
+
         return ModelResult(
-            output=text,
+            output=envelope.text,
             provider=self.config.provider,
             model=self.config.model,
             metadata=metadata,
@@ -735,6 +848,7 @@ def model_adapter_or_raise(
 
 __all__ = [
     "BoundedPrompt",
+    "OUTPUT_SCHEMA_VERSION",
     "DEFAULT_MAX_OBSERVATION_CHARS",
     "DEFAULT_MAX_PROMPT_CHARS",
     "DEFAULT_OLLAMA_ENDPOINT",
@@ -762,4 +876,6 @@ __all__ = [
     "build_model_adapter",
     "build_prompt",
     "model_adapter_or_raise",
+    "output_schema",
+    "read_envelope",
 ]
