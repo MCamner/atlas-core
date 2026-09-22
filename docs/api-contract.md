@@ -558,6 +558,16 @@ string, and the key is not hashed in at all. `provider_model` and
 `provider_fingerprint` record what the provider said it served, beside the
 `model` that was asked for, and are absent when it reports none.
 
+`metadata.non_deterministic` is present exactly when a live provider produced
+the output: `{"reason": "live_model_provider"}`. It means the document cannot
+be reproduced from itself — the same prompt to the same model may answer
+differently, and the model behind a name can change without the name doing so.
+It is written by the adapter and the controller, never read out of the model's
+own text, and it is absent for a scripted adapter and for a run with no
+adapter. `metadata.model_result.metadata.determinism` carries the same fact per
+call. See `docs/live-smoke.md` for what a live run has actually been observed
+to do.
+
 A failed request raises a named exception — `ProviderRateLimited` (with the
 provider's own `retry_after` when it gave one, `None` otherwise),
 `ProviderTimeout`, `ProviderUnreachable`, `ProviderRefused`,

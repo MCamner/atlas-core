@@ -584,6 +584,14 @@ class LiveModelAdapter:
         # wrote the wrong thing, and it passes through so the evaluator can
         # report `malformed_findings` and ask for a repair — a gap the next
         # pass can close, rather than a `tool_error` that ends the run.
+        # Said by this module, which is the trusted path, and never read out of
+        # the model's own text — a producer that called itself reproducible
+        # would be attesting to its own nature. A live provider's reply cannot
+        # be reproduced from the run document: the same prompt to the same
+        # model may answer differently, and the model behind a name can change
+        # without the name doing so.
+        metadata["determinism"] = "non_deterministic"
+
         envelope = read_envelope(text)
         metadata["output_schema"] = OUTPUT_SCHEMA_VERSION
         metadata["output_schema_sent"] = "true" if schema is not None else "false"

@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+Roadmap P1.2 box three: the live path verified against a real provider, and a
+run that says when it cannot be reproduced.
+
+- **A network result is marked non-deterministic**, and the mark comes from the
+  adapter and the controller — the trusted path — never from the model's own
+  text. A producer attesting to its own reproducibility is the same mistake as
+  one declaring its own verdict. `metadata.non_deterministic` is present
+  exactly when a live provider produced the output, absent for a scripted
+  adapter and for a run with no adapter, and declared in
+  `schemas/atlas-run.v1.json`.
+- **An opt-in live smoke test** in `tests/test_live_smoke.py`, skipped unless
+  `ATLAS_LIVE_SMOKE=1` *and* a provider is configured. Mandatory CI still needs
+  no daemon, no network and no key. It asserts that the provider was actually
+  reached — the daemon names the model it served, read from the reply rather
+  than echoed from the request — that the schema was sent, that the reply
+  conformed, that usage was metered and that the evaluator reached a
+  conclusion. An HTTP 200 is not a pass.
+- `openai_compatible` is **separately** opt-in. A passing Ollama run says
+  nothing about a hosted endpoint: different request field, different reply
+  shape, different implementation of the same schema.
+- **Measured, and written down in `docs/live-smoke.md`** — including what it
+  does not prove, and the run where the same configuration failed after having
+  passed.
+- An endpoint carrying a token in its query string is now asserted absent from
+  the run document, which is the reason `config_id` is a digest and not the
+  address.
+
 Roadmap P1.2 box two: a bounded prompt, named failures, and a reply that is
 asked for in a schema and checked locally either way.
 
