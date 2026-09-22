@@ -488,11 +488,10 @@ changed plan is the other channel, and it is recorded in the run document.
 Every kind must appear in the table; an unclassified one is refused at import,
 because defaulting it to `restatement` would quietly grant the permissive half.
 
-A run whose feedback repeats over unchanged material stops `no_progress` with
-`metadata.no_progress.reason = "unchanged_feedback"` and
-`metadata.no_progress.material = "unchanged"`. This applies to every run.
-Before P1.1 box four it applied only to budgeted ones, which changes when an
-unbudgeted run stops — not how it is graded.
+A bounded run whose feedback repeats stops `no_progress` with
+`metadata.no_progress.reason = "unchanged_feedback"`, and
+`metadata.no_progress.material` says whether the evidence stood still too.
+Unbudgeted runs keep their 1.0 verdict semantics.
 
 ### Optional cooperative run budget (P0.3, partial)
 

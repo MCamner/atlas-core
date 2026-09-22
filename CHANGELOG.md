@@ -17,13 +17,11 @@ Roadmap P1.1 box four: what another pass has to rest on.
   `blocked` with `metadata.blocked.reason = "no_new_material"` instead of
   spending passes to fail the same way. A new test result is not a third
   channel: it reaches a run as an observation through its own adapter.
-- **`no_progress` on unchanged feedback now applies to every run, not only
-  budgeted ones.** #29 put it behind a budget because it was a cost rule; this
-  is a contract rule, and identical material answered with identical feedback is
-  as unproductive unbudgeted as bounded. `metadata.no_progress.material` says
-  whether the material stood still too. This changes *when* an unbudgeted run
-  stops, not how it is graded, and the test that held the old boundary visible
-  is rewritten rather than removed.
+- `metadata.no_progress.material` says whether the evidence stood still as well
+  as the feedback. The rule itself is unchanged and still bounded-runs-only:
+  widening it would change when an unbudgeted run stops and rewrite the tests
+  that hold the 1.0 semantics visible, which is a decision of its own rather
+  than part of naming what a retry rests on.
 - **Fixed on the way:** `answer_the_question` was ranked ahead of
   `repair_findings_block`. "Nothing on topic" is true whenever nothing was
   settled, which includes every structural failure, so a producer whose findings
