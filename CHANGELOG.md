@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+Roadmap P1.1 box four: what another pass has to rest on.
+
+- **`RETRY_CLASSES`**, beside the action vocabulary it classifies. Taken
+  literally, "require a new observation, a new test or a changed plan before a
+  retry" would refuse a producer the chance to fix a malformed findings block,
+  which needs nothing new — the bytes are in hand and the fault is in the
+  writing. So the contract is stated per action: `restatement` when everything
+  the next pass needs is already in the run, `investigation` when it is not.
+  Checked at import, because an unclassified kind would default to the
+  permissive half.
+- Only `observe_again` is an investigation. A run that cannot get the material
+  — no host attached, or a round that came back with nothing new — now stops
+  `blocked` with `metadata.blocked.reason = "no_new_material"` instead of
+  spending passes to fail the same way. A new test result is not a third
+  channel: it reaches a run as an observation through its own adapter.
+- `metadata.no_progress.material` says whether the evidence stood still as well
+  as the feedback. The rule itself is unchanged and still bounded-runs-only:
+  widening it would change when an unbudgeted run stops and rewrite the tests
+  that hold the 1.0 semantics visible, which is a decision of its own rather
+  than part of naming what a retry rests on.
+- **Fixed on the way:** `answer_the_question` was ranked ahead of
+  `repair_findings_block`. "Nothing on topic" is true whenever nothing was
+  settled, which includes every structural failure, so a producer whose findings
+  block would not parse was told to answer the question while the reason nothing
+  had been read went unmentioned. It now sits second to last, ahead of
+  `add_sections` only.
+
 Roadmap P1.1 box two: fixture repositories with an answer key, and what the
 numbers say.
 
@@ -51,6 +78,7 @@ numbers say.
 - `docs/benchmark.md` publishes the method, the fixtures, the results and the
   limitations — including that the producers are scripted, so nothing here
   measures a model.
+||||||| parent of abe9161 (feat(p11): what another pass rests on, declared per action)
 
 Roadmap P1.1 box three, partly: criteria that come from the question, not just
 the route. The box stays open — see below, and ROADMAP.md.

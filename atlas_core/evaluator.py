@@ -959,27 +959,6 @@ def _next_action(
             },
         )
 
-    if off_topic and review is not None:
-        # After reading, before anything about how good the findings are. An
-        # answer about the wrong subject cannot be repaired into an answer
-        # about the right one, and improving its citations would only make it
-        # read better. The sources are already in hand; what is missing is a
-        # claim about them.
-        #
-        # The instruction aims past the gate, deliberately. The gate can only
-        # tell whether something was settled about the right source; what the
-        # producer is asked for is an answer to the question. Asking for the
-        # floor would be asking for the cheapest thing that clears it.
-        return NextAction(
-            kind="answer_the_question",
-            gap_codes=codes,
-            details={
-                "question": review.question,
-                "patterns": list(review.patterns),
-                "available_source_ids": base.source_ids() if base else [],
-            },
-        )
-
     if "malformed_findings" in evidence.gaps:
         return NextAction(
             kind="repair_findings_block",
@@ -1035,6 +1014,33 @@ def _next_action(
                 "fence": FINDINGS_FENCE,
                 "available_source_ids": base.source_ids() if base else [],
                 "available_sources": base.paths() if base else list(sources),
+            },
+        )
+
+    if off_topic and review is not None:
+        # Late, and for a reason found by driving the loop rather than by
+        # reading it. "Nothing on topic" is true whenever nothing was settled,
+        # which includes every structural failure above: a block that will not
+        # parse, a citation that does not hold, a claim stated so it cannot be
+        # decided. Ranked early — where #40 first put it — a producer whose
+        # findings block was unparsable was told to answer the question, when
+        # the reason nothing was on topic was that nothing had been read at
+        # all. Each of those faults is a more specific true thing to say.
+        #
+        # Still ahead of `add_sections`: an answer about the wrong subject is
+        # not improved by a missing heading being filled in.
+        #
+        # The instruction aims past the gate, deliberately. The gate can only
+        # tell whether something was settled about the right source; what the
+        # producer is asked for is an answer to the question. Asking for the
+        # floor would be asking for the cheapest thing that clears it.
+        return NextAction(
+            kind="answer_the_question",
+            gap_codes=codes,
+            details={
+                "question": review.question,
+                "patterns": list(review.patterns),
+                "available_source_ids": base.source_ids() if base else [],
             },
         )
 

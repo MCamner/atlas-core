@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Callable, Literal, Mapping, overload
 import json
 
-from .state import AtlasEvaluation, AtlasRunState
+from .state import AtlasEvaluation, AtlasRunState, retry_class
 from .router import select_route
 from .planner import build_plan
 from .executor import execute_plan
@@ -64,6 +64,40 @@ def _same_failure(current: AtlasEvaluation, previous: AtlasEvaluation) -> bool:
         _failure_signature(current) == _failure_signature(previous)
         and current.next_action is not None
     )
+
+
+def _material_signature(state: AtlasRunState) -> tuple[Any, ...]:
+    """What this run has to work with, as a value two iterations can compare.
+
+    ROADMAP.md P1.1 box four calls it the *underlag*: the bytes the run holds
+    and the plan it holds them for. Two channels, because those are the two
+    that exist —
+
+    - the evidence base, by source and content digest. A new observation
+      changes it, a superseded one changes it, and a test result changes it
+      too: a test reaches a run as an observation through its own adapter, not
+      as a separate kind of thing;
+    - the review plan's question and the sources it asks for. A plan that
+      narrowed differently is a different investigation, and this is what makes
+      "a documented plan change" a fact in the document rather than a claim
+      about intent.
+
+    Deliberately not the outputs or the prose context. A producer rewording
+    itself is not new material, which is the whole point of the rule.
+    """
+    base = state.evidence_base
+    observations = (
+        tuple(sorted((o.source_id, o.content_sha256) for o in base.observations))
+        if base is not None
+        else ()
+    )
+    review = getattr(state.plan, "review", None) if state.plan is not None else None
+    plan = (
+        (review.snapshot_id, review.topic, tuple(review.patterns))
+        if review is not None
+        else ()
+    )
+    return (observations, plan)
 
 
 def _failure_signature(evaluation: AtlasEvaluation) -> tuple[Any, ...]:
@@ -394,6 +428,10 @@ class AtlasController:
                 return "stopped"
             return "new"
 
+        #: One material signature per graded pass, in order. See
+        #: `_material_signature` for what counts as material and why.
+        materials: list[tuple[Any, ...]] = []
+
         state.enter("observing")
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
@@ -542,6 +580,9 @@ class AtlasController:
                 ],
             )
             state.evaluations.append(evaluation)
+            # Recorded next to the evaluation it belongs with, so "unchanged
+            # feedback" and "unchanged material" are read off the same pass.
+            materials.append(_material_signature(state))
             if expired():
                 break
             # The second gate, after grading rather than before it. A provider
@@ -582,6 +623,33 @@ class AtlasController:
             if report is not None:
                 stop_for_drift(report)
                 break
+            # Box four, first half. The action asks for material this run does
+            # not hold, and nothing brought any: either no host is attached, or
+            # the round above came back with nothing new. Feedback cannot
+            # produce bytes, so another pass would grade the same evidence and
+            # fail in the same way. Reaching here is already past `read_again`,
+            # which is where a host that *can* help gets its chance.
+            #
+            # `blocked` rather than `no_progress`, for the reason the
+            # observation round already uses it: the run did not run out of
+            # things to try, it ran out of things it may do for itself.
+            outstanding = evaluation.next_action
+            if (
+                outstanding is not None
+                and retry_class(outstanding.kind) == "investigation"
+                and not evaluation.passed
+                and not evaluation.requires_user_approval
+            ):
+                state.metadata["blocked"] = {
+                    "reason": "no_new_material",
+                    "action": outstanding.kind,
+                    "gap_codes": list(outstanding.gap_codes),
+                    "actor": outstanding.actor,
+                    "iteration": state.iteration,
+                    "observer_attached": observer is not None,
+                }
+                state.stop("blocked")
+                break
             # In bounded runs, two identical unsuccessful model outputs with
             # no new observation establish that another call is unproductive.
             # Legacy unbudgeted verdict semantics remain unchanged.
@@ -605,6 +673,13 @@ class AtlasController:
             # that, and the feedback it would receive next is the feedback it
             # has already had. Bounded runs only, which is where #29 put the
             # narrower rule — the unbudgeted path keeps its verdict semantics.
+            #
+            # Box four leaves that boundary where it is. Removing it would
+            # change when an unbudgeted run stops and would rewrite three tests
+            # that hold the 1.0 semantics visible, which is a decision of its
+            # own rather than part of naming what a retry rests on. What box
+            # four adds here is `material`, so the record says whether the
+            # underlying evidence stood still as well as the feedback.
             if (
                 budget is not None
                 and len(state.evaluations) >= 2
@@ -617,6 +692,15 @@ class AtlasController:
                     "iterations": [state.iteration - 1, state.iteration],
                     "action": (
                         evaluation.next_action.kind if evaluation.next_action else None
+                    ),
+                    # Whether the run also had nothing new to work from. Both
+                    # together are the case box four names; unchanged feedback
+                    # on its own is already enough, because the producer has
+                    # been told this and has answered it.
+                    "material": (
+                        "unchanged"
+                        if len(materials) >= 2 and materials[-1] == materials[-2]
+                        else "changed"
                     ),
                 }
                 state.stop("no_progress")
