@@ -115,7 +115,7 @@
           "const": "unknown"
         }
       ],
-      "description": "What was committed. Does NOT identify the bytes read unless worktree_state is \"clean\" — a dirty worktree serves different bytes from the same path."
+      "description": "What was committed. Does NOT identify the bytes read unless worktree_state is \"clean\" \u2014 a dirty worktree serves different bytes from the same path."
     },
     "worktree_state": {
       "type": "string",
@@ -134,7 +134,7 @@
         "secret",
         "unknown"
       ],
-      "description": "Derived from the content at collection time when the caller states nothing: \"secret\" for a credential shape, \"internal\" for personal data, \"unknown\" otherwise. Never assigned \"public\" automatically — detection is narrow, so no match is a statement about the patterns rather than about the source. A caller that states a class is not overruled."
+      "description": "Derived from the content at collection time when the caller states nothing: \"secret\" for a credential shape, \"internal\" for personal data, \"unknown\" otherwise. Never assigned \"public\" automatically \u2014 detection is narrow, so no match is a statement about the patterns rather than about the source. A caller that states a class is not overruled."
     },
     "total_lines": {
       "type": [
