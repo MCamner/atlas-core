@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+Roadmap P1.1 box two: fixture repositories with an answer key, and what the
+numbers say.
+
+- **Two fixture repositories** under `tests/fixtures/`, identical in shape and
+  different in content: one with three known defects, one with none. Each
+  carries `ground_truth.json`, where a defect is a **predicate the
+  deterministic checker can settle** rather than a description. A defect that
+  cannot be written that way is not in the key, because a benchmark whose key
+  cannot be checked measures the reader's opinion of the output.
+- A test checks the answer key itself: every declared defect is present in the
+  one repository and absent from the other.
+- **`atlas_core/benchmark.py`** scores a run document against a key. Matching
+  is exact — same path, kind and text — never by comparing prose, which would
+  let a generous reader score a vague sentence as a hit. It reads the run
+  document only; recomputing a verdict would be marking the same homework
+  twice.
+- Measured: findings asserted, verified, refuted and unestablished; defects
+  found and missed; precision, recall and evidence-backed share; iterations,
+  cost and stop reason. `precision` is `None` rather than `0.0` when a run
+  established nothing — zero would read as "wrong about everything", which is
+  a measurement, and absent is the honest value.
+- **`overstates_completeness`**, the metric that is easy to leave out. A review
+  that asserts nothing meets every criterion it owes and passes at a full
+  score. That is the right answer to "did your claims hold" and not an answer
+  to "is this repository sound", and the two read alike. On the fixture with
+  three real defects, an empty review passes with recall 0.0 — for a task the
+  plan could not narrow. The same fixture under a task that narrows stops on
+  `findings_are_on_topic` instead, and both rows are published, because a
+  benchmark has to describe the code it actually runs against.
+- **The trailer no longer leaves that impression unremarked.** A passing run
+  that graded no claim now says so, and says that it is not a statement about
+  the sources.
+- **Measured from no observations at all**, not only from a preloaded base.
+  Two rows start with the snapshot and nothing read: the plan narrows, the host
+  resolves its patterns, and the defect is established against the bytes that
+  read returned. The preloaded rows skip the half of the loop that decides what
+  to read, and a regression there would leave every one of their numbers
+  unchanged.
+- `precision` counts findings on both sides of the share. It divided distinct
+  defect ids by a count of established findings, so a run that stated one real
+  defect twice was reported as half wrong. `found_defects` stays deduplicated,
+  because recall is a share of the defects.
+- The trailer's "asserted no finding" note is scoped to routes that owe
+  `claims_are_settled`. A route that answers a question makes no findings by
+  design, and `hej` on the `general` route was being told that nothing had been
+  established about sources it never had.
+- `docs/benchmark.md` publishes the method, the fixtures, the results and the
+  limitations — including that the producers are scripted, so nothing here
+  measures a model.
+
 Roadmap P1.1 box three, partly: criteria that come from the question, not just
 the route. The box stays open — see below, and ROADMAP.md.
 
@@ -84,6 +134,7 @@ to read.
   something to resolve and a host that can choose has something to choose by.
 - Topic selection is keyword matching against a declared vocabulary of five
   topics. A real mechanism and a narrow one; there is no model in it.
+||||||| parent of 0b4f532 (feat(p11): fixture repositories with an answer key, and the numbers)
 
 Post-merge review of #36: a citation is not a check, and the run document must
 not say it was.

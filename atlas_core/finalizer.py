@@ -85,6 +85,16 @@ def render_run_text(run: dict[str, Any]) -> str:
             meta.append("Not met: " + ", ".join(latest_eval["unmet_criteria"]))
         if latest_eval.get("evidence_gaps"):
             meta.append("Evidence gaps: " + ", ".join(latest_eval["evidence_gaps"]))
+        if _asserted_nothing(latest_eval):
+            # A review that asserts nothing meets every criterion it owes, and
+            # the trailer for it read `passed` at a full score with nothing
+            # else on it. Every word true, and the impression left behind is
+            # that the repository is sound — which the run never looked into.
+            meta.append(
+                "This run asserted no finding, so it met its criteria without "
+                "establishing anything. That is not a statement that the "
+                "sources are sound; it is the absence of any statement."
+            )
         if latest_eval["requires_user_approval"]:
             meta.append("Write approval required before any mutation.")
     ledger = _claim_ledger(run)
@@ -98,6 +108,31 @@ def render_run_text(run: dict[str, Any]) -> str:
                if latest_eval else "No answer was graded; not a verdict on the answer.")
         )
     return latest_output.rstrip() + "\n\n---\n" + "\n".join(meta + ledger) + "\n"
+
+
+def _asserted_nothing(evaluation: dict[str, Any]) -> bool:
+    """Whether a passing evaluation owed findings and graded none.
+
+    Both claim channels have to be empty: the checked findings and the ones
+    that never reached the checker. A run with an unestablished claim has
+    asserted something, however poorly, and is not this case.
+
+    And the run has to have owed findings in the first place. A route that
+    answers a question makes no findings by design, and telling its reader
+    that nothing was established about the sources would be answering a
+    question nobody asked — there are no sources. The test is the route's own
+    declared criteria, read off the document rather than looked up: a route
+    that owes `claims_are_settled` is one where silence means something.
+    """
+    declared = set(evaluation.get("met_criteria") or []) | set(
+        evaluation.get("unmet_criteria") or []
+    )
+    return (
+        bool(evaluation.get("passed"))
+        and "claims_are_settled" in declared
+        and not evaluation.get("citation_checks")
+        and not evaluation.get("unverified_claims")
+    )
 
 
 def _claim_ledger(run: dict[str, Any]) -> list[str]:

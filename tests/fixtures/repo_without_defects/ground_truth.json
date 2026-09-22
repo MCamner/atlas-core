@@ -1,0 +1,6 @@
+{
+  "schema": "atlas-ground-truth.v1",
+  "repo": "repo_without_defects",
+  "note": "The same three files, none of the three defects. A run that reports a defect here has invented it, and the point of this fixture is that inventing one must be visible as such rather than as a finding.",
+  "defects": []
+}
