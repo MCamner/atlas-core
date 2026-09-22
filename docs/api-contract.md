@@ -519,6 +519,45 @@ prompt the producer reads *and* counted on the result, so
 cut, so a bound that cannot hold the task, question and feedback raises rather
 than being exceeded.
 
+The reply is asked for in a schema and checked locally either way. The schema
+(`schemas/atlas-model-output.v1.json`) goes in the field each provider reads —
+`format` for Ollama, `response_format` for an OpenAI-compatible endpoint — and
+wraps the prose and the findings in one object, because a schema over the reply
+means the reply is JSON and the prose half is not. The adapter reassembles the
+markdown the loop already reads. `LiveModelAdapter(..., structured_output=False)`
+sends no schema field.
+
+Asking is not getting: an endpoint can accept the field and ignore it, so the
+reply is checked on every call. `output_conformed` is a claim about the whole
+reply — the envelope holds, carries no field the schema forbids, and every
+entry is one `structured_findings` can use. The last of those is put to
+`atlas_core.evidence`, which stays the sole authority on what a finding must
+look like.
+
+**A reply of the wrong shape does not raise.** It reaches the evaluator, which
+reports `malformed_findings` with `repair_findings_block` — a producer error
+the next pass can fix, not a `tool_error` that ends the run. An envelope that
+held is rebuilt even when its entries are unusable, so they reach the reader
+that reports them; an envelope that did not hold passes through untouched.
+`metadata.model_result.metadata` carries `output_schema`, `output_schema_sent`,
+`output_conformed` and, when it did not conform, `output_schema_gap`.
+
+A producer that was asked for a findings block and wrote none gets the same gap
+and the same next action. Nothing in the output distinguishes it from a review
+that honestly asserts nothing, so `evaluate()` takes
+`structured_output_required` and the controller sets it from what the adapter
+recorded about its own request. Without a schema on the wire nothing changes,
+and neither a handwritten `atlas-findings` block nor an explicit empty
+`findings: []` counts as missing. `no_sources_observed` outranks it, because a
+run with nothing to read cannot be repaired by rewriting the answer.
+
+What identifies a live run carries no secret. `config_id` is a digest over
+provider, model, endpoint, timeout and whether a key is set — the endpoint is
+hashed rather than published because a URL can carry a token in its query
+string, and the key is not hashed in at all. `provider_model` and
+`provider_fingerprint` record what the provider said it served, beside the
+`model` that was asked for, and are absent when it reports none.
+
 A failed request raises a named exception — `ProviderRateLimited` (with the
 provider's own `retry_after` when it gave one, `None` otherwise),
 `ProviderTimeout`, `ProviderUnreachable`, `ProviderRefused`,

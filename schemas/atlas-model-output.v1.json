@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-model-output.v1.json",
+  "title": "atlas model output envelope",
+  "description": "What a live provider is asked to return, as the schema sent in the provider's own structured-output field (`format` for Ollama, `response_format` for an OpenAI-compatible endpoint). A schema over the reply means the reply is JSON, which the prose half of an answer is not — so the prose is a string field inside it and the adapter reassembles the markdown the rest of the loop reads. Asking is not getting: the adapter checks this envelope locally on every reply, whether or not the schema was sent, because an endpoint can accept the field and ignore it. A reply that does not conform is NOT a failed request. It passes through untouched so the evaluator reports `malformed_findings` and asks for `repair_findings_block` — a producer error the next pass can fix, rather than a `tool_error` that ends the run. The concrete schema is built in `atlas_core/adapters/output_contract.py`, because `schemas/` is repository documentation and is not packaged; a test binds the two, so drift is a test failure rather than a wrong request in the field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "report",
+    "findings"
+  ],
+  "properties": {
+    "report": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The answer in markdown, with the sections the route asked for. Every finding stated here must also appear in `findings`; a bullet with no matching entry is a finding nobody can check, and the evaluator counts it as one."
+    },
+    "findings": {
+      "type": "array",
+      "description": "Each item is an atlas-findings-block.v1 finding — that file is the contract, and this one does not restate it. Required and possibly empty: an explicit empty list says the producer asserted nothing, an absent one says it forgot, and those are different states to whoever reads the run document. Nothing in this envelope validates the items; `atlas_core.evidence` is the authority on what a finding must look like, it already refuses a producer's self-declared verdict, and a second validator beside it could only drift.",
+      "items": {
+        "$comment": "See atlas-findings-block.v1.json. A $ref is not used because the schema goes on the wire to a provider that cannot resolve one."
+      }
+    }
+  }
+}
