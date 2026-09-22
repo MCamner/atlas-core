@@ -81,6 +81,43 @@ class TestAnObservationKnowsHowMuchItIs(_Repo):
 
         self.assertTrue(observation.read_in_full())
 
+    def test_an_excerpt_that_only_reaches_the_end_is_not_the_whole_file(self):
+        """Both ends, not just the last one.
+
+        Lines 90-121 of a 121-line source end where the source ends and are
+        missing everything before them. `collect_observation` always starts at
+        line 1, so nothing here produces such a range today — but `Observation`
+        is a public type and a host can build one, and the value this supports
+        is a `lacks` verdict, where "absent from the file" and "absent from the
+        tail" are different claims.
+        """
+        whole = collect_observation(self.snapshot, "long.txt", max_lines=500)
+        lines = whole.excerpt.splitlines()
+        tail = Observation.create(
+            source_type=whole.source_type,
+            path=whole.path,
+            collected_at=whole.collected_at,
+            content_sha256=whole.content_sha256,
+            excerpt="\n".join(lines[89:]),
+            line_start=90,
+            line_end=len(lines),
+            snapshot_id=whole.snapshot_id,
+            total_lines=whole.total_lines,
+        )
+
+        self.assertEqual(tail.line_end, tail.total_lines)
+        self.assertFalse(tail.read_in_full())
+
+    def test_an_empty_source_is_read_in_full(self):
+        """Nothing to miss, and the 0-0 range is neither a start nor a gap."""
+        (self.root / "empty.txt").write_text("", encoding="utf-8")
+        snapshot = take_snapshot(self.root)
+        observation = collect_observation(snapshot, "empty.txt")
+
+        self.assertEqual(observation.total_lines, 0)
+        self.assertEqual((observation.line_start, observation.line_end), (0, 0))
+        self.assertTrue(observation.read_in_full())
+
     def test_an_uncounted_source_says_it_does_not_know(self):
         """Three values, not two. "Not checked" is not "no"."""
         observation = collect_observation(self.snapshot, "short.txt")
@@ -135,6 +172,36 @@ class TestAbsenceSaysHowFarItLooked(_Repo):
         assert verdict.checked is not None
         self.assertIs(verdict.checked["read_in_full"], False)
         self.assertEqual(verdict.checked["total_lines"], 121)
+
+    def test_absence_from_the_tail_is_not_absence_from_the_file(self):
+        """The case the completeness marker exists for.
+
+        `line 3` is on line 3. An excerpt of 90 onwards does not contain it,
+        and saying so without the extent would be a sentence about the file.
+        (Not `line 12`: `line 120` contains it as a substring, and the literal
+        search would find it in the tail. Worth the note — a fixture that fails
+        for a reason other than the one under test teaches nothing.)
+        """
+        whole = collect_observation(self.snapshot, "long.txt", max_lines=500)
+        lines = whole.excerpt.splitlines()
+        tail = Observation.create(
+            source_type=whole.source_type,
+            path=whole.path,
+            collected_at=whole.collected_at,
+            content_sha256=whole.content_sha256,
+            excerpt="\n".join(lines[89:]),
+            line_start=90,
+            line_end=len(lines),
+            snapshot_id=whole.snapshot_id,
+            total_lines=whole.total_lines,
+        )
+
+        verdict = self._settle(tail, ClaimKind.LACKS, "line 3")
+
+        self.assertEqual(verdict.result, ClaimResult.VERIFIED)
+        self.assertIn("Only lines 90-121 of 121 were read", verdict.reason)
+        assert verdict.checked is not None
+        self.assertIs(verdict.checked["read_in_full"], False)
 
     def test_a_lacks_verdict_over_a_whole_file_says_nothing_extra(self):
         """Negative control: the note must mean something when it appears."""

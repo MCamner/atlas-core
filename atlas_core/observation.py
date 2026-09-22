@@ -208,10 +208,24 @@ class Observation:
 
         Three values, not two, because "we did not check" and "no, it is
         partial" call for different things from a reader.
+
+        **Both ends.** Reaching the last line is not the same as having the
+        file: lines 90-169 of a 169-line source end where the source ends and
+        are missing everything before them. `collect_observation` always starts
+        at line 1, so nothing here produces such a range today — but
+        `Observation` is a public type, a host can build one, and a marker that
+        only checks one end would call that source complete. The value this
+        supports is a `source_lacks_literal` verdict, where the difference
+        between "absent from the file" and "absent from the tail" is the whole
+        point.
         """
         if self.total_lines is None:
             return None
-        return self.line_end >= self.total_lines
+        if self.total_lines == 0:
+            # An empty source has nothing to miss, and `_excerpt` reports 0-0
+            # for one — neither "from line 1" nor a gap.
+            return self.line_end == 0
+        return self.line_start == 1 and self.line_end >= self.total_lines
 
     def to_dict(self) -> dict[str, Any]:
         return {

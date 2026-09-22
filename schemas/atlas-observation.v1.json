@@ -148,7 +148,7 @@
         "boolean",
         "null"
       ],
-      "description": "Whether the excerpt is the whole source. Derived from `line_end` and `total_lines` rather than stored, so it cannot contradict the range it describes; null when `total_lines` is null. False is the case that matters for a `source_lacks_literal` verdict: the claim is settled about the lines it names and about nothing beyond them."
+      "description": "Whether the excerpt is the whole source. Derived from `line_start`, `line_end` and `total_lines` rather than stored, so it cannot contradict the range it describes; null when `total_lines` is null. **Both ends count**: an excerpt that reaches the last line but starts at line 90 is not the file. An empty source, whose range is 0-0, is read in full. False is the case that matters for a `source_lacks_literal` verdict: the claim is settled about the lines it names and about nothing beyond them."
     }
   }
 }
