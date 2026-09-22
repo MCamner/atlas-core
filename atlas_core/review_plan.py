@@ -115,7 +115,14 @@ TOPICS: tuple[ReviewTopic, ...] = (
         code="ci",
         question="Does the CI configuration run the checks it claims to run?",
         keywords=("ci", "workflow", "actions", "pipeline", "bygge", "build"),
-        patterns=(".github/workflows/*", "Makefile", "*.yml"),
+        # Not only configuration. A question about what CI runs is usually a
+        # question about whether it runs what a local gate runs, and the local
+        # gate is a script. The first pinned-repo run (ROADMAP P1.1 box five,
+        # `docs/pinned-repo-review.md`) could read only the CI half of exactly
+        # that question, because every pattern here named a config file.
+        patterns=(
+            ".github/workflows/*", "Makefile", "*.yml", "*.sh", "scripts/*",
+        ),
     ),
     ReviewTopic(
         code="tests",
@@ -189,6 +196,21 @@ class ReviewPlan:
         return {"schema": SCHEMA, **asdict(self)}
 
 
+def detect_topic(task: str) -> ReviewTopic | None:
+    """The topic a task narrows to, or None when nothing in it narrows.
+
+    Split out of `build_review_plan` so the router can consult the same
+    vocabulary. It was the plan's alone, and a task could name a topic this
+    module knows while reaching a route that builds no plan at all — the topic
+    was computed and discarded. See `atlas_core/router.py`.
+    """
+    text = task.lower()
+    for topic in TOPICS:
+        if any(keyword in text for keyword in topic.keywords):
+            return topic
+    return None
+
+
 def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
     """Work out what this review is asking, and what it takes to look.
 
@@ -198,20 +220,19 @@ def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
     not narrowed instead of being answered with a plausible-looking question
     about files nobody asked about.
     """
-    text = task.lower()
-    for topic in TOPICS:
-        if any(keyword in text for keyword in topic.keywords):
-            return ReviewPlan(
-                snapshot_id=snapshot_id,
-                topic=topic.code,
-                question=topic.question,
-                patterns=list(topic.patterns),
-                rationale=(
-                    f"The task names {topic.code}; these are the paths that "
-                    "carry the answer in a repository of this shape."
-                ),
-                answering=list(topic.answering),
-            )
+    topic = detect_topic(task)
+    if topic is not None:
+        return ReviewPlan(
+            snapshot_id=snapshot_id,
+            topic=topic.code,
+            question=topic.question,
+            patterns=list(topic.patterns),
+            rationale=(
+                f"The task names {topic.code}; these are the paths that "
+                "carry the answer in a repository of this shape."
+            ),
+            answering=list(topic.answering),
+        )
 
     return ReviewPlan(
         snapshot_id=snapshot_id,
@@ -287,5 +308,6 @@ __all__ = [
     "ReviewTopic",
     "answers_question",
     "build_review_plan",
+    "detect_topic",
     "unread_patterns",
 ]

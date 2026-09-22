@@ -170,6 +170,34 @@
               "description": "The literals this topic declares as bearing on its question, carried so a reader sees what the run was willing to accept as an answer. Empty when the topic declared none, in which case the run is held to relevance alone and `findings_answer_the_question` is not among its criteria. Declared per topic by a person, not derived from a claim: deciding whether an arbitrary settled claim answers a question is entailment, which nothing here performs."
             }
           }
+        },
+        "unused_topic": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "A review topic the task narrowed to that this run is not acting on, with the reason: `route_has_no_review_contract` when the router chose a route that asks no question of a repository, or `no_snapshot` when the run carried no state to bind a question to. Null when the task narrowed to nothing, and absent from a `review` run, which is acting on its topic. Present so a narrowed question is never computed and silently dropped.",
+          "additionalProperties": false,
+          "properties": {
+            "topic": {
+              "type": "string"
+            },
+            "question": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "route_has_no_review_contract",
+                "no_snapshot"
+              ]
+            }
+          },
+          "required": [
+            "topic",
+            "question",
+            "reason"
+          ]
         }
       }
     },

@@ -1,5 +1,26 @@
+"""Which kind of task this is, from the words in it.
+
+Keyword scoring, and narrow on purpose — there is no model here. What P1.1
+box five added is one join: the plan's topic vocabulary is consulted when
+nothing else matches, because the two lists were independent and a task could
+name a topic `review_plan` knows while landing on a route that builds no plan.
+`granska CI-workflow och release-gate` selected `general`, so the run read
+nothing, while `build_review_plan` on the same string returned topic `ci`. The
+topic was computed and thrown away. See `docs/pinned-repo-review.md`.
+"""
+
 from __future__ import annotations
+from .review_plan import detect_topic
 from .state import AtlasRoute
+
+#: Words that ask for something to be *examined*, as opposed to explained,
+#: compared or decided. Deliberately small: this only breaks a tie where no
+#: route matched at all, and a longer list would start taking tasks away from
+#: routes that did match.
+REVIEW_VERBS: tuple[str, ...] = (
+    "granska", "review", "revidera", "gå igenom", "ga igenom", "audit",
+    "kontrollera", "inspektera", "check",
+)
 
 ROUTES: dict[str, dict] = {
     "repo_review": {
@@ -41,20 +62,44 @@ ROUTES: dict[str, dict] = {
 
 def select_route(task: str) -> AtlasRoute:
     text = task.lower()
+    weak = False
     scores: list[tuple[str, int]] = []
     for name, spec in ROUTES.items():
         score = sum(1 for keyword in spec["keywords"] if keyword in text)
         scores.append((name, score))
     scores.sort(key=lambda item: item[1], reverse=True)
     best_name, best_score = scores[0]
+    reason = f"Valde route '{best_name}' baserat på {best_score} matchande signal(er)."
     if best_score == 0:
-        best_name = "general"
+        # Only here. A route that matched keeps what it matched on: a task that
+        # asks *why the tests keep failing* is a root cause question whose words
+        # happen to include "test", and taking it for a repo review because the
+        # topic vocabulary recognised that word would be the same mistake in the
+        # other direction. This fires exactly where the old code produced
+        # `general` and read nothing.
+        topic = detect_topic(task)
+        if topic is not None and any(verb in text for verb in REVIEW_VERBS):
+            best_name = "repo_review"
+            # Lower than any keyword match, because there was none. The route
+            # was chosen on two weaker signals agreeing, and the number says so.
+            weak = True
+            reason = (
+                f"Inget nyckelord matchade någon route, men uppgiften ber om en "
+                f"granskning och avgränsar till ämnet '{topic.code}'."
+            )
+        else:
+            best_name = "general"
     spec = ROUTES[best_name]
-    confidence = min(0.95, 0.55 + (best_score * 0.12)) if best_name != "general" else 0.5
+    if weak:
+        confidence = 0.5
+    else:
+        confidence = (
+            min(0.95, 0.55 + (best_score * 0.12)) if best_name != "general" else 0.5
+        )
     return AtlasRoute(
         name=best_name,
         confidence=confidence,
-        reason=f"Valde route '{best_name}' baserat på {best_score} matchande signal(er).",
+        reason=reason,
         steps=list(spec["steps"]),
         risk_level=spec["risk_level"],
     )
