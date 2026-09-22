@@ -34,6 +34,20 @@ numbers say.
 - **The trailer no longer leaves that impression unremarked.** A passing run
   that graded no claim now says so, and says that it is not a statement about
   the sources.
+- **Measured from no observations at all**, not only from a preloaded base.
+  Two rows start with the snapshot and nothing read: the plan narrows, the host
+  resolves its patterns, and the defect is established against the bytes that
+  read returned. The preloaded rows skip the half of the loop that decides what
+  to read, and a regression there would leave every one of their numbers
+  unchanged.
+- `precision` counts findings on both sides of the share. It divided distinct
+  defect ids by a count of established findings, so a run that stated one real
+  defect twice was reported as half wrong. `found_defects` stays deduplicated,
+  because recall is a share of the defects.
+- The trailer's "asserted no finding" note is scoped to routes that owe
+  `claims_are_settled`. A route that answers a question makes no findings by
+  design, and `hej` on the `general` route was being told that nothing had been
+  established about sources it never had.
 - `docs/benchmark.md` publishes the method, the fixtures, the results and the
   limitations — including that the producers are scripted, so nothing here
   measures a model.

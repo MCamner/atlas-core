@@ -116,6 +116,11 @@ class Measurement:
     #: Of everything the run *established*, the share that is a known defect.
     #: None when it established nothing, rather than 0.0: a run that asserted
     #: nothing has no precision, and reporting one would invent a measurement.
+    #:
+    #: A share of the findings the run **established**: of those, how many hit
+    #: a known defect. Not a share of the distinct defects — that is `recall`'s
+    #: business, and counting distinct ids against a count of findings would
+    #: report a run that stated one real defect twice as half wrong.
     precision: float | None
     #: Of everything the run asserted, the share it backed with evidence.
     evidence_backed_share: float | None
@@ -171,11 +176,19 @@ def measure(run: dict[str, Any], truth: GroundTruth) -> Measurement:
 
     known = truth.by_predicate()
     found: list[str] = []
+    #: Verified findings that hit a known defect, **not** deduplicated. It is
+    #: the numerator of precision, which is a share of what the run
+    #: established, so it has to count the same thing the denominator counts.
+    #: `found` is deduplicated because recall is a share of the *defects*, and
+    #: a defect found twice is still one defect found. Mixing the two made a
+    #: run that stated a real defect twice look half wrong.
+    defect_hits = 0
     non_defects = 0
     for record in verified:
         predicate = _typed_predicate(record)
         defect = known.get(predicate) if predicate else None
         if defect is not None:
+            defect_hits += 1
             if defect.id not in found:
                 found.append(defect.id)
         else:
@@ -195,7 +208,7 @@ def measure(run: dict[str, Any], truth: GroundTruth) -> Measurement:
         found_defects=found,
         missed_defects=missed,
         verified_non_defects=non_defects,
-        precision=round(len(found) / established, 2) if established else None,
+        precision=round(defect_hits / established, 2) if established else None,
         evidence_backed_share=round(established / asserted, 2) if asserted else None,
         recall=round(len(found) / len(truth.defects), 2) if truth.defects else None,
         iterations=int(run.get("iteration", 0)),

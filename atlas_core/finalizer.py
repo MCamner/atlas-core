@@ -111,14 +111,25 @@ def render_run_text(run: dict[str, Any]) -> str:
 
 
 def _asserted_nothing(evaluation: dict[str, Any]) -> bool:
-    """Whether a passing evaluation graded no claim at all.
+    """Whether a passing evaluation owed findings and graded none.
 
-    Both channels have to be empty: the checked findings and the ones that
-    never reached the checker. A run with an unestablished claim has asserted
-    something, however poorly, and is not this case.
+    Both claim channels have to be empty: the checked findings and the ones
+    that never reached the checker. A run with an unestablished claim has
+    asserted something, however poorly, and is not this case.
+
+    And the run has to have owed findings in the first place. A route that
+    answers a question makes no findings by design, and telling its reader
+    that nothing was established about the sources would be answering a
+    question nobody asked — there are no sources. The test is the route's own
+    declared criteria, read off the document rather than looked up: a route
+    that owes `claims_are_settled` is one where silence means something.
     """
+    declared = set(evaluation.get("met_criteria") or []) | set(
+        evaluation.get("unmet_criteria") or []
+    )
     return (
         bool(evaluation.get("passed"))
+        and "claims_are_settled" in declared
         and not evaluation.get("citation_checks")
         and not evaluation.get("unverified_claims")
     )

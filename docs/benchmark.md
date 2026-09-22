@@ -47,7 +47,7 @@ other, so the key itself is checked rather than trusted.
 | `verified` / `refuted` / `unestablished` | how the loop settled them |
 | `found_defects` / `missed_defects` | ground-truth ids established, and not |
 | `verified_non_defects` | true about the file, and not a defect. Noise, not a lie, and it needs a different fix from a refutation |
-| `precision` | of what the run established, the share that is a known defect |
+| `precision` | of the findings the run established, the share that hit a known defect. A share of *findings*, so a real defect stated twice is two hits and not half a mistake — distinct defects are `recall`'s business |
 | `recall` | of the known defects, the share established |
 | `evidence_backed_share` | of what the run asserted, the share it backed |
 | `iterations`, `stop_reason`, `cost` | what it took |
@@ -78,6 +78,8 @@ the plan *can* narrow — see **What the task changes**.
 | without defects | **empty review** | 0 | 0 | 0 | — | — | — | **`passed`** | **yes** |
 | with defects, narrowed | **empty review** | 0 | 0 | 0 | — | **0.0** | — | **`no_progress`** | no |
 | with defects, narrowed | the password claimed | 1 | 1 | 0 | 1.0 | 0.33 | 1.0 | `passed` | no |
+| with defects, from nothing | the password claimed | 1 | 1 | 0 | 1.0 | 0.33 | 1.0 | `passed` | no |
+| with defects, from nothing | **empty review** | 0 | 0 | 0 | — | **0.0** | — | **`no_progress`** | no |
 
 Cost for the first row: 1 model call, 1 token, 1912 output bytes.
 
@@ -116,6 +118,21 @@ Two consequences worth reading off the table rather than inferring:
   `findings_are_on_topic` at all. The topic comes from keyword matching, which
   is stated as a limit in ROADMAP.md P1.1 box one, and it is a limit of these
   numbers too.
+
+## Reading, not only grading
+
+Every row above hands the run its observations: the three files are collected
+before the loop starts, so what is measured is the gate. The two **from
+nothing** rows do not. They begin with the snapshot and no observations at
+all, the plan narrows to credentials and names `*.env`, and the host resolves
+that pattern and reads `settings.env`. The defect is then established against
+the bytes that read returned.
+
+It matters because the preloaded rows skip the half of the loop that decides
+*what to read*. A regression there would leave all nine of their numbers
+unchanged. The empty review from the same starting point stops on
+`findings_are_on_topic` rather than passing, which is the reading path and the
+question gate composing rather than each being measured alone.
 
 ## Limitations
 

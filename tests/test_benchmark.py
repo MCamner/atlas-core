@@ -206,6 +206,29 @@ class _Fixture(unittest.TestCase):
         self.run_document = run
         return measure(run, self.truth)
 
+    def _measure_from_nothing(self, output: str) -> Any:
+        """The chain box one promised, measured end to end.
+
+        The run starts with the snapshot and **no observations at all**. The
+        plan narrows to credentials and names `*.env`; nothing has been read,
+        so the gap is real rather than arranged. The host resolves the
+        patterns, and the second pass is graded against whatever that read
+        brought back.
+
+        `_measure_narrowed` starts with all three files already in hand, which
+        measures the gate and not the reading. This measures both.
+        """
+        adapter = _Adapter(output)
+        run = AtlasController(max_iterations=2, model_adapter=adapter).run(
+            SECRETS_TASK,
+            evidence=EvidenceBase(snapshot=self.snapshot),
+            json_mode=True,
+            limits=LIMITS,
+            observer=_Host(self.root, self.snapshot),
+        )
+        self.run_document = run
+        return measure(run, self.truth)
+
     def _all_true_findings(self) -> list[dict[str, Any]]:
         return [
             self._finding("README.md", ClaimKind.LACKS, "## Installation"),
@@ -355,6 +378,31 @@ class TestAnEmptyResultIsNotACleanBillOfHealth(_Fixture):
         self.assertIn("not a statement that", trailer)
 
 
+class TestTheTrailerWarningBelongsToReviews(unittest.TestCase):
+    """The warning is about silence where findings were owed.
+
+    A route that answers a question makes no findings by design. Telling its
+    reader that nothing was established about the sources would answer a
+    question nobody asked — there are no sources.
+    """
+
+    def test_a_plain_answer_does_not_get_the_review_warning(self):
+        run = AtlasController(max_iterations=1).run("hej", json_mode=True)
+        evaluation = run["evaluations"][-1]
+
+        # The preconditions that made it fire: it passed, and it graded no
+        # claim. Only the route's contract tells this case from a review's.
+        self.assertTrue(evaluation["passed"])
+        self.assertEqual(evaluation["citation_checks"], [])
+        self.assertEqual(run["plan"]["route_name"], "general")
+        self.assertNotIn(
+            "claims_are_settled",
+            evaluation["met_criteria"] + evaluation["unmet_criteria"],
+        )
+
+        self.assertNotIn("asserted no finding", render_run_text(run))
+
+
 class TestSilenceIsWorthWhatTheTaskAsked(_Fixture):
     """The same empty review, measured under both kinds of task.
 
@@ -400,6 +448,87 @@ class TestSilenceIsWorthWhatTheTaskAsked(_Fixture):
         self.assertTrue(result.passed)
         self.assertEqual(result.found_defects, ["D3"])
         self.assertFalse(result.overstates_completeness)
+
+
+class TestTheWholeChainFromNoObservations(_Fixture):
+    """Nothing read, a question asked, and a defect established from the read.
+
+    The measurements above hand the run its observations. That is the right
+    shape for measuring the gate, and it skips the half of the loop that
+    decides *what to read* — so on its own it would let a regression in the
+    reading path through with every published number unchanged.
+    """
+
+    root = WITH_DEFECTS
+
+    def test_a_defect_is_established_from_a_read_the_plan_asked_for(self):
+        finding = self._finding("settings.env", ClaimKind.CONTAINS, "PASSWORD=admin")
+        result = self._measure_from_nothing(self._output([finding]))
+        run = self.run_document
+
+        # 1. It really did start with nothing, and said so.
+        first = run["evaluations"][0]
+        self.assertIn("plan_targets_read", first["unmet_criteria"])
+        self.assertEqual(first["next_action"]["kind"], "observe_again")
+        self.assertEqual(first["next_action"]["actor"], "host")
+
+        # 2. The host read what the question pointed at.
+        rounds = run["metadata"]["observation_rounds"]
+        self.assertIn(
+            "settings.env",
+            [added["path"] for entry in rounds for added in entry["added"]],
+        )
+
+        # 3. And the defect was established against those bytes.
+        self.assertTrue(result.passed)
+        self.assertEqual(result.found_defects, ["D3"])
+        self.assertEqual(result.precision, 1.0)
+        self.assertEqual(result.evidence_backed_share, 1.0)
+
+    def test_the_same_chain_with_nothing_to_say_stops_instead(self):
+        """The other half: the read happens, and the answer still says nothing."""
+        result = self._measure_from_nothing(self._output([]))
+        evaluation = self.run_document["evaluations"][-1]
+
+        self.assertFalse(result.passed)
+        self.assertIn("findings_are_on_topic", evaluation["unmet_criteria"])
+        self.assertEqual(result.recall, 0.0)
+
+
+class TestPrecisionCountsFindingsNotDistinctDefects(_Fixture):
+    """A run that states one real defect twice is not half wrong.
+
+    `found_defects` is deduplicated, because recall is a share of the defects
+    and a defect found twice is one defect found. Precision is a share of what
+    the run *established*, so its numerator has to count findings too. Dividing
+    distinct ids by a count of findings mixed the two.
+    """
+
+    root = WITH_DEFECTS
+
+    def test_the_same_defect_claimed_twice_is_still_fully_precise(self):
+        finding = self._finding("settings.env", ClaimKind.CONTAINS, "PASSWORD=admin")
+        result = self._measure(self._output([finding, dict(finding)]))
+
+        self.assertEqual(result.verified, 2)
+        self.assertEqual(result.found_defects, ["D3"])
+        self.assertEqual(result.verified_non_defects, 0)
+        self.assertEqual(result.precision, 1.0)
+        # Recall is unmoved: two findings, one defect, three in the key.
+        self.assertEqual(result.recall, 0.33)
+
+    def test_every_established_finding_is_a_hit_or_noise_and_never_both(self):
+        """The invariant behind the share, asserted rather than assumed."""
+        findings = self._all_true_findings()
+        findings.append(self._finding("README.md", ClaimKind.CONTAINS, "# Demorepo"))
+        findings.append(dict(findings[0]))
+        result = self._measure(self._output(findings))
+
+        hits = round(result.precision * result.verified)
+        self.assertEqual(hits + result.verified_non_defects, result.verified)
+        self.assertEqual(result.verified, 5)
+        self.assertEqual(result.verified_non_defects, 1)
+        self.assertEqual(result.precision, 0.8)
 
 
 class TestTheAnswerKeyItself(unittest.TestCase):
