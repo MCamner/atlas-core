@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+Roadmap P1.2 box one: a real provider behind the `ModelAdapter` that existed.
+
+- **`atlas_core/adapters/live_model.py`** — two provider shapes configured
+  separately: `ollama` against a local daemon with no key, and
+  `openai_compatible` against a chat-completions endpoint with one. They differ
+  only in how a request is built and where the text sits in the reply, so they
+  are two `ProviderSpec` values rather than two classes. Standard library
+  throughout; this package has no runtime dependencies and a provider is not a
+  reason to acquire one.
+- **A missing key does not break the deterministic fallback**, and a failing
+  provider still stops the run. Those fit together in one place:
+  `build_model_adapter()` returns `None` when nothing is configured, which is
+  the absence the controller already reads as "run deterministically". A
+  request that fails is a different moment and is still `tool_error`.
+- A configuration that is **stated and wrong** raises — an unknown provider
+  name, a non-numeric timeout — because silence would leave a typo running the
+  deterministic path unnoticed.
+- The key is read from the environment and stays on the config: not in
+  `ModelResult.metadata`, not in the run document, not in the failure record.
+- Provider token counts are mapped to `metadata["usage_tokens"]`, so a live run
+  is metered by `RunBudget` the way a scripted one is. Absent counts report
+  nothing rather than zero.
+- No network in the tests. A fake transport exercises the real adapter, the
+  real controller path and the real budget arithmetic without a daemon or a key.
+
 Roadmap P1.1, filed items: closing what was pulled out of the boxes.
 
 - **`no_progress` on unchanged feedback applies to every run**, not only
