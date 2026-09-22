@@ -1,35 +1,45 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "atlas-run.v1.json",
+  "$id": "atlas-run.v2.json",
   "title": "Atlas Run",
-  "description": "The document emitted by `atlas run --json` and by AtlasRunState.to_dict().",
+  "description": "One bounded run. Succeeds atlas-run.v1 and drops nothing: every field v1 required is here, with the same meaning, and a v1 document migrates into this one without silent loss — anything v2 has no place for is kept verbatim under `migration.unmapped` rather than discarded. What v2 adds is `contracts` (which sub-contract versions this document carries), `actions` and `approvals` as versioned records, and `migration` itself. The rule that governs the additions: **no fabricated default for information the source did not have.** Where v1 could not have known something, v2 says null and names it in `migration.not_recorded` — an empty `actions` list would claim the run did nothing, and a default approval reason would be indistinguishable from a recorded one. Who may write each field is declared in `atlas_core.contracts`, and a test binds that table to this file.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema",
-    "task",
-    "run_id",
+    "actions",
+    "approvals",
+    "contracts",
     "created_at",
-    "status",
-    "stop_reason",
+    "evaluations",
     "iteration",
     "max_iterations",
-    "route",
-    "plan",
+    "memory_candidates",
+    "metadata",
     "observations",
     "outputs",
-    "evaluations",
-    "memory_candidates",
-    "metadata"
+    "plan",
+    "route",
+    "run_id",
+    "schema",
+    "status",
+    "stop_reason",
+    "task"
   ],
   "properties": {
     "schema": {
-      "const": "atlas-run.v1"
+      "const": "atlas-run.v2"
     },
-    "task": {
-      "type": "string"
+    "contracts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Which version of each sub-contract this document carries, so a consumer reads the version rather than inferring it from the shape. v1 left this implicit, which is how `quality_score` changed meaning under an unchanged name without any document saying so."
     },
     "run_id": {
+      "type": "string"
+    },
+    "task": {
       "type": "string"
     },
     "created_at": {
@@ -72,6 +82,23 @@
         "failed",
         "no_actionable_retry"
       ]
+    },
+    "stop_class": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "evaluation",
+        "runtime",
+        "control"
+      ],
+      "description": "What kind of thing ended the run, derived from `stop_reason`. `runtime` means the machinery failed and nothing was graded, so a caller must not read a verdict about the answer into it; `evaluation` means an answer was graded and this is the grade; `control` means a bound, a human or a cancellation stopped the run before it finished."
+    },
+    "state_machine": {
+      "const": "atlas-state-machine.v1",
+      "description": "Which vocabulary `status` and `stop_reason` are drawn from. Optional rather than required: a document stored before this field existed is still a valid atlas-run.v1, and its absence means the pre-v1.1 spellings."
     },
     "iteration": {
       "type": "integer",
@@ -209,6 +236,59 @@
       },
       "description": "Prose context an adapter formatted. Not evidence: nothing in it can be re-read or re-hashed. Kept as a separate channel from evidence_base, with no conversion between them."
     },
+    "evidence_manifest": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The sanitised record of what this run read: an atlas-observation-manifest.v1 built from the run's evidence base. Null when the run carried prose context only, in which case grading was citation-only. The raw evidence base is never exported: it holds unmasked excerpts and the absolute path the run read from, and the root is dropped rather than masked because redaction cannot recognise an arbitrary absolute path. Each entry's verification is \"unknown\" and is_evidence is false by design — exporting is not verifying, and doing disk IO inside serialisation would make a run document depend on when it was rendered. What was verified is in each evaluation's citation_checks.",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "snapshot",
+        "observations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "atlas-observation-manifest.v1"
+        },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "snapshot_id",
+            "taken_at",
+            "commit",
+            "ref",
+            "worktree_state"
+          ],
+          "description": "Snapshot identity without `root`. The local path a run read from is not part of its result.",
+          "properties": {
+            "snapshot_id": {
+              "type": "string"
+            },
+            "taken_at": {
+              "type": "string"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "worktree_state": {
+              "type": "string"
+            }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
     "outputs": {
       "type": "array",
       "items": {
@@ -217,9 +297,29 @@
     },
     "evaluations": {
       "type": "array",
-      "description": "Each item conforms to atlas-evaluation.v1.",
+      "description": "Each item conforms to atlas-evaluation.v2.",
       "items": {
-        "$ref": "atlas-evaluation.v1.json"
+        "$ref": "atlas-evaluation.v2.json"
+      }
+    },
+    "actions": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "What the run DID, each item an atlas-action.v1. **Null, not empty, when no action log was kept** — an empty list states that the run performed nothing, which is a claim, and a false one. Null plus an entry in `migration.not_recorded` states the absence instead. Nothing writes this yet; the append-only log is its own work.",
+      "items": {
+        "$ref": "atlas-action.v1.json"
+      }
+    },
+    "approvals": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "description": "Each item an atlas-approval.v1: that this run needed a person, and — if one ever exists — what they approved. Derived per iteration from `requires_user_approval`, which is information v1 genuinely carried. Null when there were no evaluations to derive from.",
+      "items": {
+        "$ref": "atlas-approval.v1.json"
       }
     },
     "memory_candidates": {
@@ -349,75 +449,51 @@
         }
       }
     },
-    "evidence_manifest": {
+    "migration": {
       "type": [
         "object",
         "null"
       ],
-      "description": "The sanitised record of what this run read: an atlas-observation-manifest.v1 built from the run's evidence base. Null when the run carried prose context only, in which case grading was citation-only. The raw evidence base is never exported: it holds unmasked excerpts and the absolute path the run read from, and the root is dropped rather than masked because redaction cannot recognise an arbitrary absolute path. Each entry's verification is \"unknown\" and is_evidence is false by design — exporting is not verifying, and doing disk IO inside serialisation would make a run document depend on when it was rendered. What was verified is in each evaluation's citation_checks.",
       "additionalProperties": false,
+      "description": "Present exactly on a document produced by migrating an older one, absent on a native v2. It is the record of what the migration could and could not carry, and it is the reason a migration is not allowed to be lossy in silence.",
       "required": [
-        "schema",
-        "snapshot",
-        "observations"
+        "from",
+        "to",
+        "migrated_at",
+        "unmapped",
+        "missing",
+        "not_recorded"
       ],
       "properties": {
-        "schema": {
-          "const": "atlas-observation-manifest.v1"
+        "from": {
+          "type": "string",
+          "description": "The schema id of the source document."
         },
-        "snapshot": {
+        "to": {
+          "const": "atlas-run.v2"
+        },
+        "migrated_at": {
+          "type": "string"
+        },
+        "unmapped": {
           "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "snapshot_id",
-            "taken_at",
-            "commit",
-            "ref",
-            "worktree_state"
-          ],
-          "description": "Snapshot identity without `root`. The local path a run read from is not part of its result.",
-          "properties": {
-            "snapshot_id": {
-              "type": "string"
-            },
-            "taken_at": {
-              "type": "string"
-            },
-            "commit": {
-              "type": "string"
-            },
-            "ref": {
-              "type": "string"
-            },
-            "worktree_state": {
-              "type": "string"
-            }
-          }
+          "description": "Fields the source carried that v2 has no place for, kept verbatim under their original names. Not a list of names — the values themselves, because a migration that records only that something was dropped has still dropped it."
         },
-        "observations": {
+        "missing": {
           "type": "array",
           "items": {
-            "type": "object"
-          }
+            "type": "string"
+          },
+          "description": "Fields the source schema required and the source document did not have. Recorded rather than filled in: a default here would be indistinguishable from a value the run actually produced."
+        },
+        "not_recorded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Fields v2 has that the source version could not have had. These are null in the document above, never zero, never an empty list, never a plausible string."
         }
       }
-    },
-    "state_machine": {
-      "const": "atlas-state-machine.v1",
-      "description": "Which vocabulary `status` and `stop_reason` are drawn from. Optional rather than required: a document stored before this field existed is still a valid atlas-run.v1, and its absence means the pre-v1.1 spellings."
-    },
-    "stop_class": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "enum": [
-        null,
-        "evaluation",
-        "runtime",
-        "control"
-      ],
-      "description": "What kind of thing ended the run, derived from `stop_reason`. `runtime` means the machinery failed and nothing was graded, so a caller must not read a verdict about the answer into it; `evaluation` means an answer was graded and this is the grade; `control` means a bound, a human or a cancellation stopped the run before it finished."
     }
   }
 }

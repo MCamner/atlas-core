@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-finding.v1.json",
   "title": "Atlas Finding",
   "description": "One claim, the citations it rests on, and how far those have been checked. A verdict of \"verified\" or \"contradicted\" requires a typed claim — one stated as literal presence or absence over a cited source's observed lines, where the claim is the predicate — settled by atlas_core.claim_check. Citation checking alone never produces either: it establishes that a pointer is sound, which says nothing about whether the source supports the claim. A free-text claim therefore stays \"insufficient_evidence\" however sound its citations are.",
   "type": "object",

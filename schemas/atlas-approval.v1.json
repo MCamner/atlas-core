@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-approval.v1.json",
+  "title": "Atlas Approval",
+  "description": "That a run needed a person's approval, and — if it ever exists — what was approved. Core decides `required` from the task; only a host could ever set the grant fields, and in this version nothing does. Defining this contract grants nothing: Atlas Core is read-only, `ToolGateway` denies every write capability, and no code reads this record to permit anything. What the contract DOES do is make a grant unstateable without saying what it is a grant OF. `granted: true` requires `binds_to`, so an approval can never be a bare boolean that outlives the thing it approved — see docs/safety-model.md, which requires a future approval to bind to the exact diff, command, repository and ref, and to be invalidated when that evidence changes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "approval_id",
+    "run_id",
+    "iteration",
+    "required",
+    "reason",
+    "granted"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-approval.v1"
+    },
+    "approval_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "required": {
+      "type": "boolean",
+      "description": "Whether this run may not finish without a person. Derived from the task by `requires_write_approval`, which the producer did not write."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why approval was required. `not_recorded` when the document this was migrated from did not keep one — a plausible sentence here would be indistinguishable from a recorded one."
+    },
+    "granted": {
+      "type": ["boolean", "null"],
+      "description": "Null means nobody has answered. False means refused. True requires `binds_to`, and nothing in this version can write it."
+    },
+    "granted_by": {
+      "type": ["string", "null"],
+      "description": "Who answered. Null when nobody has."
+    },
+    "granted_at": {
+      "type": ["string", "null"]
+    },
+    "binds_to": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "What exactly was approved. Required when `granted` is true, because an approval that does not name its subject approves everything. The digest is what makes it expire: if the evidence changes, the approval no longer matches.",
+      "required": ["kind", "sha256"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["diff", "command", "ref"]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "repo": {
+          "type": ["string", "null"]
+        },
+        "ref": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "granted": {
+        "const": true
+      }
+    },
+    "required": ["granted"]
+  },
+  "then": {
+    "required": ["binds_to"],
+    "properties": {
+      "binds_to": {
+        "type": "object"
+      }
+    }
+  }
+}
