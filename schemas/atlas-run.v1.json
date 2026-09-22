@@ -257,7 +257,7 @@
         },
         "no_progress": {
           "type": "object",
-          "description": "Present when a bounded run stopped because a further pass was shown to be unproductive. `reason` is `identical_model_output` when the provider returned the same bytes twice, or `unchanged_feedback` when two passes failed in the same way \u2014 same next action, same gaps, same unsupported claims \u2014 however differently they were worded. Absent on the a-priori form, where the evaluation found nothing another pass could act on.",
+          "description": "Present when a run stopped because a further pass was shown to be unproductive. `reason` is `identical_model_output` when the provider returned the same bytes twice, or `unchanged_feedback` when two passes failed in the same way \u2014 same next action, same gaps, same unsupported claims \u2014 however differently they were worded. `unchanged_feedback` applies to **every** run: it is a contract rule, and a producer told this once and answering it the same way has answered it. Before P1.1 it was bounded runs only, so a caller written against 1.0 driving unbudgeted runs will see `no_progress` where it saw `max_iterations`, on an earlier iteration; the evaluation is unchanged. `identical_model_output` is still bounded-runs-only, because byte equality is a statement about spend rather than about the contract. Absent on the a-priori form, where the evaluation found nothing another pass could act on.",
           "properties": {
             "reason": {
               "type": "string",
@@ -274,6 +274,14 @@
             },
             "action": {
               "description": "The next action kind that stood unchanged, when there was one."
+            },
+            "material": {
+              "type": "string",
+              "enum": [
+                "unchanged",
+                "changed"
+              ],
+              "description": "Whether the evidence base and review plan also stood still between the two passes, or only the feedback did. Present on `unchanged_feedback`; unchanged feedback alone is already enough to stop, so this reports rather than decides."
             }
           }
         },

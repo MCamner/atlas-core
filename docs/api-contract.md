@@ -504,10 +504,21 @@ changed plan is the other channel, and it is recorded in the run document.
 Every kind must appear in the table; an unclassified one is refused at import,
 because defaulting it to `restatement` would quietly grant the permissive half.
 
-A bounded run whose feedback repeats stops `no_progress` with
+A run whose feedback repeats stops `no_progress` with
 `metadata.no_progress.reason = "unchanged_feedback"`, and
 `metadata.no_progress.material` says whether the evidence stood still too.
-Unbudgeted runs keep their 1.0 verdict semantics.
+
+**This applies to every run.** Before P1.1 it was bounded runs only, because
+#29 introduced it as a cost rule — another provider call costs money. As a
+contract rule it does not depend on anyone counting: a producer that has been
+told this and answered it has answered it. A caller written against 1.0 that
+drives unbudgeted runs will see `no_progress` where it saw `max_iterations`;
+the evaluation is unchanged, and the run stops on an earlier iteration.
+
+The narrower byte-equality rule beside it is still bounded-runs-only, and
+deliberately so. Byte equality says a provider returned the same string, which
+is a statement about spend; the failure signature says the feedback would
+repeat, which is a statement about the contract.
 
 ### Optional cooperative run budget (P0.3, partial)
 

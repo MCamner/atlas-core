@@ -671,18 +671,17 @@ class AtlasController:
             # A producer can reword an answer, fail in exactly the same way and
             # buy another iteration with nothing; byte equality does not see
             # that, and the feedback it would receive next is the feedback it
-            # has already had. Bounded runs only, which is where #29 put the
-            # narrower rule — the unbudgeted path keeps its verdict semantics.
+            # has already had.
             #
-            # Box four leaves that boundary where it is. Removing it would
-            # change when an unbudgeted run stops and would rewrite three tests
-            # that hold the 1.0 semantics visible, which is a decision of its
-            # own rather than part of naming what a retry rests on. What box
-            # four adds here is `material`, so the record says whether the
-            # underlying evidence stood still as well as the feedback.
+            # Every run, budgeted or not. #29 put it behind a budget because it
+            # was a cost rule: another call costs money, so stop paying for a
+            # failure already had. Stated as a contract rule it does not depend
+            # on anyone counting — a producer that has been told this and
+            # answered it has answered it, and the next pass would deliver the
+            # same feedback over the same material. The byte-equality rule
+            # above stays bounded-runs-only, because that one *is* about cost.
             if (
-                budget is not None
-                and len(state.evaluations) >= 2
+                len(state.evaluations) >= 2
                 and _same_failure(state.evaluations[-1], state.evaluations[-2])
                 and evaluation.retry_is_possible
                 and not evaluation.blocked_by

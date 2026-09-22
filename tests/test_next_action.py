@@ -353,13 +353,46 @@ class TestARetryHasToBeWorthIt(_Repo):
         self.assertEqual(adapter.calls, 2)
         self.assertNotEqual(run["stop_reason"], "no_progress")
 
-    def test_an_unbudgeted_run_keeps_its_legacy_verdict(self):
-        """Out of scope on purpose, and asserted so the boundary is visible."""
+    def test_an_unbudgeted_run_is_held_to_the_same_rule(self):
+        """The boundary #29 drew, and why it is gone.
+
+        #29 put this behind a budget because it was a **cost** rule: another
+        call costs money, so stop paying for a failure that has already been
+        had. Stated as a **contract** rule it does not depend on anyone
+        counting — a producer that has been told this and answered it has
+        answered it, and the next pass would deliver the same feedback over the
+        same material.
+
+        This test held the 1.0 boundary visible and now holds the new rule. It
+        changes *when* an unbudgeted run stops, not how it is graded: the
+        evaluation is identical, and `max_iterations` gave way to a more
+        specific true thing about the run.
+        """
         run = AtlasController(
             max_iterations=2, model_adapter=_ScriptedAdapter(self._output(block=False))
         ).run(REPO_TASK, evidence=self.base, json_mode=True)
 
-        self.assertEqual(run["stop_reason"], "max_iterations")
+        self.assertEqual(run["stop_reason"], "no_progress")
+        self.assertEqual(
+            run["metadata"]["no_progress"]["reason"], "unchanged_feedback"
+        )
+        self.assertEqual(run["metadata"]["no_progress"]["material"], "unchanged")
+
+    def test_the_byte_rule_stays_bounded_because_that_one_is_about_cost(self):
+        """Not everything from #29 moved. The narrower rule still needs a budget.
+
+        Byte equality says a provider returned the same string, which is a
+        statement about spend. The failure signature says the feedback would
+        repeat, which is a statement about the contract. Only the second one
+        applies without a budget.
+        """
+        run = AtlasController(
+            max_iterations=2, model_adapter=_ScriptedAdapter(self._output(block=False))
+        ).run(REPO_TASK, evidence=self.base, json_mode=True)
+
+        self.assertNotEqual(
+            run["metadata"]["no_progress"]["reason"], "identical_model_output"
+        )
 
 
 if __name__ == "__main__":

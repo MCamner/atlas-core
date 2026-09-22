@@ -55,6 +55,19 @@ class OutputAdapter:
         return ModelResult(output=self.output, provider="test", model="fixture")
 
 
+class _ScriptedOutputAdapter:
+    """One output per pass, the last repeating. For runs that must differ."""
+
+    def __init__(self, *outputs: str):
+        self.outputs = list(outputs)
+        self.calls = 0
+
+    def execute(self, **kwargs: object) -> ModelResult:
+        output = self.outputs[min(self.calls, len(self.outputs) - 1)]
+        self.calls += 1
+        return ModelResult(output=output, provider="test", model="fixture")
+
+
 class BoomAdapter:
     def execute(self, **kwargs: object) -> ModelResult:
         raise RuntimeError("upstream 503")
@@ -299,14 +312,29 @@ class TestTheBoundIsOnlyTheReasonWhenItBound(unittest.TestCase):
     """
 
     def _uncited(self, max_iterations: int) -> dict:
-        output = (
+        """Two passes that fail *differently*, so the run reaches its bound.
+
+        A run whose feedback repeats now stops `no_progress` whether or not it
+        is budgeted, which is a more specific true thing about it than the
+        bound — so a producer emitting the same failure twice never gets to the
+        bound at all. This fixture fixes the missing section on the second pass
+        and leaves the evidence gap standing: still failing, still something
+        another pass could act on, and now genuinely stopped by the iteration
+        count rather than by repeating itself.
+
+        Without this the class would be asserting the bound on a run that no
+        longer reaches it, which would make it pass for the wrong reason.
+        """
+        body = (
             "# Repo Review\n\n## Observed sources\n- README.md\n\n"
             "## Verified findings\n- Repoet saknar tester helt och hållet\n\n"
-            "## Recommendation\nx\n\n## Next step\ny\n\n## Confidence\nLow.\n"
-            + ("evidence " * 40)
+            "## Recommendation\nx\n\n## Next step\ny\n"
         )
+        first = body + ("evidence " * 40)
+        second = body + "\n## Confidence\nLow.\n" + ("evidence " * 40)
         return AtlasController(
-            max_iterations=max_iterations, model_adapter=OutputAdapter(output)
+            max_iterations=max_iterations,
+            model_adapter=_ScriptedOutputAdapter(first, second),
         ).run(REPO_TASK, observations=["README.md:\n# Demo"], json_mode=True)
 
     def test_an_evidence_gap_that_ran_out_of_passes_says_so(self):
