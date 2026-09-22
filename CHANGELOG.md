@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+Roadmap P1.2 box two, request side: a bounded prompt and named failures.
+
+- **`PromptLimits`** bounds the prompt in characters. Tokens would need a
+  tokenizer per provider — a dependency this package does not carry, and a
+  number that would be wrong for every provider it was not built for.
+  `RunBudget` keeps the token side, against counts a provider reports about its
+  own work.
+- **Nothing is dropped quietly.** Observations give way when the bound bites —
+  truncated per source first, then dropped whole, in the order the run holds
+  them — and every cut is stated in the prompt the producer reads *and* counted
+  on the result as `prompt_complete`, `observations_truncated` and
+  `observations_omitted`. "Found nothing" means less when the producer was
+  shown less.
+- **What is shown is a prefix** of the run's order. The first source that
+  cannot be shown ends the selection; the rest are counted as omitted. The
+  omission notice names no source, so it means something only if the shown set
+  is the first N — a short source shown after a large one was skipped would be
+  an arbitrary subset described as a count.
+- The instruction is never cut, so a bound that cannot hold the task, the
+  question and the feedback raises instead of being exceeded.
+- **Failures are named**: `ProviderRateLimited` (carrying the provider's own
+  `retry_after`, or `None` rather than an invented number), `ProviderTimeout`,
+  `ProviderUnreachable`, `ProviderRefused`, `ProviderBadResponse`. The
+  controller already records `type(exc).__name__`, so no schema changed to
+  carry the distinction.
+- **None of them retry inside the adapter.** A retry there would spend
+  wall-clock the `RunBudget` cannot see, and the loop already owns whether
+  another attempt is worth it.
+- HTTP failures carry a status and never a body: a provider can echo a request
+  header back in an error payload, and the message reaches the run document.
+
 Roadmap P1.2 box one: a real provider behind the `ModelAdapter` that existed.
 
 - **`atlas_core/adapters/live_model.py`** — two provider shapes configured
