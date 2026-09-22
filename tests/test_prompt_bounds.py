@@ -139,6 +139,59 @@ class TestThePromptStaysInsideItsBound(unittest.TestCase):
         self.assertNotIn("SECOND", prompt.text)
         self.assertEqual(prompt.omitted_observations, 1)
 
+    def test_a_source_too_big_to_keep_ends_the_prompt_rather_than_being_skipped(self):
+        """The prefix promise, at the one place it used to break.
+
+        A first source too large to truncate usefully was skipped, and a short
+        second source was shown after it — so the producer saw source two and
+        not source one, while the notice said only that one source "did not
+        fit". That notice carries no identity: it means something only if what
+        is shown is the first N in the run's order. So the first omission ends
+        the selection, and everything after it is counted as omitted too.
+        """
+        route, plan = _run_parts()
+
+        prompt = build_prompt(
+            TASK, route, plan,
+            ["FIRST" + "x" * 9000, "SECOND kort"],
+            None,
+            PromptLimits(max_prompt_chars=1_000, max_observation_chars=250),
+        )
+
+        self.assertNotIn("FIRST", prompt.text)
+        self.assertNotIn("SECOND", prompt.text)
+        self.assertEqual(prompt.omitted_observations, 2)
+
+    def test_what_is_shown_is_always_a_prefix_of_what_the_run_holds(self):
+        """The invariant behind the case above, over mixed sizes and bounds.
+
+        Whatever the bound does, the sources that appear do so in run order and
+        with nothing skipped in between: shown is the first N, for some N.
+        """
+        route, plan = _run_parts()
+        sources = [
+            "S0" + "a" * 50,
+            "S1" + "b" * 9000,
+            "S2" + "c" * 300,
+            "S3" + "d" * 40,
+            "S4" + "e" * 5000,
+        ]
+        marks = ["S0", "S1", "S2", "S3", "S4"]
+
+        for budget in (900, 1_200, 2_000, 4_000, 9_000, 30_000):
+            with self.subTest(budget=budget):
+                limits = PromptLimits(
+                    max_prompt_chars=budget,
+                    max_observation_chars=min(400, budget),
+                )
+                prompt = build_prompt(TASK, route, plan, sources, None, limits)
+
+                shown = [i for i, mark in enumerate(marks) if mark in prompt.text]
+                self.assertEqual(shown, list(range(len(shown))))
+                self.assertEqual(
+                    prompt.omitted_observations, len(sources) - len(shown)
+                )
+
     def test_the_instruction_is_never_cut(self):
         """A producer shown a truncated task is answering a different question,
         so an impossible bound is refused rather than quietly exceeded."""

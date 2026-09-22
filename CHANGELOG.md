@@ -15,6 +15,11 @@ Roadmap P1.2 box two, request side: a bounded prompt and named failures.
   on the result as `prompt_complete`, `observations_truncated` and
   `observations_omitted`. "Found nothing" means less when the producer was
   shown less.
+- **What is shown is a prefix** of the run's order. The first source that
+  cannot be shown ends the selection; the rest are counted as omitted. The
+  omission notice names no source, so it means something only if the shown set
+  is the first N — a short source shown after a large one was skipped would be
+  an arbitrary subset described as a count.
 - The instruction is never cut, so a bound that cannot hold the task, the
   question and the feedback raises instead of being exceeded.
 - **Failures are named**: `ProviderRateLimited` (carrying the provider's own

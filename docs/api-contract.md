@@ -508,7 +508,11 @@ is the field `RunBudget` charges. Absent counts report nothing rather than zero.
 The prompt is bounded by `PromptLimits`, in **characters** — counting tokens
 needs a tokenizer per provider, which this package does not carry. Observations
 are what gives way when the bound bites: truncated per source first, then
-dropped whole, in the order the run holds them. Every cut is stated in the
+dropped whole, in the order the run holds them. What is shown is always a
+**prefix** of that order: the first source that cannot be shown ends the
+selection and the rest are counted as omitted, because the omission notice
+names no source and so means something only if the shown set is the first N.
+Every cut is stated in the
 prompt the producer reads *and* counted on the result, so
 `metadata.model_result.metadata` carries `prompt_complete`,
 `observations_truncated` and `observations_omitted`. The instruction is never

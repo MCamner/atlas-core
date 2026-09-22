@@ -551,8 +551,11 @@ def build_prompt(
     is stated in the prompt and counted on the result.
 
     Order matters when the bound bites. Observations are kept in the order the
-    run holds them, which is the order the host returned them, so a producer
-    that sees only some sees the first ones rather than an arbitrary subset.
+    run holds them, which is the order the host returned them, and what is
+    shown is always a *prefix* of that order: the first source that cannot be
+    shown ends the selection, and the rest are counted as omitted. A skipped
+    source in the middle would be an arbitrary subset described by a notice
+    that names no source at all.
     """
     limits = limits or PromptLimits()
     head = [
@@ -598,10 +601,10 @@ def build_prompt(
     kept: list[str] = []
     truncated = 0
     omitted = 0
-    for observation in observations:
+    for index, observation in enumerate(observations):
         if room <= 0:
-            omitted += 1
-            continue
+            omitted = len(observations) - index
+            break
         allowed = min(limits.max_observation_chars, room)
         if len(observation) > allowed:
             # The notice costs characters too, and reserving them afterwards is
@@ -612,9 +615,14 @@ def build_prompt(
             usable = allowed - reserved
             # Only worth keeping if a usable amount survives. A stub with a
             # notice attached is noise a producer has to reason around.
+            #
+            # This ends the selection rather than skipping to the next source.
+            # Skipping would leave a shorter later source shown while an earlier
+            # one was not, and the omission notice names no source — it means
+            # something only if what is shown is the first N in run order.
             if usable < _MIN_USEFUL_OBSERVATION:
-                omitted += 1
-                continue
+                omitted = len(observations) - index
+                break
             text = observation[:usable] + _cut_notice(len(observation), usable)
             truncated += 1
         else:
