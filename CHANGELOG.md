@@ -52,8 +52,9 @@ run that says when it cannot be reproduced.
   nothing about a hosted endpoint: different request field, different reply
   shape, different implementation of the same schema.
 - **Measured, and written down in `docs/live-smoke.md`** — including what it
-  does not prove, and the run where the same configuration failed after having
-  passed.
+  does not prove. `scripts/live_smoke_measure.py` produces the measurement one
+  JSON row per run, and the table is derived from that file: the first version
+  of it was assembled by hand and its totals disagreed with its own rows.
 - An endpoint carrying a token in its query string is now asserted absent from
   the run document, which is the reason `config_id` is a digest and not the
   address.
