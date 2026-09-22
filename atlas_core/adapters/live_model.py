@@ -68,12 +68,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, Sequence
 
 from atlas_core.state import AtlasEvaluation, AtlasPlan, AtlasRoute
+from atlas_core.tool_gateway import ToolDenied, ToolGateway
 
 from .model import ModelResult
 from .output_contract import (
@@ -473,10 +475,24 @@ class LiveModelAdapter:
         limits: PromptLimits | None = None,
         *,
         structured_output: bool = True,
+        capabilities: Sequence[str] = (),
     ) -> None:
         self.config = config
         self.transport = transport or UrllibTransport()
         self.limits = limits or PromptLimits()
+        #: The tools this adapter may ask for, by name. **Empty by default**,
+        #: which denies everything — a model that has never been given a
+        #: capability cannot acquire one, and the safe state is the one you get
+        #: by not thinking about it.
+        #:
+        #: Set here, by host code holding a reference to this object, and
+        #: nowhere else. Not from the environment: `ATLAS_MODEL_*` is read out
+        #: of a process whose variables a build script or a checked-in dotfile
+        #: can set, which puts it closer to repository content than to the host
+        #: — and repository content is data. Not from the model's output, for
+        #: the same reason a producer cannot declare its own verdict.
+        self.capabilities = _capability_list(capabilities)
+        self._invocations = 0
         #: Whether the reply schema goes on the wire. Off is for an endpoint
         #: that refuses a request carrying a field it does not know, which is a
         #: live-configuration matter rather than a fallback this module takes
@@ -491,13 +507,18 @@ class LiveModelAdapter:
         plan: AtlasPlan,
         observations: list[str],
         feedback: AtlasEvaluation | None = None,
+        tools: ToolGateway | None = None,
         **_ignored: Any,
     ) -> ModelResult:
-        # `**_ignored` on purpose: the controller passes `budget` and `tools`
-        # when it has them. This adapter offers the model no tool, which is the
-        # honest state until P1.2 box four declares a capability list — and
-        # silently accepting a gateway it does not use is better than crashing
-        # on a keyword the contract allows.
+        # `tools` is named rather than swallowed. The gateway is still not used
+        # here — this adapter runs one request and reads one reply, and it asks
+        # for no tool — but naming it is what lets the run document say so, and
+        # the difference between "offered nothing" and "offered something and
+        # said nothing about it" is the whole subject of box four.
+        #
+        # `**_ignored` stays for `budget`, which the controller passes and
+        # which is charged by the controller rather than here.
+        self._invocations = 0
         prompt = build_prompt(
             task, route, plan, observations, feedback, self.limits
         )
@@ -592,6 +613,15 @@ class LiveModelAdapter:
         # without the name doing so.
         metadata["determinism"] = "non_deterministic"
 
+        # What this run could have done and what it did. Both, because a list
+        # of capabilities is a statement about permission and the count is a
+        # statement about use, and a reader of the document should not have to
+        # infer either. `none` rather than an empty string: an empty value
+        # reads as a field nobody filled in.
+        metadata["tools_declared"] = ",".join(self.capabilities) or "none"
+        metadata["tools_invoked"] = str(self._invocations)
+        metadata["tool_gateway"] = "present" if tools is not None else "absent"
+
         envelope = read_envelope(text)
         metadata["output_schema"] = OUTPUT_SCHEMA_VERSION
         metadata["output_schema_sent"] = "true" if schema is not None else "false"
@@ -605,6 +635,70 @@ class LiveModelAdapter:
             model=self.config.model,
             metadata=metadata,
         )
+
+    def invoke_tool(
+        self,
+        gateway: ToolGateway | None,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> Any:
+        """The only way anything model-driven may reach a tool.
+
+        There is no second path and no second registry. Everything that decides
+        whether a call happens is already written down elsewhere, and this adds
+        exactly one check on top of it:
+
+        1. **The name must be in this adapter's declared list**, which is empty
+           unless host code holding the object put something in it. This is the
+           new check, and it is a whitelist: not "is it forbidden" but "was it
+           permitted", so a tool nobody thought about is denied.
+        2. **The gateway decides everything else**, unchanged since P0.3 — that
+           the name is registered, that its capability is `read`, that the
+           arguments are a string-keyed object, that the shared `RunBudget` has
+           room, and that the result serialises. No branch here can skip it.
+
+        The gateway is passed in rather than kept on the adapter. A gateway
+        held across calls is a gateway that can be used after the run that
+        owned its budget has ended, and the budget is the thing that makes a
+        tool call metered.
+
+        **Nothing in this module calls this.** The adapter sends one request
+        and reads one reply; it asks for no tool. What is implemented here is
+        the block and the declaration, not tool use — see `docs/safety-model.md`.
+        """
+        if not isinstance(name, str) or name not in self.capabilities:
+            # Before the gateway, and before anything is reserved. A denial
+            # that costs budget would let a rejected name meter a run.
+            raise ToolDenied(
+                f"tool {name!r} is not in this adapter's declared capabilities"
+            )
+        if not isinstance(gateway, ToolGateway):
+            raise ToolDenied("no Atlas tool gateway was given to this run")
+        self._invocations += 1
+        return gateway.invoke(name, arguments)
+
+
+def _capability_list(capabilities: Sequence[str]) -> tuple[str, ...]:
+    """Validate and freeze what was declared.
+
+    A tuple rather than a list because the value is a permission, and a
+    permission that a later line of code can append to is not one. Names are
+    held to the same rule `ToolDefinition` holds them to, so a declaration can
+    never name something the registry could not contain — a typo that silently
+    permits nothing is worse than one that is refused.
+    """
+    if isinstance(capabilities, str):
+        # "read" would otherwise become ('r', 'e', 'a', 'd'), which declares
+        # four tools nobody meant and is exactly the kind of quiet widening
+        # this list exists to prevent.
+        raise TypeError("capabilities is a sequence of tool names, not a string")
+    names: list[str] = []
+    for name in capabilities:
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+            raise ValueError(f"not a tool name: {name!r}")
+        if name not in names:
+            names.append(name)
+    return tuple(names)
 
 
 def _retry_after(error: urllib.error.HTTPError) -> float | None:
@@ -771,6 +865,7 @@ def build_model_adapter(
     *,
     transport: Transport | None = None,
     limits: PromptLimits | None = None,
+    capabilities: Sequence[str] = (),
 ) -> LiveModelAdapter | None:
     """The configured adapter, or `None` when nothing is configured.
 
@@ -830,6 +925,7 @@ def build_model_adapter(
         ),
         transport=transport,
         limits=limits,
+        capabilities=capabilities,
     )
 
 
@@ -838,6 +934,7 @@ def model_adapter_or_raise(
     *,
     transport: Transport | None = None,
     limits: PromptLimits | None = None,
+    capabilities: Sequence[str] = (),
 ) -> LiveModelAdapter:
     """For a caller that asked for a live run and wants to hear about it.
 
@@ -845,7 +942,9 @@ def model_adapter_or_raise(
     exists for the loop, which has a deterministic path to take; this exists for
     a command that has nothing else to do.
     """
-    adapter = build_model_adapter(env, transport=transport, limits=limits)
+    adapter = build_model_adapter(
+        env, transport=transport, limits=limits, capabilities=capabilities
+    )
     if adapter is None:
         raise NotConfigured(
             f"no live provider configured. Set {ENV_PROVIDER} to one of "

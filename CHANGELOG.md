@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+Roadmap P1.2 box four: what the model may do, which is nothing unless a host
+says so.
+
+- **`LiveModelAdapter.capabilities`** declares the tool names the model may ask
+  for. Empty by default, so a tool nobody thought about is denied rather than
+  permitted until someone forbids it. Set by host code holding the object, and
+  not from the environment: `ATLAS_MODEL_*` is read out of a process whose
+  variables a build script or a checked-in dotfile can set, which puts it
+  closer to repository content than to the host.
+- **`invoke_tool` is the only path**, and it adds one check on top of
+  `ToolGateway` rather than replacing it. No second registry, and the list can
+  only narrow: a declared `write` or `network` tool is still denied, an
+  unregistered name is still denied, and the shared `RunBudget` still binds. A
+  denied name costs no budget, so a stream of them cannot exhaust a run.
+- The gateway is **passed in, not held**. One kept on the adapter would outlive
+  the budget that made its calls metered.
+- **Tool use is not implemented**, and the suite says so: nothing in the package
+  calls `invoke_tool`, and a test asserts it. Every run records
+  `tools_declared`, `tools_invoked` — always `0` in this version — and
+  `tool_gateway`.
+- `execute` now names `tools` instead of swallowing it, which is what lets the
+  run document distinguish "offered nothing" from "offered something and said
+  nothing about it".
+- **An unreadable findings block no longer reports `citations_hold` and
+  `claims_are_settled` as met.** Nothing was checked and nothing was settled, so
+  naming only `findings_are_checkable` left two criteria reported met beside an
+  empty `citation_checks`. Same defect the question criteria had before, in a
+  path the box-two work made far more reachable.
+
 Roadmap P1.2 box three: the live path verified against a real provider, and a
 run that says when it cannot be reproduced.
 
