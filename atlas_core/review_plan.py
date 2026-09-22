@@ -67,6 +67,18 @@ class ReviewTopic:
     keywords: tuple[str, ...]
     #: Glob patterns, relative to the snapshot root, for the host to resolve.
     patterns: tuple[str, ...]
+    #: Literals a settled claim must name for that claim to bear on this
+    #: topic's question. **Declared, not inferred**: the judgement about what
+    #: answers the question is made here, once, where it can be read and
+    #: disagreed with — not derived from the claim at grading time, which would
+    #: be entailment, which needs a model.
+    #:
+    #: Empty means this topic has not declared one. A topic with no answering
+    #: set is held to relevance only: something settled about a source it
+    #: named. Declaring a set for a question nobody has thought through would
+    #: be worse than declaring none, because the criterion would then pass or
+    #: fail on a list assembled to have a list.
+    answering: tuple[str, ...] = ()
 
 
 #: Ordered: the first topic whose keywords appear in the task wins. Order is by
@@ -85,12 +97,32 @@ TOPICS: tuple[ReviewTopic, ...] = (
             "credential", "nyckel",
         ),
         patterns=("*.env", "settings*", "config*", ".env*"),
+        # An assignment, not a mention. `PASSWORD=admin` names a credential
+        # being set; `TIMEOUT=30` in the same file is true, settled, about a
+        # source this topic named, and says nothing about whether a credential
+        # is committed. That pair is the completion criterion in ROADMAP P1.1.
+        #
+        # The limit is worth stating where the list is: a credential that does
+        # not name itself — a bare `AKIA…` key, a base64 blob — matches none of
+        # these and is a miss. Fail-closed: the run stops and asks for an
+        # answer rather than passing on something unrelated.
+        answering=(
+            "password=", "passwd=", "pwd=", "lösenord=", "secret=",
+            "token=", "api_key=", "apikey=", "access_key=", "private key",
+        ),
     ),
     ReviewTopic(
         code="ci",
         question="Does the CI configuration run the checks it claims to run?",
         keywords=("ci", "workflow", "actions", "pipeline", "bygge", "build"),
-        patterns=(".github/workflows/*", "Makefile", "*.yml"),
+        # Not only configuration. A question about what CI runs is usually a
+        # question about whether it runs what a local gate runs, and the local
+        # gate is a script. The first pinned-repo run (ROADMAP P1.1 box five,
+        # `docs/pinned-repo-review.md`) could read only the CI half of exactly
+        # that question, because every pattern here named a config file.
+        patterns=(
+            ".github/workflows/*", "Makefile", "*.yml", "*.sh", "scripts/*",
+        ),
     ),
     ReviewTopic(
         code="tests",
@@ -137,6 +169,10 @@ class ReviewPlan:
     #: Why these patterns, so a reader can disagree with the selection rather
     #: than only with the answer.
     rationale: str = ""
+    #: The topic's declared answering literals, carried into the run document
+    #: so a reader sees what the run was willing to accept as an answer.
+    #: Empty when the topic declared none.
+    answering: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.question.strip():
@@ -160,6 +196,21 @@ class ReviewPlan:
         return {"schema": SCHEMA, **asdict(self)}
 
 
+def detect_topic(task: str) -> ReviewTopic | None:
+    """The topic a task narrows to, or None when nothing in it narrows.
+
+    Split out of `build_review_plan` so the router can consult the same
+    vocabulary. It was the plan's alone, and a task could name a topic this
+    module knows while reaching a route that builds no plan at all — the topic
+    was computed and discarded. See `atlas_core/router.py`.
+    """
+    text = task.lower()
+    for topic in TOPICS:
+        if any(keyword in text for keyword in topic.keywords):
+            return topic
+    return None
+
+
 def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
     """Work out what this review is asking, and what it takes to look.
 
@@ -169,19 +220,19 @@ def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
     not narrowed instead of being answered with a plausible-looking question
     about files nobody asked about.
     """
-    text = task.lower()
-    for topic in TOPICS:
-        if any(keyword in text for keyword in topic.keywords):
-            return ReviewPlan(
-                snapshot_id=snapshot_id,
-                topic=topic.code,
-                question=topic.question,
-                patterns=list(topic.patterns),
-                rationale=(
-                    f"The task names {topic.code}; these are the paths that "
-                    "carry the answer in a repository of this shape."
-                ),
-            )
+    topic = detect_topic(task)
+    if topic is not None:
+        return ReviewPlan(
+            snapshot_id=snapshot_id,
+            topic=topic.code,
+            question=topic.question,
+            patterns=list(topic.patterns),
+            rationale=(
+                f"The task names {topic.code}; these are the paths that "
+                "carry the answer in a repository of this shape."
+            ),
+            answering=list(topic.answering),
+        )
 
     return ReviewPlan(
         snapshot_id=snapshot_id,
@@ -194,6 +245,26 @@ def build_review_plan(task: str, snapshot_id: str) -> ReviewPlan:
             "nobody asked."
         ),
     )
+
+
+def answers_question(plan: ReviewPlan, claim_text: str) -> bool:
+    """Whether a settled claim names something this topic calls an answer.
+
+    Case-insensitive substring against the topic's declared literals. A narrow
+    mechanism, and the narrowness is the point: deciding whether an arbitrary
+    settled claim *answers* an arbitrary question is entailment, and a guess at
+    it would sit behind a PASS. This asks a smaller question that has a
+    definite answer — did the claim name one of the things declared in advance
+    to count?
+
+    A plan that declared nothing answers True. There is no set to be outside
+    of, and failing every claim against an empty list would make the criterion
+    unmeetable rather than strict.
+    """
+    if not plan.answering:
+        return True
+    text = claim_text.lower()
+    return any(literal.lower() in text for literal in plan.answering)
 
 
 def unread_patterns(
@@ -235,6 +306,8 @@ __all__ = [
     "UNKNOWN_TOPIC",
     "ReviewPlan",
     "ReviewTopic",
+    "answers_question",
     "build_review_plan",
+    "detect_topic",
     "unread_patterns",
 ]

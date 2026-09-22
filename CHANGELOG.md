@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+Roadmap P1.1, filed item: a question with declared predicates.
+
+- **`findings_answer_the_question`**, beside `findings_are_on_topic` and only
+  for a topic that declared what would count. `ReviewTopic.answering` lists the
+  literals that bear on the topic's question; `secrets` declares `password=`,
+  `token=`, `api_key=` and so on, and a settled finding must name one. A
+  verified claim that `settings.env` contains `TIMEOUT=30` clears relevance and
+  fails this — the pair the roadmap item named, tested as two runs against one
+  file.
+- The requirement text lists the literals it will accept, so the bar is not a
+  hidden list.
+- **Declared, not inferred.** The judgement is written once, per topic, where
+  it can be read and disagreed with. Deriving it from an arbitrary claim at
+  grading time is entailment, which needs a model, and a guess would sit behind
+  a PASS instead of beside a limitation.
+- Two limits, each with a test rather than only a sentence: a topic that
+  declares nothing is held to relevance alone, and a credential that does not
+  name itself matches nothing declared and is a miss. The second fails closed —
+  the run stops and asks for an answer.
+- When nothing is on topic at all, **both** criteria are reported unmet. Met
+  criteria are `declared - unmet`, so naming only the relevance gap would leave
+  `findings_answer_the_question` in the met list and in `quality_score` while
+  no finding had existed to test against the answering set. The run stopped
+  either way; the reporting would have asserted something nobody established.
+- `plan.review.answering` is declared in `schemas/atlas-run.v1.json`, so a
+  consumer can read what the run was willing to accept as an answer.
+
 Roadmap P1.1 box four: what another pass has to rest on.
 
 - **`RETRY_CLASSES`**, beside the action vocabulary it classifies. Taken
