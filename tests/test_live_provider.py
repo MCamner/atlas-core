@@ -278,6 +278,43 @@ class TestTheKeyStaysWhereItWasPut(unittest.TestCase):
         self.assertNotIn(SECRET, json.dumps(run))
         self.assertEqual(run["metadata"]["model_result"]["provider"], "openai_compatible")
 
+    def test_it_is_not_in_the_dataclass_repr(self):
+        """The channel that survives being careful everywhere else.
+
+        `describe()`, the metadata and the run document are all places this
+        module chooses what to pass along. A dataclass `repr` is not: it is
+        what a traceback prints, what a debugger shows, and what lands in a log
+        line written by code that never thought about this field. `str()` falls
+        back to it, so both are covered by the same `repr=False`.
+        """
+        config = ProviderConfig(
+            provider="openai_compatible",
+            model="some-model",
+            endpoint="https://example.invalid/v1/chat/completions",
+            api_key=SECRET,
+        )
+
+        self.assertNotIn(SECRET, repr(config))
+        self.assertNotIn(SECRET, str(config))
+        # Still there to be used, which is the point of hiding it rather than
+        # dropping it.
+        self.assertEqual(config.api_key, SECRET)
+        self.assertIn("some-model", repr(config))
+
+    def test_a_traceback_from_an_unrelated_failure_does_not_carry_it(self):
+        """The concrete way the repr escapes: nothing here mentions the key."""
+        config = ProviderConfig(
+            provider="openai_compatible",
+            model="some-model",
+            endpoint="https://example.invalid/v1/chat/completions",
+            api_key=SECRET,
+        )
+
+        with self.assertRaises(AssertionError) as caught:
+            assert config.timeout < 0, f"unexpected config: {config!r}"
+
+        self.assertNotIn(SECRET, str(caught.exception))
+
     def test_the_config_describes_itself_without_it(self):
         config = ProviderConfig(
             provider="openai_compatible",

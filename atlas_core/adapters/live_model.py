@@ -181,13 +181,19 @@ class ProviderConfig:
 
     `api_key` is the only secret here and it stays here: it is used to build a
     header and is never copied into a result, a log line or the run document.
-    `describe()` is what anything else may see.
+    `describe()` is what anything else may see, and the field is kept out of
+    the dataclass `repr` — a value that is careful everywhere it is *passed*
+    still escapes through the traceback of an unrelated failure.
     """
 
     provider: str
     model: str
     endpoint: str
-    api_key: str | None = None
+    #: `repr=False`, because a dataclass repr is not a place a secret survives
+    #: being careful elsewhere. It is what a traceback prints, what a debugger
+    #: shows and what lands in a log line written by code that never thought
+    #: about this field — none of which pass through `describe()`.
+    api_key: str | None = field(default=None, repr=False)
     timeout: float = DEFAULT_TIMEOUT
 
     def __post_init__(self) -> None:

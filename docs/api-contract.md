@@ -499,8 +499,8 @@ Configuration is read from the environment: `ATLAS_MODEL_PROVIDER` (`ollama` or
 `openai_compatible`), `ATLAS_MODEL`, `ATLAS_MODEL_ENDPOINT`,
 `ATLAS_MODEL_API_KEY`, `ATLAS_MODEL_TIMEOUT`. A caller may pass a dict instead.
 The key stays on the config: it is not in `ModelResult.metadata`, not in the run
-document, and not in the failure record. `ProviderConfig.describe()` is what
-anything else may see.
+document, not in the failure record, and not in the dataclass `repr`.
+`ProviderConfig.describe()` is what anything else may see.
 
 Token counts a provider reports are mapped to `metadata["usage_tokens"]`, which
 is the field `RunBudget` charges. Absent counts report nothing rather than zero.

@@ -20,7 +20,10 @@ Roadmap P1.2 box one: a real provider behind the `ModelAdapter` that existed.
   name, a non-numeric timeout — because silence would leave a typo running the
   deterministic path unnoticed.
 - The key is read from the environment and stays on the config: not in
-  `ModelResult.metadata`, not in the run document, not in the failure record.
+  `ModelResult.metadata`, not in the run document, not in the failure record,
+  and kept out of the dataclass `repr`. The first three are places this module
+  chooses what to pass along; a `repr` is not — it is what a traceback prints
+  and what a debugger shows.
 - Provider token counts are mapped to `metadata["usage_tokens"]`, so a live run
   is metered by `RunBudget` the way a scripted one is. Absent counts report
   nothing rather than zero.
