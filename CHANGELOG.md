@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+Roadmap v1.3 box one: the versioned contracts, who owns which field, and
+`atlas-run.v1` into `Run.v2` without silent loss.
+
+- **`atlas_core.contracts`** names every document this package emits, at which
+  version, and who may write each field — `core`, `host`, `producer`, `checker`
+  or `derived`. The rule has been enforced case by case since P0.2; this is it
+  written down once, bound to the schema files by test. Every declared property
+  must have an owner and every owner must name a property that exists, so
+  adding a field and forgetting to say who writes it fails rather than defaults
+  to permissive.
+- **`COMPATIBILITY`** states what may change inside a version. The one that
+  matters: a field may not change meaning while keeping its name. That happened
+  once, to `quality_score`, and `score_method` exists because of it.
+- **New contracts.** `atlas-action.v1` (what a run did), `atlas-approval.v1`
+  (that a run needed a person), `atlas-evaluation.v2` (identity, and
+  `score_method` required), `atlas-run.v2`. Every v1 schema file now declares
+  its own `$id`.
+- **`Approval.v1` grants nothing.** Atlas Core is read-only and nothing reads
+  this record to permit anything. What the contract does is make `granted: true`
+  unstateable without `binds_to`, so an approval can never be a bare boolean
+  that outlives what it approved — the requirement `docs/safety-model.md` sets
+  for any future approval.
+- **`migrate_run(document)`** returns a `Run.v2` document and a
+  `MigrationReport`. Nothing is dropped: every source key is mapped or kept
+  *with its value* under `migration.unmapped`. Nothing is invented: `actions` is
+  `null` and not `[]`, because an empty list would state the run did nothing,
+  and an absent `score_method` becomes `unknown` and not today's method. A
+  value no v2 field can hold — `evaluations` that is not a list — is parked
+  with everything else rather than normalised to `[]`, which would be a claim
+  of the migration's own. An incomplete source is migrated anyway, with
+  `migration.unfilled` naming what `Run.v2` requires and the result lacks, and
+  `is_complete` read off that rather than off the source. The result does not
+  validate against v2, which is the honest outcome.
+- A document that does not name its own contract raises `UnknownSourceSchema`.
+- The round trip is asserted over documents the loop really produces, across
+  routes and stop reasons, not over one fixture chosen to pass.
+- **The loop still emits `atlas-run.v1`.** The cutover is a separate change.
+
 Roadmap P1.2 box four: what the model may do, which is nothing unless a host
 says so.
 

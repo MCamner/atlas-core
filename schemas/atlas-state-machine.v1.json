@@ -1,4 +1,5 @@
 {
+  "$id": "atlas-state-machine.v1.json",
   "title": "Atlas state machine",
   "version": "atlas-state-machine.v1",
   "description": "The run lifecycle as data, for a consumer that has to branch on it without importing Python. This file is a declaration, not a JSON Schema: nothing validates a document against it. atlas_core/machine.py is where it is enforced, and a test holds the two in step.",

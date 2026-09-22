@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-observation.v1.json",
   "title": "Atlas Observation",
   "description": "One thing that was read, with its provenance. A field that could not be verified carries the literal string \"unknown\"; it is never filled with a plausible default, because P0.2 verifies claims against exactly these fields.",
   "type": "object",

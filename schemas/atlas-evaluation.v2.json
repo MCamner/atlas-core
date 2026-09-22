@@ -1,17 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "atlas-evaluation.v1.json",
+  "$id": "atlas-evaluation.v2.json",
   "title": "Atlas Evaluation",
-  "description": "One evaluation, embedded in the `evaluations` array of an atlas-run.v1 document.",
+  "description": "What the checker made of one iteration's output. Succeeds atlas-evaluation.v1, dropping nothing: every field v1 required is here, with the same meaning. What v2 adds is identity (`evaluation_id`, `run_id`, `iteration`) and one requirement v1 left optional: `score_method`, because a document that does not say how its score was computed cannot be read safely. `met_criteria` and `unmet_criteria` stay optional on purpose — an empty list is not the same statement as an absent one. Every field here is the checker's except `requires_user_approval`, which is derived from the task by the core: a producer that could clear it would be approving its own write.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "quality_score",
-    "passed",
-    "reasons",
+    "evaluation_id",
+    "iteration",
     "missing",
     "missing_sections",
+    "passed",
+    "quality_score",
+    "reasons",
     "requires_user_approval",
+    "run_id",
+    "schema",
+    "score_method",
     "should_retry"
   ],
   "properties": {
@@ -19,7 +24,7 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1,
-      "description": "The share of its route's exit criteria this answer met, rounded to two places. A report, not a gate: since P1.1 nothing compares it against a threshold, and `passed` is decided by `unmet_criteria` being empty. Before that change it was a weighted sum over output length and headings, multiplied by an evidence factor, compared against 0.78."
+      "description": "A report, never a gate. `passed` is decided by `unmet_criteria` being empty; nothing compares this against a threshold. Read it together with `score_method`."
     },
     "passed": {
       "type": "boolean"
@@ -303,22 +308,40 @@
       "items": {
         "type": "string"
       },
-      "description": "The exit criteria this route declared and this answer met."
+      "description": "What the route owed and this answer delivered. Optional, like in v1: a document from before the criteria model has none, and an empty list would state that nothing was met rather than that nobody recorded it."
     },
     "unmet_criteria": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "The exit criteria this route and this question declared, and this answer did not meet. Empty exactly when `passed` is true and no approval is required. Each code names a requirement, not a fraction of a score: a requirement that can be outvoted by other requirements is not one. Criteria come from the route and, when the review plan narrowed to a topic, from the question — `findings_are_on_topic`, whose requirement text carries that question verbatim. Join to `plan.review.question` to read it. That criterion is a relevance gate over the source a settled claim is about; meeting it does not establish that the question was answered."
+      "description": "What remained outstanding. `passed` is exactly this being empty — which is why an absent list and an empty one must not be confused, and why this stays optional."
     },
     "score_method": {
       "type": "string",
       "enum": [
         "criteria_met_share",
-        "weighted_sections_and_length"
+        "weighted_sections_and_length",
+        "unknown"
       ],
-      "description": "How `quality_score` was computed. `criteria_met_share` is the share of the route's exit criteria the answer met, and reports rather than decides. A document with no `score_method` predates P1.1 and carries `weighted_sections_and_length`: a weighted sum over output length and headings, times an evidence factor, compared against 0.78. The field exists because `quality_score` kept its name while its meaning changed, which a consumer written against 1.0 would otherwise never find out."
+      "description": "How `quality_score` was computed. Required in v2, optional in v1 — which is the whole reason for the version bump: `quality_score` changed from a weighted score to the share of met criteria while keeping its name and its type, so a consumer written against the old meaning kept parsing and kept being wrong. `unknown` is a valid answer and the one a migrated v1 document gets when it recorded no method — guessing `criteria_met_share` there would assert exactly the thing that cannot be known, since a document old enough to lack the field is old enough to hold the weighted score."
+    },
+    "schema": {
+      "const": "atlas-evaluation.v2"
+    },
+    "evaluation_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable within a run: derived from the run id and the iteration, which is what an evaluation is one of. v1 had no identity at all — an evaluation was its position in a list, so two documents could not be said to hold the same one."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Carried on the record so an evaluation lifted out of the run document is still attributable."
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
     }
   }
 }

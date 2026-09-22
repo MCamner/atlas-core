@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-action.v1.json",
+  "title": "Atlas Action",
+  "description": "One thing a run DID: a source read, a model call, a tool invocation. Distinct from `next_action` on an evaluation, which is an instruction about what should happen and is written by the checker — this is a record of what happened and is written by the loop. Every field is the core's; nothing a producer writes can add an action or change one, because an action log a producer could write would be a log of what it said it did. Defining this contract does not make the loop record actions: nothing emits these yet, and a Run.v2 that carries no action log says `actions: null` with `not_recorded`, never an empty list — an empty list would state that the run did nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "action_id",
+    "run_id",
+    "iteration",
+    "kind",
+    "started_at",
+    "outcome"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-action.v1"
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable within a run. Derived from the run, the iteration and the action's own position, so two logs of the same run agree on which record is which."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The run this belongs to. Carried on the record itself so an action extracted from the document, or appended to a log that outlives it, is still attributable."
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "observe",
+        "model_call",
+        "tool_call",
+        "memory_read",
+        "memory_write"
+      ],
+      "description": "What was done, from a closed vocabulary. A free-text kind would be a category nobody can aggregate over."
+    },
+    "started_at": {
+      "type": "string",
+      "description": "ISO 8601. When it began, not when it was recorded."
+    },
+    "capability": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "read",
+        "write",
+        "network",
+        null
+      ],
+      "description": "For a tool call, the capability the gateway checked. Null for a kind that is not a tool call — not omitted, so absence is stated rather than inferred."
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "What it acted on: a tool name, a source path, a provider. Null when the kind has no single target."
+    },
+    "input_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Digest of the input, so a replay can be compared without the input being stored. Absence is `null` and only `null` — the pattern does not admit the empty string, because a field with two ways to say nothing has a way that reads as a value. Never a digest of the empty input standing in for \"nothing was hashed\"."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "denied",
+        "failed"
+      ],
+      "description": "`denied` is a refusal by a boundary — the gateway, the capability list — and is a normal result, not an error. `failed` is an attempt that was allowed and did not succeed."
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The failure's type name, never a body. A provider can echo a request header back in an error payload, and this is written to disk."
+    }
+  }
+}

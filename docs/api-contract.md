@@ -4,6 +4,59 @@ Atlas Core 1.x keeps its public Python types, JSON documents, stop semantics,
 and adapter boundaries stable. Incompatible changes require a new major
 version or a new schema identifier.
 
+## Versioned contracts and migration
+
+`atlas_core.contracts` names every document this package emits or accepts, at
+which version, and **who may write each field**. The rule it writes down is one
+this repository has enforced case by case since P0.2: the producer supplies a
+claim, the checker assigns a verdict, the host says what was read, the core owns
+the run's identity and where it stopped. Scattered across modules that rule was
+still true but could not be read, and a rule nobody can read is one a future
+change breaks without noticing. A test binds the table to the schema files:
+every declared property has an owner, and every owner names a property that
+exists.
+
+What may change inside a version is stated in `contracts.COMPATIBILITY`. The
+short version: a version may gain an optional property; it may not gain a
+required one, lose a property, narrow a type, or **change what a field means
+while keeping its name**. The last is why the rule is written down — it happened
+once, to `quality_score`, which went from a weighted score to a share of met
+criteria under an unchanged name and type. `score_method` exists because of
+that, and it is required in `Evaluation.v2`.
+
+`migrate_run(document)` turns an `atlas-run.v1` document into `atlas-run.v2`,
+returning the document and a `MigrationReport`. Three rules, each with a test
+rather than a comment:
+
+- **Nothing is dropped.** Every source key is either mapped to a v2 field or
+  kept *with its value* in `migration.unmapped`. `report.is_lossless` is false
+  when anything had to be parked.
+- **Nothing is invented.** A v2 field the source could not have had is `null`
+  and named in `migration.not_recorded`. `actions` is the sharp case: an empty
+  list would state that the run performed nothing. A missing `score_method`
+  becomes `unknown`, never today's method — a document old enough to lack the
+  field is old enough to hold the weighted score.
+- **An incomplete source is migrated anyway, and says so.** A field the source
+  schema required and the document lacked is recorded in `migration.missing`.
+  A field `Run.v2` requires that the result does not carry is recorded in
+  `migration.unfilled`, and `report.is_complete` is read off *that* — the two
+  are different questions, because a source can hold a key whose value is not
+  something the target field can contain, and then the key was neither absent
+  from the source nor present in the result. The document does not validate
+  against `atlas-run.v2`, which is the honest outcome: a default here would be
+  indistinguishable from a value the run produced.
+
+A document that does not name its own contract raises `UnknownSourceSchema`.
+Every rule above is relative to a source contract, so guessing the source from
+its shape would make all three guesses.
+
+**The loop still emits `atlas-run.v1`.** Migration is defined and tested; moving
+the runtime onto v2 is a separate change with separate consequences for every
+consumer. `Action.v1` and `Approval.v1` are contracts for information that does
+not exist yet — nothing records actions, and nothing can grant an approval.
+`Approval.v1` makes a grant unstateable without `binds_to`, so an approval can
+never be a bare boolean that outlives what it approved.
+
 ## Public Python API
 
 Import supported types from the package root:
