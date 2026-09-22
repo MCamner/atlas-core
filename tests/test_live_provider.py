@@ -377,7 +377,7 @@ class TestThePrompt(unittest.TestCase):
 
         route = select_route(TASK)
         plan = build_plan(TASK, route, snapshot_id="snap-1")
-        prompt = build_prompt(TASK, route, plan, [])
+        prompt = build_prompt(TASK, route, plan, []).text
 
         self.assertIn(TASK, prompt)
         self.assertIn(route.name, prompt)
@@ -418,7 +418,7 @@ class TestThePrompt(unittest.TestCase):
             ),
         )
 
-        prompt = build_prompt(TASK, route, plan, [], evaluation)
+        prompt = build_prompt(TASK, route, plan, [], evaluation).text
 
         self.assertIn("cite_sources", prompt)
         self.assertIn("claims_are_settled", prompt)

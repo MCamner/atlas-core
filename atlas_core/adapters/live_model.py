@@ -28,17 +28,32 @@ a chat-completions endpoint and needs one. They differ only in how a request is
 built and where the text sits in the reply, so they are two `ProviderSpec`
 values rather than two classes.
 
+## Bounds and failures (box two, request side)
+
+The prompt is bounded in characters, not tokens: counting tokens needs a
+tokenizer per provider, which is a dependency this package does not have and a
+number that would be wrong for every provider it was not built for. `RunBudget`
+keeps the token side, against counts a provider reports about its own work.
+
+Nothing is dropped quietly. When the bound bites, the prompt says so in the
+text the producer reads and the adapter counts it on the result — the two
+readers need different things, and "found nothing" means less when the producer
+was shown less. The instruction itself is never cut, so a bound that cannot
+hold it is refused rather than exceeded.
+
+Failures are named through the exception type, which the controller already
+writes into `metadata.failure.error`. None of them retry: a retry here would
+spend wall-clock the `RunBudget` cannot see, and the loop already owns whether
+another attempt is worth it.
+
 ## What this module deliberately does not do
 
-- It does not bound the prompt, validate structured output, or handle rate
-  limits and unknown responses beyond failing. That is P1.2 box two.
+- It does not validate structured output against a schema, or tell a provider
+  what shape to produce. That is the rest of box two.
 - It does not mark its results non-deterministic. That is box three.
 - It does not offer the model any tool. The controller passes a gateway when it
   has one; this adapter ignores it, which is the honest state until box four
   declares a capability list.
-
-A timeout is here, and is not scope creep: an HTTP call with no timeout hangs
-the loop past the wall-clock bound the run promised to honour.
 
 ## Secrets
 
@@ -75,9 +90,70 @@ ENV_TIMEOUT = "ATLAS_MODEL_TIMEOUT"
 
 DEFAULT_TIMEOUT = 60.0
 
+#: How much of a run may be put in front of a producer, in characters.
+#:
+#: Characters, not tokens, and the difference is the point: counting tokens
+#: needs a tokenizer per provider, which is a dependency this package does not
+#: have and a number that would be wrong for every provider it was not built
+#: for. A character bound is crude, is the same for everyone, and can be
+#: checked. `RunBudget` keeps the token side, against the counts a provider
+#: reports about its own work.
+DEFAULT_MAX_PROMPT_CHARS = 24_000
+#: Per observation, so one enormous source cannot crowd out every other one.
+DEFAULT_MAX_OBSERVATION_CHARS = 4_000
+
 #: Local by default. A daemon that is not running fails the run; it does not
 #: quietly become a deterministic answer.
 DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434/api/generate"
+
+
+class ProviderError(RuntimeError):
+    """A request to a provider that did not produce usable text.
+
+    Subclassed per kind rather than carrying a code, because the controller
+    already records `type(exc).__name__` in `metadata.failure.error`. A caller
+    reading a run document can therefore tell a rate limit from an unreachable
+    daemon without this module changing the controller or the run schema.
+
+    None of them retry. A retry inside the adapter would spend wall-clock time
+    the `RunBudget` cannot see and cannot charge, and the loop already owns the
+    decision about whether another attempt is worth it — see `RETRY_CLASSES`.
+    What this layer owes is a name for what happened.
+    """
+
+
+class ProviderRateLimited(ProviderError):
+    """The provider refused this request because too many were sent.
+
+    `retry_after` is the provider's own hint in seconds when it gave one, and
+    `None` when it did not — not a default, for the reason every other absent
+    value in this repository is `unknown` rather than plausible.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class ProviderTimeout(ProviderError):
+    """The call passed the configured timeout without a reply."""
+
+
+class ProviderUnreachable(ProviderError):
+    """The endpoint could not be reached at all."""
+
+
+class ProviderRefused(ProviderError):
+    """The provider answered with a status that is not success."""
+
+
+class ProviderBadResponse(ProviderError):
+    """The provider answered, and the answer is not one this adapter can read.
+
+    A body that is not JSON, or JSON with no text where this provider's shape
+    says text lives. Distinct from `ProviderRefused` because the request was
+    accepted: something is wrong with the contract, not with the call.
+    """
 
 
 class NotConfigured(Exception):
@@ -176,6 +252,56 @@ SPECS: dict[str, ProviderSpec] = {
 
 
 @dataclass(frozen=True)
+class PromptLimits:
+    """What a producer may be shown, and what happens when there is more.
+
+    Nothing is dropped quietly. When the bound bites, the prompt says so in the
+    text the producer reads *and* the adapter records it on the result, because
+    the two readers are different: a model that knows it was shown part of a
+    source can say so, and a person reading the run document needs to know that
+    "found nothing" was said about less than the run holds.
+
+    That is the same rule `Observation.read_in_full` follows one layer down. A
+    partial view is not a defect; a partial view presented as a whole one is.
+    """
+
+    max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS
+    max_observation_chars: int = DEFAULT_MAX_OBSERVATION_CHARS
+
+    def __post_init__(self) -> None:
+        if self.max_prompt_chars < 1 or self.max_observation_chars < 1:
+            raise ValueError("prompt limits must be positive")
+        if self.max_observation_chars > self.max_prompt_chars:
+            raise ValueError(
+                "a single observation may not be allowed more than the whole "
+                f"prompt: {self.max_observation_chars} > {self.max_prompt_chars}"
+            )
+
+
+@dataclass(frozen=True)
+class BoundedPrompt:
+    """The text a producer is shown, and what it did not get to see."""
+
+    text: str
+    #: Observations whose text was cut, by path-ish label and by how much.
+    truncated_observations: int = 0
+    #: Observations left out entirely because the prompt bound was reached.
+    omitted_observations: int = 0
+
+    def is_complete(self) -> bool:
+        return not self.truncated_observations and not self.omitted_observations
+
+    def describe(self) -> dict[str, str]:
+        """What goes on the result, so the run document carries it too."""
+        return {
+            "prompt_chars": str(len(self.text)),
+            "prompt_complete": "true" if self.is_complete() else "false",
+            "observations_truncated": str(self.truncated_observations),
+            "observations_omitted": str(self.omitted_observations),
+        }
+
+
+@dataclass(frozen=True)
 class ProviderConfig:
     """What it takes to reach one provider.
 
@@ -255,10 +381,14 @@ class LiveModelAdapter:
     """
 
     def __init__(
-        self, config: ProviderConfig, transport: Transport | None = None
+        self,
+        config: ProviderConfig,
+        transport: Transport | None = None,
+        limits: PromptLimits | None = None,
     ) -> None:
         self.config = config
         self.transport = transport or UrllibTransport()
+        self.limits = limits or PromptLimits()
 
     def execute(
         self,
@@ -275,7 +405,9 @@ class LiveModelAdapter:
         # honest state until P1.2 box four declares a capability list — and
         # silently accepting a gateway it does not use is better than crashing
         # on a keyword the contract allows.
-        prompt = build_prompt(task, route, plan, observations, feedback)
+        prompt = build_prompt(
+            task, route, plan, observations, feedback, self.limits
+        )
         headers: dict[str, str] = {}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
@@ -283,35 +415,63 @@ class LiveModelAdapter:
         try:
             reply = self.transport.post(
                 self.config.endpoint,
-                self.config.spec.build(self.config, prompt),
+                self.config.spec.build(self.config, prompt.text),
                 headers,
                 self.config.timeout,
             )
         except urllib.error.HTTPError as exc:
-            # Status only. A provider body can echo a request header back, and
-            # the controller writes this message into the run document.
-            raise RuntimeError(
+            # Status only, never the body. A provider can echo a request header
+            # back in an error payload, and the controller writes this message
+            # into the run document.
+            if exc.code == 429:
+                raise ProviderRateLimited(
+                    f"{self.config.provider} rate limited this request",
+                    _retry_after(exc),
+                ) from None
+            raise ProviderRefused(
                 f"{self.config.provider} returned HTTP {exc.code}"
             ) from None
         except urllib.error.URLError as exc:
-            raise RuntimeError(
+            # A timeout arrives wrapped in URLError from urlopen, so the reason
+            # is what distinguishes it — not the exception type.
+            if isinstance(exc.reason, TimeoutError):
+                raise ProviderTimeout(
+                    f"{self.config.provider} did not answer within "
+                    f"{self.config.timeout:g}s"
+                ) from None
+            raise ProviderUnreachable(
                 f"{self.config.provider} could not be reached: {exc.reason}"
             ) from None
+        except TimeoutError:
+            raise ProviderTimeout(
+                f"{self.config.provider} did not answer within "
+                f"{self.config.timeout:g}s"
+            ) from None
         except json.JSONDecodeError:
-            raise RuntimeError(
+            raise ProviderBadResponse(
                 f"{self.config.provider} returned a body that is not JSON"
             ) from None
+
+        if not isinstance(reply, dict):
+            raise ProviderBadResponse(
+                f"{self.config.provider} returned {type(reply).__name__}, not an "
+                "object this adapter can read"
+            )
 
         text = self.config.spec.read_text(reply)
         if not text.strip():
             # The controller refuses empty output anyway; saying which provider
-            # produced nothing is more use than a generic contract error.
-            raise RuntimeError(
-                f"{self.config.provider} returned no text for model "
+            # produced nothing, and that the call itself succeeded, is more use
+            # than a generic contract error.
+            raise ProviderBadResponse(
+                f"{self.config.provider} answered with no text for model "
                 f"{self.config.model}"
             )
 
-        metadata = {}
+        # What the producer was shown, alongside what it said. A run whose
+        # answer is "nothing found" is a different statement depending on
+        # whether the producer saw every source the run holds.
+        metadata = prompt.describe()
         tokens = self.config.spec.read_tokens(reply)
         if tokens is not None:
             # The name the budget reads. Without it a live run is unmetered
@@ -326,13 +486,55 @@ class LiveModelAdapter:
         )
 
 
+def _retry_after(error: urllib.error.HTTPError) -> float | None:
+    """The provider's own hint, or `None` when it gave none.
+
+    Not a default. An invented number here would be indistinguishable from one
+    the provider actually sent, which is the distinction every other absent
+    value in this repository keeps.
+    """
+    raw = ""
+    headers = getattr(error, "headers", None)
+    if headers is not None:
+        raw = str(headers.get("Retry-After") or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        # The header also allows an HTTP date. Reading that is not worth a
+        # dependency, and a wrong number is worse than no number.
+        return None
+
+
+_OBSERVED_HEADING = "Observed sources:"
+#: Below this, a truncated source is a stub with a notice attached, which is
+#: noise a producer has to reason around rather than evidence it can use.
+_MIN_USEFUL_OBSERVATION = 200
+
+
+def _cut_notice(full: int, kept: int) -> str:
+    return (
+        f"\n[... {full - kept} of {full} characters of this source are not "
+        "shown; anything said about it is about the part above]"
+    )
+
+
+def _omission_notice(count: int) -> str:
+    return (
+        f"{count} further observed source(s) did not fit in this prompt and "
+        "are not shown. Any conclusion here is about what is above."
+    )
+
+
 def build_prompt(
     task: str,
     route: AtlasRoute,
     plan: AtlasPlan,
     observations: list[str],
     feedback: AtlasEvaluation | None = None,
-) -> str:
+    limits: PromptLimits | None = None,
+) -> BoundedPrompt:
     """Assemble what the producer is told, from what the run already carries.
 
     Plain text, and everything in it comes from the run document rather than
@@ -341,37 +543,105 @@ def build_prompt(
     that goes in — not the prose beside it — because that is the channel the
     rest of this repository treats as the instruction.
 
-    Not bounded. P1.2 box two owns prompt and context limits; until then a
-    caller with a large evidence base should set `RunLimits`.
+    **Bounded, and never silently.** The task, the route, the question and the
+    feedback are always included: they are what the run is, they are small, and
+    a producer shown a truncated instruction would be answering a different
+    question. Observations are what can grow without limit, so they are what
+    gives way — truncated per source first, then dropped whole — and every cut
+    is stated in the prompt and counted on the result.
+
+    Order matters when the bound bites. Observations are kept in the order the
+    run holds them, which is the order the host returned them, so a producer
+    that sees only some sees the first ones rather than an arbitrary subset.
     """
-    parts = [
+    limits = limits or PromptLimits()
+    head = [
         f"Task: {task}",
         f"Route: {route.name}",
         f"Steps: {', '.join(plan.steps)}",
     ]
     if plan.review is not None:
-        parts.append(f"Question: {plan.review.question}")
+        head.append(f"Question: {plan.review.question}")
         if plan.review.patterns:
-            parts.append(f"Sources the question needs: {', '.join(plan.review.patterns)}")
-    if observations:
-        parts.append("Observed sources:\n" + "\n\n".join(observations))
+            head.append(
+                f"Sources the question needs: {', '.join(plan.review.patterns)}"
+            )
+
+    tail: list[str] = []
     if feedback is not None:
         if feedback.unmet_criteria:
-            parts.append("Unmet criteria: " + ", ".join(feedback.unmet_criteria))
+            tail.append("Unmet criteria: " + ", ".join(feedback.unmet_criteria))
         if feedback.next_action is not None:
-            parts.append(
+            tail.append(
                 "Next action: "
                 + feedback.next_action.kind
                 + " — "
                 + json.dumps(feedback.next_action.details, ensure_ascii=False)
             )
-    return "\n\n".join(parts)
+
+    # Reserved up front, at its longest — the count can be at most every
+    # observation. Adding it afterwards is how an earlier version exceeded the
+    # bound it had just been given.
+    reserve = len(_omission_notice(len(observations))) + 2 if observations else 0
+    fixed = len("\n\n".join(head + tail)) + len(_OBSERVED_HEADING) + 4 + reserve
+    if fixed > limits.max_prompt_chars:
+        # The instruction is never cut: a producer shown a truncated task is
+        # answering a different question. So a bound that cannot hold the task,
+        # the question and the feedback is a bound nobody can honour, and
+        # saying so beats quietly exceeding it.
+        raise ValueError(
+            f"max_prompt_chars={limits.max_prompt_chars} cannot hold this run's "
+            f"instruction, which needs {fixed} characters before any source is "
+            "shown"
+        )
+    room = limits.max_prompt_chars - fixed
+    kept: list[str] = []
+    truncated = 0
+    omitted = 0
+    for observation in observations:
+        if room <= 0:
+            omitted += 1
+            continue
+        allowed = min(limits.max_observation_chars, room)
+        if len(observation) > allowed:
+            # The notice costs characters too, and reserving them afterwards is
+            # how the first version overshot its own bound. Reserved against the
+            # longest the notice can be — the digit count grows as less is
+            # kept — so the total is under the limit rather than near it.
+            reserved = len(_cut_notice(len(observation), 0))
+            usable = allowed - reserved
+            # Only worth keeping if a usable amount survives. A stub with a
+            # notice attached is noise a producer has to reason around.
+            if usable < _MIN_USEFUL_OBSERVATION:
+                omitted += 1
+                continue
+            text = observation[:usable] + _cut_notice(len(observation), usable)
+            truncated += 1
+        else:
+            text = observation
+        kept.append(text)
+        room -= len(text) + 2
+
+    body = list(head)
+    if kept:
+        body.append(_OBSERVED_HEADING + "\n" + "\n\n".join(kept))
+    if omitted:
+        # In the prompt, not only on the result: the producer is the one whose
+        # "I found nothing" would otherwise read as a statement about the repo.
+        body.append(_omission_notice(omitted))
+    body.extend(tail)
+    return BoundedPrompt(
+        text="\n\n".join(body),
+        truncated_observations=truncated,
+        omitted_observations=omitted,
+    )
 
 
 def build_model_adapter(
     env: dict[str, str] | None = None,
     *,
     transport: Transport | None = None,
+    limits: PromptLimits | None = None,
 ) -> LiveModelAdapter | None:
     """The configured adapter, or `None` when nothing is configured.
 
@@ -430,6 +700,7 @@ def build_model_adapter(
             timeout=timeout,
         ),
         transport=transport,
+        limits=limits,
     )
 
 
@@ -437,6 +708,7 @@ def model_adapter_or_raise(
     env: dict[str, str] | None = None,
     *,
     transport: Transport | None = None,
+    limits: PromptLimits | None = None,
 ) -> LiveModelAdapter:
     """For a caller that asked for a live run and wants to hear about it.
 
@@ -444,7 +716,7 @@ def model_adapter_or_raise(
     exists for the loop, which has a deterministic path to take; this exists for
     a command that has nothing else to do.
     """
-    adapter = build_model_adapter(env, transport=transport)
+    adapter = build_model_adapter(env, transport=transport, limits=limits)
     if adapter is None:
         raise NotConfigured(
             f"no live provider configured. Set {ENV_PROVIDER} to one of "
@@ -454,6 +726,9 @@ def model_adapter_or_raise(
 
 
 __all__ = [
+    "BoundedPrompt",
+    "DEFAULT_MAX_OBSERVATION_CHARS",
+    "DEFAULT_MAX_PROMPT_CHARS",
     "DEFAULT_OLLAMA_ENDPOINT",
     "DEFAULT_TIMEOUT",
     "ENV_API_KEY",
@@ -464,8 +739,15 @@ __all__ = [
     "PROVIDERS",
     "LiveModelAdapter",
     "NotConfigured",
+    "PromptLimits",
+    "ProviderBadResponse",
     "ProviderConfig",
+    "ProviderError",
+    "ProviderRateLimited",
+    "ProviderRefused",
     "ProviderSpec",
+    "ProviderTimeout",
+    "ProviderUnreachable",
     "SPECS",
     "Transport",
     "UrllibTransport",

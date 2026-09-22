@@ -505,10 +505,28 @@ document, not in the failure record, and not in the dataclass `repr`.
 Token counts a provider reports are mapped to `metadata["usage_tokens"]`, which
 is the field `RunBudget` charges. Absent counts report nothing rather than zero.
 
-Not yet, and stated so a caller does not assume otherwise: the prompt is not
-bounded, structured output is not validated, rate limits and unknown responses
-are not handled beyond failing, results are not marked non-deterministic, and
-the adapter offers the model no tool.
+The prompt is bounded by `PromptLimits`, in **characters** — counting tokens
+needs a tokenizer per provider, which this package does not carry. Observations
+are what gives way when the bound bites: truncated per source first, then
+dropped whole, in the order the run holds them. Every cut is stated in the
+prompt the producer reads *and* counted on the result, so
+`metadata.model_result.metadata` carries `prompt_complete`,
+`observations_truncated` and `observations_omitted`. The instruction is never
+cut, so a bound that cannot hold the task, question and feedback raises rather
+than being exceeded.
+
+A failed request raises a named exception — `ProviderRateLimited` (with the
+provider's own `retry_after` when it gave one, `None` otherwise),
+`ProviderTimeout`, `ProviderUnreachable`, `ProviderRefused`,
+`ProviderBadResponse` — and the controller records the type name in
+`metadata.failure.error`, so a caller can tell a rate limit from an unreachable
+daemon without parsing prose. **None of them retry inside the adapter**: that
+would spend wall-clock the `RunBudget` cannot see, and the loop owns whether
+another attempt is worth it.
+
+Not yet, and stated so a caller does not assume otherwise: structured output is
+not validated against a schema and no schema is sent to the provider, results
+are not marked non-deterministic, and the adapter offers the model no tool.
 
 ### What another pass rests on (P1.1)
 
