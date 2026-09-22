@@ -213,7 +213,14 @@ class TestTheCompletionCriterion(_Repo):
         evaluation = run["evaluations"][-1]
 
         self.assertFalse(evaluation["passed"])
-        self.assertEqual(evaluation["unmet_criteria"], ["findings_are_on_topic"])
+        # Both, not just relevance. Nothing was settled about a source the plan
+        # named, so nothing existed to test against the topic's answering set
+        # either — and met criteria are `declared - unmet`, so naming only the
+        # first would report the second as met although nobody checked it.
+        self.assertEqual(
+            sorted(evaluation["unmet_criteria"]),
+            ["findings_answer_the_question", "findings_are_on_topic"],
+        )
         self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
 
     def test_a_short_answer_that_establishes_something_passes(self):

@@ -115,7 +115,17 @@ _CRITERION_FOR_GAP: dict[str, tuple[str, ...]] = {
     # The question's own criterion. Distinct from every other gap here: those
     # say the findings are not worth what they claim, this one says none of
     # them is about what was asked.
-    "no_on_topic_finding": ("findings_are_on_topic",),
+    # Both, and for the reason `claims_not_checked` lists three: on this path
+    # neither was established. A run with nothing settled about the right
+    # source has nothing to test against the answering set either, and since
+    # met criteria are `declared - unmet`, naming only the first would report
+    # the second as met — the run document asserting something nobody checked.
+    # `unmet &= declared` drops the second for a topic that declared no set,
+    # so no special case is needed for one.
+    "no_on_topic_finding": (
+        "findings_are_on_topic",
+        "findings_answer_the_question",
+    ),
     # A step past relevance, and only where a topic declared what would count.
     "no_answering_finding": ("findings_answer_the_question",),
     # All three, because on this path none of them was evaluated at all. A
@@ -417,9 +427,10 @@ def evaluate(
         and not waiting_on
         and not _answering_finding(review, evidence, evidence_base)
     ):
-        # `elif`, because a run with nothing on topic has nothing to test
-        # against the answering set either, and saying both would be saying
-        # the same absence twice.
+        # `elif`, because one gap code drives one next action and a run with
+        # nothing on topic needs the relevance one. Both *criteria* are still
+        # reported unmet — see `_CRITERION_FOR_GAP` above, where the relevance
+        # gap names them both.
         gap_codes.append("no_answering_finding")
     for gap in gap_codes:
         unmet.update(_CRITERION_FOR_GAP.get(gap, ("claims_are_settled",)))

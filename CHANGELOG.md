@@ -21,6 +21,13 @@ Roadmap P1.1, filed item: a question with declared predicates.
   declares nothing is held to relevance alone, and a credential that does not
   name itself matches nothing declared and is a miss. The second fails closed —
   the run stops and asks for an answer.
+- When nothing is on topic at all, **both** criteria are reported unmet. Met
+  criteria are `declared - unmet`, so naming only the relevance gap would leave
+  `findings_answer_the_question` in the met list and in `quality_score` while
+  no finding had existed to test against the answering set. The run stopped
+  either way; the reporting would have asserted something nobody established.
+- `plan.review.answering` is declared in `schemas/atlas-run.v1.json`, so a
+  consumer can read what the run was willing to accept as an answer.
 
 Roadmap P1.1 box four: what another pass has to rest on.
 

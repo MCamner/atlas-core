@@ -41,6 +41,7 @@ from atlas_core.review_plan import TOPICS, answers_question, build_review_plan
 from atlas_core.snapshot import collect_observation, take_snapshot
 
 SETTINGS = "SERVICE_NAME=demo\nPASSWORD=admin\nTIMEOUT=30\nAKIAIOSFODNN7EXAMPLE\n"
+README = "# Demorepo\n\nEtt litet repo.\n"
 SECRETS_TASK = "granska repot efter hårdkodade lösenord"
 
 LIMITS = RunLimits(
@@ -134,35 +135,40 @@ class _Repo(unittest.TestCase):
         self.root = Path(self.tmp)
         self.addCleanup(shutil.rmtree, self.tmp, True)
         (self.root / "settings.env").write_text(SETTINGS, encoding="utf-8")
+        (self.root / "README.md").write_text(README, encoding="utf-8")
         self.snapshot = take_snapshot(self.root)
         self.settings = collect_observation(self.snapshot, "settings.env")
+        self.readme = collect_observation(self.snapshot, "README.md")
         self.base = EvidenceBase(
-            snapshot=self.snapshot, observations=[self.settings]
+            snapshot=self.snapshot, observations=[self.settings, self.readme]
         )
 
-    def _finding(self, text: str) -> dict[str, Any]:
+    def _finding(
+        self, text: str, observation: Observation | None = None
+    ) -> dict[str, Any]:
+        source = observation or self.settings
         typed = TypedClaim(
-            kind=ClaimKind.CONTAINS, source_id=self.settings.source_id, text=text
+            kind=ClaimKind.CONTAINS, source_id=source.source_id, text=text
         )
         line = next(
             i + 1
-            for i, content in enumerate(self.settings.excerpt.splitlines())
+            for i, content in enumerate(source.excerpt.splitlines())
             if text in content
         )
         return {
             "claim": typed.render(
-                self.settings.path, self.settings.line_start, self.settings.line_end
+                source.path, source.line_start, source.line_end
             ),
-            "scope": self.settings.path,
+            "scope": source.path,
             "severity": "P1",
             "severity_rationale": "Fixtur.",
             "evidence": [
                 {
-                    "source_id": self.settings.source_id,
-                    "content_sha256": self.settings.content_sha256,
+                    "source_id": source.source_id,
+                    "content_sha256": source.content_sha256,
                     "line_start": line,
                     "line_end": line,
-                    "quoted": self.settings.excerpt.splitlines()[line - 1],
+                    "quoted": source.excerpt.splitlines()[line - 1],
                 }
             ],
             "typed_claim": {
@@ -172,11 +178,13 @@ class _Repo(unittest.TestCase):
             },
         }
 
-    def _run(self, text: str) -> dict[str, Any]:
-        finding = self._finding(text)
+    def _run(
+        self, text: str, observation: Observation | None = None
+    ) -> dict[str, Any]:
+        finding = self._finding(text, observation)
         body = (
             "# Repogranskning\n\nGranskningen går igenom det frågan gäller.\n\n"
-            "## Observed sources\n- `settings.env`\n\n## Findings\n- "
+            "## Observed sources\n- `settings.env`\n- `README.md`\n\n## Findings\n- "
             + finding["claim"]
             + SECTIONS
             + "\n```" + FINDINGS_FENCE + "\n" + json.dumps([finding]) + "\n```\n"
@@ -217,6 +225,53 @@ class TestTwoRunsAgainstOneFile(_Repo):
             evaluation["unmet_criteria"], ["findings_answer_the_question"]
         )
         self.assertEqual(evaluation["next_action"]["kind"], "answer_the_question")
+
+
+class TestNothingRelevantFailsBothCriteria(_Repo):
+    """A criterion nobody checked must not be reported as met.
+
+    Met criteria are `declared - unmet`, so naming only the relevance gap when
+    nothing is on topic would leave `findings_answer_the_question` in the met
+    list — and in `quality_score` — although no finding existed to test against
+    the answering set. The run would stop either way; the reporting would be
+    asserting something nobody established, which is the failure this whole
+    phase exists to remove.
+    """
+
+    def test_a_secrets_review_with_nothing_on_topic_fails_both(self):
+        run = self._run("# Demorepo", self.readme)
+        evaluation = run["evaluations"][-1]
+
+        self.assertEqual(evaluation["citation_checks"][0]["verdict"], "verified")
+        self.assertEqual(
+            sorted(evaluation["unmet_criteria"]),
+            ["findings_answer_the_question", "findings_are_on_topic"],
+        )
+        self.assertNotIn(
+            "findings_answer_the_question", evaluation["met_criteria"]
+        )
+        self.assertFalse(evaluation["passed"])
+
+    def test_the_score_counts_it_as_unmet_too(self):
+        """`quality_score` is the share met, so the miscount was visible there."""
+        run = self._run("# Demorepo", self.readme)
+        evaluation = run["evaluations"][-1]
+        total = len(evaluation["met_criteria"]) + len(evaluation["unmet_criteria"])
+
+        self.assertEqual(
+            evaluation["quality_score"],
+            round(len(evaluation["met_criteria"]) / total, 2),
+        )
+
+    def test_a_topic_with_no_answering_set_only_fails_the_one(self):
+        """Negative control: `unmet &= declared` keeps the second out where the
+        topic never declared it, so no special case is needed."""
+        from atlas_core.evaluator import criteria_for
+
+        plan = build_review_plan("granska dokumentationen", "snap-1")
+        declared = [code for code, _ in criteria_for("repo_review", plan)]
+
+        self.assertNotIn("findings_answer_the_question", declared)
 
 
 class TestTheLimitOfDeclaringInAdvance(_Repo):
