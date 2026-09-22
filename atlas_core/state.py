@@ -237,6 +237,13 @@ class AtlasPlan:
     # repository: the state, the question and the sources it needs. None for a
     # route with no review contract, which has a goal but not a question.
     review: ReviewPlan | None = None
+    # A topic the task narrowed to that this run is **not** acting on, and why.
+    # The two vocabularies can still disagree — the router may put a task on a
+    # route with no review contract, or a run may arrive without a snapshot —
+    # and when they do, the run says which question it declined to ask rather
+    # than computing it and dropping it on the floor. See ROADMAP P1.1 and
+    # `docs/pinned-repo-review.md`, where that silent drop was found.
+    unused_topic: dict[str, str] | None = None
 
 @dataclass
 class AtlasRunState:

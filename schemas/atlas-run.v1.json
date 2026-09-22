@@ -145,7 +145,7 @@
             },
             "topic": {
               "type": "string",
-              "description": "The review topic the task matched, or \"unknown\". Chosen by keyword against a declared vocabulary — a real mechanism and a narrow one, and its limit is reported rather than hidden."
+              "description": "The review topic the task matched, or \"unknown\". Chosen by keyword against a declared vocabulary \u2014 a real mechanism and a narrow one, and its limit is reported rather than hidden."
             },
             "question": {
               "type": "string",
@@ -163,6 +163,34 @@
               "description": "Why these patterns, so a reader can disagree with the selection rather than only with the answer."
             }
           }
+        },
+        "unused_topic": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "A review topic the task narrowed to that this run is not acting on, with the reason: `route_has_no_review_contract` when the router chose a route that asks no question of a repository, or `no_snapshot` when the run carried no state to bind a question to. Null when the task narrowed to nothing, and absent from a `review` run, which is acting on its topic. Present so a narrowed question is never computed and silently dropped.",
+          "additionalProperties": false,
+          "properties": {
+            "topic": {
+              "type": "string"
+            },
+            "question": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "route_has_no_review_contract",
+                "no_snapshot"
+              ]
+            }
+          },
+          "required": [
+            "topic",
+            "question",
+            "reason"
+          ]
         }
       }
     },
@@ -201,7 +229,7 @@
         },
         "drift": {
           "type": "object",
-          "description": "Present when the state the run read moved under it, which is why it stopped `blocked`. Written after grading, so the evaluation beside it is history: it describes the state that was read, not the state now. Absent on a run whose sources all still verified, and on a run with no evidence base — prose context cannot be re-read, so there is nothing to check.",
+          "description": "Present when the state the run read moved under it, which is why it stopped `blocked`. Written after grading, so the evaluation beside it is history: it describes the state that was read, not the state now. Absent on a run whose sources all still verified, and on a run with no evidence base \u2014 prose context cannot be re-read, so there is nothing to check.",
           "properties": {
             "head_moved": {
               "type": "boolean",
@@ -222,7 +250,7 @@
         },
         "no_progress": {
           "type": "object",
-          "description": "Present when a bounded run stopped because a further pass was shown to be unproductive. `reason` is `identical_model_output` when the provider returned the same bytes twice, or `unchanged_feedback` when two passes failed in the same way — same next action, same gaps, same unsupported claims — however differently they were worded. Absent on the a-priori form, where the evaluation found nothing another pass could act on.",
+          "description": "Present when a bounded run stopped because a further pass was shown to be unproductive. `reason` is `identical_model_output` when the provider returned the same bytes twice, or `unchanged_feedback` when two passes failed in the same way \u2014 same next action, same gaps, same unsupported claims \u2014 however differently they were worded. Absent on the a-priori form, where the evaluation found nothing another pass could act on.",
           "properties": {
             "reason": {
               "type": "string",
@@ -244,7 +272,7 @@
         },
         "observation_rounds": {
           "type": "array",
-          "description": "One entry per mid-run read. Present only when the caller supplied an observer and the run asked it to read. A round is how a run whose ground moved can continue instead of stopping `blocked`: the host reads again, and the run grades the next pass against what came back. A round that changed nothing is recorded too, and the run stops — re-grading evidence it has already graded is the retry this phase refuses.",
+          "description": "One entry per mid-run read. Present only when the caller supplied an observer and the run asked it to read. A round is how a run whose ground moved can continue instead of stopping `blocked`: the host reads again, and the run grades the next pass against what came back. A round that changed nothing is recorded too, and the run stops \u2014 re-grading evidence it has already graded is the retry this phase refuses.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -295,7 +323,7 @@
         "object",
         "null"
       ],
-      "description": "The sanitised record of what this run read: an atlas-observation-manifest.v1 built from the run's evidence base. Null when the run carried prose context only, in which case grading was citation-only. The raw evidence base is never exported: it holds unmasked excerpts and the absolute path the run read from, and the root is dropped rather than masked because redaction cannot recognise an arbitrary absolute path. Each entry's verification is \"unknown\" and is_evidence is false by design — exporting is not verifying, and doing disk IO inside serialisation would make a run document depend on when it was rendered. What was verified is in each evaluation's citation_checks.",
+      "description": "The sanitised record of what this run read: an atlas-observation-manifest.v1 built from the run's evidence base. Null when the run carried prose context only, in which case grading was citation-only. The raw evidence base is never exported: it holds unmasked excerpts and the absolute path the run read from, and the root is dropped rather than masked because redaction cannot recognise an arbitrary absolute path. Each entry's verification is \"unknown\" and is_evidence is false by design \u2014 exporting is not verifying, and doing disk IO inside serialisation would make a run document depend on when it was rendered. What was verified is in each evaluation's citation_checks.",
       "additionalProperties": false,
       "required": [
         "schema",

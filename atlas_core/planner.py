@@ -8,7 +8,7 @@ than paths.
 """
 
 from __future__ import annotations
-from .review_plan import ReviewPlan, build_review_plan
+from .review_plan import ReviewPlan, build_review_plan, detect_topic
 from .state import AtlasPlan, AtlasRoute
 
 #: Routes that review a repository, and therefore ask a question of it. A route
@@ -36,6 +36,22 @@ def build_plan(
         # refuses to be built that way.
         review = build_review_plan(task, snapshot_id)
 
+    unused_topic: dict[str, str] | None = None
+    if review is None:
+        # The task may still narrow. Saying so costs nothing and stops the run
+        # from looking as though there was no question to ask.
+        topic = detect_topic(task)
+        if topic is not None:
+            unused_topic = {
+                "topic": topic.code,
+                "question": topic.question,
+                "reason": (
+                    "route_has_no_review_contract"
+                    if route.name not in REVIEWING_ROUTES
+                    else "no_snapshot"
+                ),
+            }
+
     return AtlasPlan(
         goal=task,
         route_name=route.name,
@@ -48,4 +64,5 @@ def build_plan(
         ],
         validation_focus=validation_focus,
         review=review,
+        unused_topic=unused_topic,
     )
