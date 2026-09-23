@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+Roadmap v1.3 box two: an append-only event log, and the three states it can
+honestly attest.
+
+- **`AtlasController(..., events=sink)`** records a run as it happens:
+  `run_started`, `plan_selected`, `call_started`, `call_finished`,
+  `observation_recorded`, `decision_recorded`, `run_stopped`. Off by default,
+  and a run with a log produces the same document as one without — the log
+  records, it decides nothing.
+- **A call is two events**, joined by a `call_id` the log issues. That is what
+  separates *never began*, *began and the outcome is unknown*, and *began and
+  finished*. The middle one is why: a crash between issuing a request and
+  receiving the answer leaves a call that may already have had every effect it
+  was going to have, so reading it as failed invites a retry that repeats a
+  side effect, and reading it as never-happened is worse. `call_states()` and
+  `unfinished_calls()` answer it. There is no `unknown` outcome value, because
+  `unknown` is the absence of a report rather than something anything writes.
+- **Nothing is rewritten.** The log assigns the sequence, a call cannot be
+  finished twice or finished without being started, and an
+  `observation_recorded` event for a source already recorded is a new event
+  carrying both digests.
+- **`JsonlSink`** appends one object per line and fsyncs per write, so a crash
+  truncates the last line rather than corrupting the file. `read_jsonl` drops a
+  torn final line and raises on anything else that does not parse — including a
+  last line that ends with a newline, which was written in full and so is
+  corruption rather than interruption.
+- **Appending after a torn tail is refused.** Reading tolerates a fragment;
+  appending cannot, because the next whole object would be joined onto it and
+  become one invalid line in the middle of the file. The tail is checked when
+  the sink is built, and `truncate_torn_tail=True` drops the fragment — the only
+  operation that leaves the file consistent with how reading treats it.
+- **Accounting is not part of a call.** A model call is finished when the
+  provider returns a usable reply; charging tokens happens after it and can fail
+  on a reply that was perfectly good. An earlier version tried to finish the
+  same call twice when that happened, and the log's correct refusal replaced the
+  budget error and escaped `run()` — turning the log on changed what a run did.
+- The host's read is a call too, `observe`, with both events. It is the one path
+  where bytes change under a run, and it was the one path the log could not
+  speak about.
+- **A limit, stated:** the log records what a run did, not what it started with.
+  Initial observations are not events, only re-reads are, so the log alone
+  cannot rebuild the evidence a run began from.
+- **Payloads are masked** by `redact_document` before they are written: a
+  durable log persists whether or not anyone exports the run. The task reaches
+  it as a digest, and a call's input as `input_sha256`.
+- **`input_sha256` covers the whole input.** A model call hashed only the task,
+  though the adapter is also handed route, plan, observations and feedback; a
+  read hashed only `request.paths`, which is empty on a first read. Two calls
+  handed different things could carry the same digest — the one answer a replay
+  must not get wrong. The model digest now covers everything the adapter is
+  handed except the budget and tool handles, the read's covers the whole
+  `ObservationRequest`, and dataclasses are hashed by their fields.
+- `ToolGateway` takes the log, which is where `denied` is knowable. A refused
+  call is recorded as one that happened and was refused, never left unfinished.
+- New contract `atlas-event.v1`, registered in `atlas_core.contracts`.
+- **Resume is not here**: no locking, no replay, no `interrupted`/`resumed`.
+
 Roadmap v1.3 box one: the versioned contracts, who owns which field, and
 `atlas-run.v1` into `Run.v2` without silent loss.
 

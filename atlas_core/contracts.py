@@ -227,6 +227,22 @@ CONTRACTS: dict[str, Contract] = {
             },
         ),
         Contract(
+            name="Event",
+            version=1,
+            schema_file="atlas-event.v1.json",
+            owners={
+                "schema": "core",
+                "event_id": "derived",
+                "run_id": "core",
+                "sequence": "derived",
+                "iteration": "core",
+                "kind": "core",
+                "recorded_at": "core",
+                "call_id": "derived",
+                "payload": "core",
+            },
+        ),
+        Contract(
             name="Run",
             version=2,
             schema_file="atlas-run.v2.json",
@@ -268,6 +284,7 @@ RUN_V2_CONTRACTS: Mapping[str, str] = {
     "evaluation": "atlas-evaluation.v2",
     "action": "atlas-action.v1",
     "approval": "atlas-approval.v1",
+    "event": "atlas-event.v1",
     "route": "atlas-route.v1",
     "memory_candidate": "atlas-memory-candidate.v1",
 }

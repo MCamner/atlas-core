@@ -4,6 +4,71 @@ Atlas Core 1.x keeps its public Python types, JSON documents, stop semantics,
 and adapter boundaries stable. Incompatible changes require a new major
 version or a new schema identifier.
 
+## The append-only event log
+
+`AtlasController(..., events=sink)` records what a run did, when it did it.
+`None` is the default and changes nothing: the log records, it decides nothing,
+and a run with one produces the same document as a run without.
+
+`JsonlSink(path)` is the durable one — one JSON object per line, opened in
+append mode, flushed and fsynced per write. A crash truncates the last line
+rather than corrupting the file, and `read_jsonl` drops a torn final line while
+raising on a malformed line anywhere else: the first is interruption, the second
+is corruption.
+
+**A call is two events**, `call_started` and `call_finished`, joined by a
+`call_id` the log issues. That is the only way a reader can tell three
+situations apart:
+
+| what the log holds | what it means |
+|---|---|
+| no `call_started` | the call never began |
+| `call_started` alone | it began; the outcome is **unknown** |
+| both | it began and the outcome is recorded |
+
+`call_states(events)` returns that, and `unfinished_calls(events)` returns the
+middle case. A design with one record per call collapses it into one of the
+others, and both readings are dangerous: "failed" invites a retry that repeats a
+side effect the first attempt may already have had, and "never happened" is
+worse. There is no `unknown` outcome value — `unknown` is the absence of a
+report, not something anything writes.
+
+Nothing rewrites an event. The log assigns the sequence number, a call cannot
+be finished twice or finished without being started, and an `observation_recorded`
+event for a source already recorded is a **new** event carrying both digests —
+a source that changed under a run is something the log shows rather than hides.
+
+Reading tolerates a torn final line; **appending does not**, and the two cannot
+make the same allowance. The next whole object would be concatenated onto the
+fragment and become one invalid line in the middle of the file, taking every
+following event down with it. `JsonlSink` therefore checks the tail when it is
+built — where the destination is chosen, not on the write that would do the
+damage — and raises `TornLogTail`. `JsonlSink(path, truncate_torn_tail=True)`
+drops the fragment, which is the only operation that leaves the file consistent
+with how reading already treats it. A last line that *ends with a newline* and
+does not parse is corruption, not interruption, and always raises.
+
+Accounting is not part of a call. A model call is finished when the provider
+returns a usable reply; charging tokens against the budget happens after it and
+can fail on a reply the provider delivered perfectly well. The run document is
+where that failure belongs, and the call keeps the outcome it actually had.
+
+**One limit to know before relying on it:** the log records what a run did, not
+what it started with. A run's initial snapshot and the observations it was
+handed are not events — only re-reads are. The log alone cannot rebuild the
+evidence a run began from; it can say what changed under the run. Closing that
+belongs to resume.
+
+Payloads are masked by `redact_document` before they are written, because this
+file persists whether or not anyone exports the run. The task reaches the log as
+a digest rather than as text, and a call's input as `input_sha256`. — of the
+**whole** input: for a model call, everything the adapter is handed except the
+budget and tool handles; for a read, the whole `ObservationRequest`. A digest
+over part of the input would say "same" for calls handed different things.
+
+**Resume is not here.** This records enough to tell the three states apart and
+stops: no locking, no replay, no `interrupted` or `resumed` events.
+
 ## Versioned contracts and migration
 
 `atlas_core.contracts` names every document this package emits or accepts, at

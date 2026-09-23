@@ -12,8 +12,9 @@ from .memory import build_memory_candidate, save_local_memory
 from .safety import safety_notice
 from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
+from .eventlog import EventLog, EventSink, digest
 from .evidence_base import EvidenceBase
-from .machine import classify_stop
+from .machine import classify_stop, stop_class_of
 from .snapshot import DriftReport, detect_drift
 from .observation import Observation
 from .observer import (
@@ -119,6 +120,7 @@ class AtlasController:
         model_adapter: ModelAdapter | None = None,
         memory_adapter: MemoryAdapter | None = None,
         tools: Mapping[str, ToolDefinition] | None = None,
+        events: EventSink | None = None,
     ):
         if (
             isinstance(max_iterations, bool)
@@ -131,6 +133,11 @@ class AtlasController:
         self.model_adapter = model_adapter
         self.memory_adapter = memory_adapter
         self.tools = dict(tools or {})
+        #: Where the append-only log goes, or `None` for no log. A sink rather
+        #: than a log, because a log belongs to one run and the run id does not
+        #: exist until the run starts. `None` changes nothing about a run: the
+        #: log records what happened, it does not decide anything.
+        self.events = events
 
     @overload
     def run(
@@ -203,8 +210,25 @@ class AtlasController:
         if observer is not None and limits is None:
             raise ValueError("An observer requires RunLimits; no unmetered host reads")
         state = AtlasRunState(task=task, max_iterations=self.max_iterations)
+        # The log is built here because it belongs to one run, and the run id
+        # does not exist until now. Absent when no sink was configured, and a
+        # run with no log behaves identically — the log records, it decides
+        # nothing.
+        log = EventLog(state.run_id, self.events) if self.events is not None else None
+        if log is not None:
+            # The digest, not the task. This file persists whether or not
+            # anyone exports the run.
+            log.append(
+                "run_started",
+                task_sha256=digest(task),
+                max_iterations=state.max_iterations,
+            )
         budget = RunBudget(limits, cancelled=cancelled) if limits is not None else None
-        gateway = ToolGateway(budget=budget, tools=self.tools) if budget is not None and self.tools else None
+        gateway = (
+            ToolGateway(budget=budget, tools=self.tools, log=log)
+            if budget is not None and self.tools
+            else None
+        )
 
         def expired() -> bool:
             try:
@@ -351,6 +375,29 @@ class AtlasController:
                 question=review.question if review is not None else "",
             )
             state.enter("observing")
+            # Started before the host is asked, for the same reason a model
+            # call is: an interruption during the read must not read as a call
+            # that never began. Without this, the one path where bytes change
+            # under a run was the one path the log could not speak about.
+            read = (
+                log.start_call(
+                    "observe",
+                    iteration=state.iteration,
+                    target=",".join(request.paths) or None,
+                    # The whole request. On a first read `paths` is empty and
+                    # the patterns and the question are what was asked for.
+                    call_input=request,
+                )
+                if log is not None
+                else None
+            )
+
+            def finish_read(outcome: str, error: str | None = None) -> None:
+                if log is not None and read is not None:
+                    log.finish_call(
+                        read, outcome, iteration=state.iteration, error=error
+                    )
+
             try:
                 budget.check()
                 incoming = observer.observe(request)  # type: ignore[union-attr]
@@ -358,13 +405,19 @@ class AtlasController:
                     base.snapshot, base.observations, list(incoming)
                 )
             except RunCancelled:
+                # A cancellation is a control stop, and the read was not
+                # refused by anything — it was interrupted. `failed` says the
+                # attempt did not produce material, which is what happened.
+                finish_read("failed", "RunCancelled")
                 state.stop("cancelled")
                 return "stopped"
             except BudgetExceeded as exc:
+                finish_read("denied", type(exc).__name__)
                 state.metadata["budget_exhausted"] = str(exc)
                 state.stop("budget_exhausted")
                 return "stopped"
             except Exception as exc:
+                finish_read("failed", type(exc).__name__)
                 state.stop("tool_error")
                 state.metadata["failure"] = {
                     "stage": "observer",
@@ -372,6 +425,7 @@ class AtlasController:
                     "message": str(exc)[:MAX_FAILURE_MESSAGE],
                 }
                 return "stopped"
+            finish_read("ok")
 
             already_resolved = {
                 pattern
@@ -390,6 +444,32 @@ class AtlasController:
             # way without listing directories itself.
             record["patterns"] = list(patterns)
             state.metadata.setdefault("observation_rounds", []).append(record)
+            if log is not None:
+                # Appended, never replacing an earlier one for the same source.
+                # A source that changed under a run is something the log shows:
+                # `superseded` carries both digests, so a reader can tell which
+                # bytes a claim was graded against rather than only that the
+                # source moved.
+                log.append(
+                    "observation_recorded",
+                    iteration=state.iteration,
+                    patterns=list(patterns),
+                    requested=round_result.requested,
+                    added=[
+                        {"source_id": item.source_id, "sha256": item.content_sha256}
+                        for item in round_result.added
+                    ],
+                    superseded=[
+                        {
+                            "source_id": item.source_id,
+                            "previous_sha256": item.previous_sha256,
+                            "new_sha256": item.new_sha256,
+                        }
+                        for item in round_result.superseded
+                    ],
+                    unchanged=list(round_result.unchanged),
+                    has_new_material=round_result.has_new_material,
+                )
             if not round_result.has_new_material and not newly_resolved:
                 # Rule three. The host answered and nothing it returned changes
                 # what the run can check, so another pass would grade the same
@@ -498,6 +578,14 @@ class AtlasController:
                 else None,
             )
             state.plan = plan
+            if log is not None:
+                log.append(
+                    "plan_selected",
+                    iteration=state.iteration,
+                    route=route.name,
+                    steps=list(plan.steps),
+                    question=plan.review.question if plan.review else None,
+                )
             state.enter("executing")
             if expired():
                 break
@@ -505,18 +593,58 @@ class AtlasController:
             # a rerun: it tells the executor which gaps to close this time.
             feedback = state.evaluations[-1] if state.evaluations else None
             if self.model_adapter:
+                # Bound before the try: the handlers below read it, and a
+                # failure raised before the call was started must not become a
+                # NameError that hides the failure it was reporting.
+                call: str | None = None
                 try:
                     kwargs: dict[str, Any] = dict(
                         task=task, route=route, plan=plan,
                         observations=state.observations, feedback=feedback,
                     )
+                    # What the model is handed, before the budget and the tools
+                    # join it: those are handles to this run, not input. Hashing
+                    # the task alone gave a retry the digest of the first try.
+                    model_input = dict(kwargs)
                     if budget is not None:
                         budget.reserve_model()
                         kwargs["budget"] = budget
                     if gateway is not None:
                         kwargs["tools"] = gateway
+                    # Started before the call, finished after it. A crash in
+                    # between leaves a `call_started` with no outcome, which is
+                    # exactly the state a single record could not express: the
+                    # provider may already have done everything it was going to
+                    # do, so `failed` would invite a retry that repeats it.
+                    call = (
+                        log.start_call(
+                            "model_call",
+                            iteration=state.iteration,
+                            target=getattr(self.model_adapter, "provider", None)
+                            or type(self.model_adapter).__name__,
+                            call_input=model_input,
+                        )
+                        if log is not None
+                        else None
+                    )
                     model_result = self.model_adapter.execute(**kwargs)
                     _check_model_result(model_result)
+                    if log is not None and call is not None:
+                        # The provider call ended here, successfully. What
+                        # follows — charging tokens, charging output — is
+                        # accounting *about* the call, not part of it, and it
+                        # can fail on a reply the provider delivered perfectly
+                        # well.
+                        #
+                        # So the handle is cleared. A budget failure below must
+                        # not try to finish a call that is already finished: the
+                        # log refuses a second outcome, correctly, and that
+                        # refusal would replace the budget error it was
+                        # reporting and escape `run()` entirely. Enabling the
+                        # log would then change what a run does, which is the
+                        # one thing a log must never do.
+                        log.finish_call(call, "ok", iteration=state.iteration)
+                        call = None
                     if budget is not None:
                         raw_usage = model_result.metadata.get("usage_tokens")
                         usage = int(raw_usage) if isinstance(raw_usage, str) and raw_usage.isdecimal() else None
@@ -534,6 +662,11 @@ class AtlasController:
                     # not a silent fallback to the rule-based executor. Falling
                     # back would report an answer the caller did not ask for as
                     # though the model had produced it.
+                    if log is not None and call is not None:
+                        log.finish_call(
+                            call, "failed", iteration=state.iteration,
+                            error=type(exc).__name__,
+                        )
                     state.stop("tool_error")
                     state.metadata["failure"] = {
                         "stage": "model_adapter",
@@ -600,6 +733,20 @@ class AtlasController:
                 ),
             )
             state.evaluations.append(evaluation)
+            if log is not None:
+                log.append(
+                    "decision_recorded",
+                    iteration=state.iteration,
+                    passed=evaluation.passed,
+                    unmet_criteria=list(evaluation.unmet_criteria),
+                    evidence_gaps=list(evaluation.evidence_gaps),
+                    next_action=(
+                        evaluation.next_action.kind
+                        if evaluation.next_action is not None
+                        else None
+                    ),
+                    requires_user_approval=evaluation.requires_user_approval,
+                )
             # Recorded next to the evaluation it belongs with, so "unchanged
             # feedback" and "unchanged material" are read off the same pass.
             materials.append(_material_signature(state))
@@ -775,4 +922,12 @@ class AtlasController:
             if saved_path:
                 candidate["saved_path"] = saved_path
             state.memory_candidates.append(candidate)
+        if log is not None:
+            log.append(
+                "run_stopped",
+                iteration=state.iteration,
+                stop_reason=state.stop_reason,
+                stop_class=stop_class_of(state.stop_reason),
+                status=state.status,
+            )
         return finalize(state, json_mode=json_mode)
