@@ -46,6 +46,13 @@ honestly attest.
 - **Payloads are masked** by `redact_document` before they are written: a
   durable log persists whether or not anyone exports the run. The task reaches
   it as a digest, and a call's input as `input_sha256`.
+- **`input_sha256` covers the whole input.** A model call hashed only the task,
+  though the adapter is also handed route, plan, observations and feedback; a
+  read hashed only `request.paths`, which is empty on a first read. Two calls
+  handed different things could carry the same digest — the one answer a replay
+  must not get wrong. The model digest now covers everything the adapter is
+  handed except the budget and tool handles, the read's covers the whole
+  `ObservationRequest`, and dataclasses are hashed by their fields.
 - `ToolGateway` takes the log, which is where `denied` is knowable. A refused
   call is recorded as one that happened and was refused, never left unfinished.
 - New contract `atlas-event.v1`, registered in `atlas_core.contracts`.

@@ -32,6 +32,7 @@ import json
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -496,10 +497,11 @@ class TestTheLoopRecordsWhatItDid(unittest.TestCase):
         sink = self._sink()
         AtlasController(
             max_iterations=1, model_adapter=StubModelAdapter(ANSWER), events=sink
-        ).run("hej", json_mode=True)
+        ).run("hej hemliga uppgift", json_mode=True)
 
         started = [r for r in sink.records if r["kind"] == "call_started"][0]
-        self.assertEqual(started["payload"]["input_sha256"], digest("hej"))
+        self.assertRegex(started["payload"]["input_sha256"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("hemliga", json.dumps(started, ensure_ascii=False))
 
 
 class TestTheObservationPathIsRecorded(_ObserveBase):
@@ -647,7 +649,8 @@ class TestTheObserverCallIsAlsoACall(_ObserveBase):
         self._run_with_log(sink, self.host)
 
         started = self._observe_calls(sink)[0]
-        self.assertEqual(started["payload"]["input_sha256"], digest(["README.md"]))
+        self.assertEqual(len(started["payload"]["input_sha256"]), 64)
+        self.assertNotIn("README", started["payload"]["input_sha256"])
         self.assertEqual(started["payload"]["target"], "README.md")
 
 
@@ -769,6 +772,103 @@ class TestALogChangesNothingAboutTheRun(unittest.TestCase):
         controller = AtlasController(max_iterations=1)
 
         self.assertIsNone(controller.events)
+
+
+
+class TestTheDigestCoversTheWholeInput(_ObserveBase):
+    """Found in review: `input_sha256` hashed a fragment of what was sent.
+
+    The model call hashed only `task`, though the adapter is also handed the
+    route, the plan, the observations and the previous evaluation. The read
+    hashed only `request.paths`, which is empty on a first read. So two calls
+    with different input could carry the same digest, and `Action.v1` promises
+    a digest a replay can be compared against — a digest that says "same" for
+    different input would tell a replay it may skip a call it must make.
+    """
+
+    def _model_starts(self, sink: _Recording) -> list[dict[str, Any]]:
+        return [
+            r for r in sink.records
+            if r["kind"] == "call_started"
+            and r["payload"]["call_kind"] == "model_call"
+        ]
+
+    def test_the_same_task_with_different_feedback_is_a_different_input(self):
+        (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
+        sink = _Recording()
+        AtlasController(
+            max_iterations=2, model_adapter=_Fixed(self._stale_output()), events=sink
+        ).run(
+            REPO_TASK, evidence=self.base, json_mode=True,
+            limits=LIMITS, observer=self.host,
+        )
+
+        digests = [r["payload"]["input_sha256"] for r in self._model_starts(sink)]
+        self.assertEqual(len(digests), 2, "the run did not call the model twice")
+        self.assertNotEqual(digests[0], digests[1])
+
+    def test_the_model_digest_is_of_what_the_adapter_was_handed(self):
+        sink = _Recording()
+        seen: list[dict[str, Any]] = []
+        output = self._stale_output()
+
+        class Capturing:
+            def execute(self, **kwargs: Any) -> ModelResult:
+                seen.append(dict(kwargs))
+                return ModelResult(
+                    output=output, provider="test", model="fixed",
+                    metadata={"usage_tokens": "1"},
+                )
+
+        AtlasController(
+            max_iterations=1, model_adapter=Capturing(), events=sink
+        ).run(REPO_TASK, evidence=self.base, json_mode=True, limits=LIMITS)
+
+        sent = seen[0]
+        expected = digest({
+            key: sent[key]
+            for key in ("task", "route", "plan", "observations", "feedback")
+        })
+        self.assertEqual(
+            self._model_starts(sink)[0]["payload"]["input_sha256"], expected
+        )
+
+    def test_reads_with_no_paths_but_different_requests_differ(self):
+        """The first-read case the review named: `paths` is empty, and the
+        request is the patterns and the question."""
+        (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
+        sink = _Recording()
+        requests: list[Any] = []
+        host = self.host
+
+        class Capturing:
+            def observe(self, request: Any) -> Any:
+                requests.append(request)
+                return host.observe(request)
+
+        AtlasController(
+            max_iterations=2, model_adapter=_Fixed(self._stale_output()), events=sink
+        ).run(
+            REPO_TASK, evidence=self.base, json_mode=True,
+            limits=LIMITS, observer=Capturing(),
+        )
+
+        started = [
+            r for r in sink.records
+            if r["kind"] == "call_started"
+            and r["payload"]["call_kind"] == "observe"
+        ][0]
+        self.assertEqual(started["payload"]["input_sha256"], digest(requests[0]))
+
+        request = requests[0]
+        empty = replace(request, paths=[], source_ids=[])
+        for changed in (
+            replace(empty, patterns=["docs/*.md"]),
+            replace(empty, question="en annan fråga"),
+            replace(empty, claims=["ett annat påstående"]),
+            replace(empty, snapshot=replace(request.snapshot, commit="0" * 40)),
+        ):
+            self.assertNotEqual(digest(empty), digest(changed), changed)
 
 
 if __name__ == "__main__":

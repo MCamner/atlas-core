@@ -61,7 +61,10 @@ belongs to resume.
 
 Payloads are masked by `redact_document` before they are written, because this
 file persists whether or not anyone exports the run. The task reaches the log as
-a digest rather than as text, and a call's input as `input_sha256`.
+a digest rather than as text, and a call's input as `input_sha256`. — of the
+**whole** input: for a model call, everything the adapter is handed except the
+budget and tool handles; for a read, the whole `ObservationRequest`. A digest
+over part of the input would say "same" for calls handed different things.
 
 **Resume is not here.** This records enough to tell the three states apart and
 stops: no locking, no replay, no `interrupted` or `resumed` events.

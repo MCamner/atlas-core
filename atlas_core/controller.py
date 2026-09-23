@@ -384,7 +384,9 @@ class AtlasController:
                     "observe",
                     iteration=state.iteration,
                     target=",".join(request.paths) or None,
-                    call_input=sorted(request.paths),
+                    # The whole request. On a first read `paths` is empty and
+                    # the patterns and the question are what was asked for.
+                    call_input=request,
                 )
                 if log is not None
                 else None
@@ -600,6 +602,10 @@ class AtlasController:
                         task=task, route=route, plan=plan,
                         observations=state.observations, feedback=feedback,
                     )
+                    # What the model is handed, before the budget and the tools
+                    # join it: those are handles to this run, not input. Hashing
+                    # the task alone gave a retry the digest of the first try.
+                    model_input = dict(kwargs)
                     if budget is not None:
                         budget.reserve_model()
                         kwargs["budget"] = budget
@@ -616,7 +622,7 @@ class AtlasController:
                             iteration=state.iteration,
                             target=getattr(self.model_adapter, "provider", None)
                             or type(self.model_adapter).__name__,
-                            call_input=task,
+                            call_input=model_input,
                         )
                         if log is not None
                         else None

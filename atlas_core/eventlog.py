@@ -58,7 +58,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Protocol
@@ -104,13 +104,27 @@ class AppendOnlyViolation(RuntimeError):
     """An attempt to write history rather than extend it."""
 
 
+def _canonical(value: object) -> object:
+    # A dataclass by its fields, not by its `repr`: the fields are the input,
+    # and a `repr` is a presentation that may change without the input changing.
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    return str(value)
+
+
 def digest(value: object) -> str:
     """A stable digest of an input, so a replay can be compared against what was
-    sent without the input itself being kept."""
+    sent without the input itself being kept.
+
+    Of the **whole** input. A digest over part of it says "same" for calls that
+    were handed different things, which is the one answer a replay must never
+    get wrong."""
     if isinstance(value, str):
         material = value
     else:
-        material = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+        material = json.dumps(
+            value, sort_keys=True, ensure_ascii=False, default=_canonical
+        )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
