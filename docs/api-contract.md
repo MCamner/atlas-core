@@ -21,7 +21,7 @@ is corruption.
 situations apart:
 
 | what the log holds | what it means |
-|---|---|
+| --- | --- |
 | no `call_started` | the call never began |
 | `call_started` alone | it began; the outcome is **unknown** |
 | both | it began and the outcome is recorded |
@@ -752,7 +752,7 @@ A run whose feedback repeats stops `no_progress` with
 `metadata.no_progress.material` says whether the evidence stood still too.
 
 **This applies to every run.** Before P1.1 it was bounded runs only, because
-#29 introduced it as a cost rule — another provider call costs money. As a
+PR #29 introduced it as a cost rule — another provider call costs money. As a
 contract rule it does not depend on anyone counting: a producer that has been
 told this and answered it has answered it. A caller written against 1.0 that
 drives unbudgeted runs will see `no_progress` where it saw `max_iterations`;
