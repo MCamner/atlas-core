@@ -45,6 +45,7 @@ from atlas_core.eventlog import (
     Event,
     EventLog,
     JsonlSink,
+    TornLogTail,
     call_states,
     digest,
     read_jsonl,
@@ -285,6 +286,81 @@ class TestItSurvivesBeingWrittenDown(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             read_jsonl(self.path)
 
+    def test_a_complete_but_invalid_last_line_is_corruption_and_raises(self):
+        """Found in review. Only an *incomplete* last line is tolerated. One
+        that ends with a newline was written in full, so if it does not parse
+        the file is damaged — and shrugging at damage wherever it happens to
+        sit would report a log that never existed."""
+        self._run()
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write("{ not json at all\n")
+
+        with self.assertRaises(json.JSONDecodeError):
+            read_jsonl(self.path)
+
+    def test_appending_after_a_torn_tail_is_refused(self):
+        """Found in review, and the reason reading and appending cannot make
+        the same allowance. The next whole object would be concatenated onto
+        the fragment, turning it into one invalid line in the *middle* of the
+        file — corruption rather than interruption, taking every following
+        event down with it."""
+        self._run()
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write('{"kind": "call_finished", "call_id": "x", "pay')
+
+        with self.assertRaises(TornLogTail):
+            JsonlSink(self.path)
+
+    def test_the_refusal_happens_where_the_destination_is_chosen(self):
+        """Not on the write that would do the damage. A run that discovered it
+        halfway through would already have written events into a file it was
+        damaging."""
+        self._run()
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write("{ half a record")
+        before = self.path.read_bytes()
+
+        with self.assertRaises(TornLogTail):
+            JsonlSink(self.path)
+
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_dropping_the_fragment_is_explicit_and_leaves_the_rest_readable(self):
+        """The only operation that makes the file consistent with how reading
+        already treats the fragment — and it takes saying so."""
+        self._run()
+        whole = read_jsonl(self.path)
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write('{"kind": "call_finished", "pay')
+
+        log = EventLog("later-run", JsonlSink(self.path, truncate_torn_tail=True))
+        log.append("run_started")
+
+        records = read_jsonl(self.path)
+        self.assertEqual(records[:-1], whole)
+        self.assertEqual(records[-1]["run_id"], "later-run")
+
+    def test_truncating_removes_only_what_follows_the_last_newline(self):
+        """A record that was never completed, and nothing else."""
+        self._run()
+        whole = self.path.read_bytes()
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write('{"kind": "run_stop')
+
+        JsonlSink(self.path, truncate_torn_tail=True)
+
+        self.assertEqual(self.path.read_bytes(), whole)
+
+    def test_a_clean_file_is_not_touched_and_a_new_one_is_fine(self):
+        """The positive control: the check must not make ordinary use fail."""
+        self._run()
+        before = self.path.read_bytes()
+
+        JsonlSink(self.path)
+        JsonlSink(Path(self.tmp) / "fresh" / "new.jsonl")
+
+        self.assertEqual(self.path.read_bytes(), before)
+
 
 class TestWhatIsWrittenIsMasked(unittest.TestCase):
     """The run document is redacted on the way out because a source's bytes
@@ -502,18 +578,189 @@ class TestTheObservationPathIsRecorded(_ObserveBase):
         )
 
 
+class TestTheObserverCallIsAlsoACall(_ObserveBase):
+    """Found in review: `observer.observe()` ran with no `call_started`.
+
+    That is the one path where bytes change under a run, and it was the one
+    path the log could not speak about. An interruption during the read left no
+    record at all, so the log said the call never began — the single reading the
+    two-event design exists to make impossible.
+    """
+
+    def _run_with_log(self, sink: _Recording, observer: Any) -> Any:
+        return AtlasController(
+            max_iterations=2, model_adapter=_Fixed(self._stale_output()), events=sink
+        ).run(
+            REPO_TASK, evidence=self.base, json_mode=True,
+            limits=LIMITS, observer=observer,
+        )
+
+    def _observe_calls(self, sink: _Recording) -> list[dict[str, Any]]:
+        return [
+            record
+            for record in sink.records
+            if record["kind"] == "call_started"
+            and record["payload"]["call_kind"] == "observe"
+        ]
+
+    def test_a_read_is_a_started_and_a_finished_call(self):
+        (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
+        sink = _Recording()
+
+        self._run_with_log(sink, self.host)
+
+        self.assertTrue(self._observe_calls(sink), "the read was not recorded")
+        self.assertIn("ok", call_states(sink.records).values())
+        self.assertEqual(unfinished_calls(sink.records), [])
+
+    def test_a_host_that_raises_leaves_a_started_call_marked_failed(self):
+        """Not an absent one. The host was asked, and the request may have had
+        every effect it was going to have before it failed."""
+        (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
+        sink = _Recording()
+
+        class Exploding:
+            def observe(self, request: Any) -> Any:
+                raise RuntimeError("host is down")
+
+        run = self._run_with_log(sink, Exploding())
+
+        self.assertEqual(run["stop_reason"], "tool_error")
+        started = self._observe_calls(sink)
+        self.assertTrue(started, "an interrupted read must still say it began")
+        self.assertEqual(
+            call_states(sink.records)[started[0]["call_id"]], "failed"
+        )
+
+    def test_an_interrupted_read_reads_as_unknown_not_as_absent(self):
+        """The crash case, through the log rather than through the loop: the
+        read began and nothing recorded how it ended."""
+        log = EventLog("run-1")
+        call = log.start_call("observe", target="README.md")
+
+        self.assertEqual(call_states(log), {call: "unknown"})
+
+    def test_the_read_carries_what_was_asked_for_as_a_digest(self):
+        (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
+        sink = _Recording()
+
+        self._run_with_log(sink, self.host)
+
+        started = self._observe_calls(sink)[0]
+        self.assertEqual(started["payload"]["input_sha256"], digest(["README.md"]))
+        self.assertEqual(started["payload"]["target"], "README.md")
+
+
+class TestAccountingIsNotPartOfTheCall(unittest.TestCase):
+    """Found in review, and a regression this branch introduced.
+
+    `finish_call(ok)` ran as soon as the provider returned a usable reply, and
+    the exception handler below then tried `finish_call(failed)` for the same
+    id when the *budget* rejected the run. The log refused the second outcome,
+    correctly — and that refusal replaced the budget error it was reporting and
+    escaped `run()` entirely. Turning the log on changed what a run does, which
+    is the one thing a log must never do.
+
+    Charging tokens is accounting *about* a call, not part of it, and it can
+    fail on a reply the provider delivered perfectly well.
+    """
+
+    def _adapter(self, metadata: dict[str, str]) -> Any:
+        class Producer:
+            def execute(self, **kwargs: Any) -> ModelResult:
+                return ModelResult(
+                    output=ANSWER, provider="p", model="m", metadata=dict(metadata)
+                )
+
+        return Producer()
+
+    def _limits(self) -> RunLimits:
+        return RunLimits(
+            wall_seconds=10, model_calls=2, tool_calls=0,
+            tokens=100, output_bytes=10_000,
+        )
+
+    def _run(self, metadata: dict[str, str], sink: Any = None) -> Any:
+        return AtlasController(
+            max_iterations=1, model_adapter=self._adapter(metadata), events=sink
+        ).run("hej", json_mode=True, limits=self._limits())
+
+    def test_a_provider_that_reports_no_usage_still_stops_the_normal_way(self):
+        sink = _Recording()
+
+        run = self._run({}, sink)
+
+        self.assertEqual(run["stop_reason"], "tool_error")
+        self.assertEqual(run["metadata"]["failure"]["error"], "UnmeteredUsage")
+
+    def test_a_run_over_its_token_budget_still_stops_the_normal_way(self):
+        sink = _Recording()
+
+        run = self._run({"usage_tokens": "9999"}, sink)
+
+        self.assertEqual(run["stop_reason"], "budget_exhausted")
+
+    def test_the_call_is_finished_once_and_the_run_still_records_its_stop(self):
+        """The two facts the double finish destroyed: one outcome per call, and
+        a `run_stopped` event at the end."""
+        for metadata in ({}, {"usage_tokens": "9999"}):
+            with self.subTest(metadata=metadata):
+                sink = _Recording()
+
+                self._run(metadata, sink)
+
+                kinds = [record["kind"] for record in sink.records]
+                self.assertEqual(kinds.count("call_finished"), 1)
+                self.assertEqual(kinds[-1], "run_stopped")
+                self.assertEqual(unfinished_calls(sink.records), [])
+
+    def test_the_outcome_recorded_is_the_providers_and_not_the_budgets(self):
+        """The call succeeded. What failed was the accounting after it, and the
+        run document is where that belongs."""
+        sink = _Recording()
+
+        self._run({}, sink)
+
+        finished = [r for r in sink.records if r["kind"] == "call_finished"][0]
+        self.assertEqual(finished["payload"]["outcome"], "ok")
+
+    def test_a_budgeted_run_behaves_the_same_with_and_without_a_log(self):
+        """The property the regression broke, tested where it broke it: with a
+        budget. The earlier version of this assertion used an unbudgeted run
+        and could not have caught it."""
+        for metadata in ({}, {"usage_tokens": "9999"}):
+            with self.subTest(metadata=metadata):
+                without = _comparable(self._run(metadata))
+                with_log = _comparable(self._run(metadata, _Recording()))
+
+                self.assertEqual(without, with_log)
+
+
+def _comparable(document: dict[str, Any]) -> dict[str, Any]:
+    """A run document with the parts that differ between any two runs removed.
+
+    The id, the timestamp and the budget's monotonic deadline are different on
+    every run whatever else is true, so leaving them in would make "the same
+    with and without a log" impossible to state rather than merely false.
+    """
+    document.pop("run_id", None)
+    document.pop("created_at", None)
+    usage = document.get("metadata", {}).get("budget_usage")
+    if isinstance(usage, dict):
+        usage.pop("deadline_monotonic", None)
+    return document
+
+
 class TestALogChangesNothingAboutTheRun(unittest.TestCase):
     """It records; it decides nothing. Asserted because a log that altered a run
     would make every measurement taken with one unusable."""
 
     def _document(self, **kwargs: Any) -> dict[str, Any]:
-        document = AtlasController(max_iterations=2, **kwargs).run(
-            "granska repo atlas-core", json_mode=True
+        return _comparable(
+            AtlasController(max_iterations=2, **kwargs).run(
+                "granska repo atlas-core", json_mode=True
+            )
         )
-        # What differs between any two runs regardless.
-        for key in ("run_id", "created_at"):
-            document.pop(key, None)
-        return document
 
     def test_the_document_is_the_same_with_and_without_one(self):
         self.assertEqual(self._document(), self._document(events=_Recording()))

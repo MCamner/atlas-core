@@ -38,6 +38,27 @@ be finished twice or finished without being started, and an `observation_recorde
 event for a source already recorded is a **new** event carrying both digests —
 a source that changed under a run is something the log shows rather than hides.
 
+Reading tolerates a torn final line; **appending does not**, and the two cannot
+make the same allowance. The next whole object would be concatenated onto the
+fragment and become one invalid line in the middle of the file, taking every
+following event down with it. `JsonlSink` therefore checks the tail when it is
+built — where the destination is chosen, not on the write that would do the
+damage — and raises `TornLogTail`. `JsonlSink(path, truncate_torn_tail=True)`
+drops the fragment, which is the only operation that leaves the file consistent
+with how reading already treats it. A last line that *ends with a newline* and
+does not parse is corruption, not interruption, and always raises.
+
+Accounting is not part of a call. A model call is finished when the provider
+returns a usable reply; charging tokens against the budget happens after it and
+can fail on a reply the provider delivered perfectly well. The run document is
+where that failure belongs, and the call keeps the outcome it actually had.
+
+**One limit to know before relying on it:** the log records what a run did, not
+what it started with. A run's initial snapshot and the observations it was
+handed are not events — only re-reads are. The log alone cannot rebuild the
+evidence a run began from; it can say what changed under the run. Closing that
+belongs to resume.
+
 Payloads are masked by `redact_document` before they are written, because this
 file persists whether or not anyone exports the run. The task reaches the log as
 a digest rather than as text, and a call's input as `input_sha256`.

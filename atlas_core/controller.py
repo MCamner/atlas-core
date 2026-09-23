@@ -375,6 +375,27 @@ class AtlasController:
                 question=review.question if review is not None else "",
             )
             state.enter("observing")
+            # Started before the host is asked, for the same reason a model
+            # call is: an interruption during the read must not read as a call
+            # that never began. Without this, the one path where bytes change
+            # under a run was the one path the log could not speak about.
+            read = (
+                log.start_call(
+                    "observe",
+                    iteration=state.iteration,
+                    target=",".join(request.paths) or None,
+                    call_input=sorted(request.paths),
+                )
+                if log is not None
+                else None
+            )
+
+            def finish_read(outcome: str, error: str | None = None) -> None:
+                if log is not None and read is not None:
+                    log.finish_call(
+                        read, outcome, iteration=state.iteration, error=error
+                    )
+
             try:
                 budget.check()
                 incoming = observer.observe(request)  # type: ignore[union-attr]
@@ -382,13 +403,19 @@ class AtlasController:
                     base.snapshot, base.observations, list(incoming)
                 )
             except RunCancelled:
+                # A cancellation is a control stop, and the read was not
+                # refused by anything — it was interrupted. `failed` says the
+                # attempt did not produce material, which is what happened.
+                finish_read("failed", "RunCancelled")
                 state.stop("cancelled")
                 return "stopped"
             except BudgetExceeded as exc:
+                finish_read("denied", type(exc).__name__)
                 state.metadata["budget_exhausted"] = str(exc)
                 state.stop("budget_exhausted")
                 return "stopped"
             except Exception as exc:
+                finish_read("failed", type(exc).__name__)
                 state.stop("tool_error")
                 state.metadata["failure"] = {
                     "stage": "observer",
@@ -396,6 +423,7 @@ class AtlasController:
                     "message": str(exc)[:MAX_FAILURE_MESSAGE],
                 }
                 return "stopped"
+            finish_read("ok")
 
             already_resolved = {
                 pattern
@@ -596,7 +624,21 @@ class AtlasController:
                     model_result = self.model_adapter.execute(**kwargs)
                     _check_model_result(model_result)
                     if log is not None and call is not None:
+                        # The provider call ended here, successfully. What
+                        # follows — charging tokens, charging output — is
+                        # accounting *about* the call, not part of it, and it
+                        # can fail on a reply the provider delivered perfectly
+                        # well.
+                        #
+                        # So the handle is cleared. A budget failure below must
+                        # not try to finish a call that is already finished: the
+                        # log refuses a second outcome, correctly, and that
+                        # refusal would replace the budget error it was
+                        # reporting and escape `run()` entirely. Enabling the
+                        # log would then change what a run does, which is the
+                        # one thing a log must never do.
                         log.finish_call(call, "ok", iteration=state.iteration)
+                        call = None
                     if budget is not None:
                         raw_usage = model_result.metadata.get("usage_tokens")
                         usage = int(raw_usage) if isinstance(raw_usage, str) and raw_usage.isdecimal() else None

@@ -24,8 +24,25 @@ honestly attest.
   carrying both digests.
 - **`JsonlSink`** appends one object per line and fsyncs per write, so a crash
   truncates the last line rather than corrupting the file. `read_jsonl` drops a
-  torn final line and raises on a malformed line anywhere else — interruption
-  and corruption are not the same thing.
+  torn final line and raises on anything else that does not parse — including a
+  last line that ends with a newline, which was written in full and so is
+  corruption rather than interruption.
+- **Appending after a torn tail is refused.** Reading tolerates a fragment;
+  appending cannot, because the next whole object would be joined onto it and
+  become one invalid line in the middle of the file. The tail is checked when
+  the sink is built, and `truncate_torn_tail=True` drops the fragment — the only
+  operation that leaves the file consistent with how reading treats it.
+- **Accounting is not part of a call.** A model call is finished when the
+  provider returns a usable reply; charging tokens happens after it and can fail
+  on a reply that was perfectly good. An earlier version tried to finish the
+  same call twice when that happened, and the log's correct refusal replaced the
+  budget error and escaped `run()` — turning the log on changed what a run did.
+- The host's read is a call too, `observe`, with both events. It is the one path
+  where bytes change under a run, and it was the one path the log could not
+  speak about.
+- **A limit, stated:** the log records what a run did, not what it started with.
+  Initial observations are not events, only re-reads are, so the log alone
+  cannot rebuild the evidence a run began from.
 - **Payloads are masked** by `redact_document` before they are written: a
   durable log persists whether or not anyone exports the run. The task reaches
   it as a digest, and a call's input as `input_sha256`.

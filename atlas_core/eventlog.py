@@ -44,6 +44,13 @@ The same `redact_document` runs over every event payload before it is written.
 What this module does **not** do is resume. It records enough for the resume
 work to tell the three states above apart, and stops there. Locking, idempotent
 replay and `interrupted`/`resumed` events are their own problem.
+
+**And one limit worth knowing before relying on it.** The log records what a run
+*did*, not what it started with. A run's initial snapshot and the observations
+it was handed are not events — only re-reads are, as `observation_recorded` with
+their supersessions. So the log alone cannot rebuild the evidence a run began
+from; it can say what changed under the run and what the run reached for. Closing
+that is resume's business, and stating it is this module's.
 """
 
 from __future__ import annotations
@@ -285,6 +292,23 @@ class EventLog:
         )
 
 
+class TornLogTail(RuntimeError):
+    """The file ends mid-record, so appending to it would corrupt it.
+
+    A crash between writing a record and writing its newline leaves bytes with
+    no line ending. Reading tolerates that — the record was never completed, so
+    it never happened. **Appending does not**, because the next whole object
+    would be concatenated onto the fragment and become one invalid line in the
+    middle of the file, which is corruption rather than interruption and takes
+    the following events down with it.
+
+    So this is raised when the sink is built rather than on the write that would
+    do the damage, and the caller decides. `JsonlSink(path,
+    truncate_torn_tail=True)` drops the fragment, which is the only operation
+    that leaves the file consistent with how reading already treats it.
+    """
+
+
 class JsonlSink:
     """One JSON object per line, opened in append mode and flushed per write.
 
@@ -292,11 +316,42 @@ class JsonlSink:
     truncated last line is a missing event — a state `call_states` already
     expresses. Buffering would trade exactly the events a crash makes
     interesting for a little throughput.
+
+    **The tail is checked when the sink is built**, not on every write. A file
+    that ends mid-record cannot be safely appended to, and a run that discovers
+    that halfway through has already written events into a file it is damaging.
+    Failing where the destination is chosen is failing where the decision is.
+
+    Concurrent writers are a different problem and this does not solve it. Two
+    processes appending to one file is a locking question, and locking belongs
+    to the resume work.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, truncate_torn_tail: bool = False) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._check_tail(truncate_torn_tail)
+
+    def _check_tail(self, truncate: bool) -> None:
+        if not self.path.exists():
+            return
+        with self.path.open("rb") as handle:
+            if handle.seek(0, os.SEEK_END) == 0:
+                return
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) == b"\n":
+                return
+        if not truncate:
+            raise TornLogTail(
+                f"{self.path} ends mid-record; appending would join the next "
+                "event onto the fragment and make that line unreadable. Pass "
+                "truncate_torn_tail=True to drop the fragment, which is what "
+                "reading already takes it to mean."
+            )
+        # Only ever the bytes after the last newline: a record that was never
+        # completed, which by this module's own reading never happened.
+        raw = self.path.read_bytes()
+        self.path.write_bytes(raw[: raw.rindex(b"\n") + 1] if b"\n" in raw else b"")
 
     def write(self, record: Mapping[str, Any]) -> None:
         line = json.dumps(record, ensure_ascii=False, sort_keys=True)
@@ -317,18 +372,17 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     lines = Path(path).read_text(encoding="utf-8").splitlines(keepends=True)
     for index, line in enumerate(lines):
-        last = index == len(lines) - 1
-        if not line.endswith("\n") and last:
-            # Torn write. The record was never completed, so it never happened.
+        if not line.endswith("\n") and index == len(lines) - 1:
+            # Torn write, and the *only* thing tolerated here. The record was
+            # never completed, so it never happened.
             break
         if not line.strip():
             continue
-        try:
-            records.append(json.loads(line))
-        except json.JSONDecodeError:
-            if last:
-                break
-            raise
+        # No exception for the last line. A line that ends with a newline was
+        # written in full, so if it does not parse it is corruption — and a
+        # reader that shrugged at corruption wherever it happened to sit would
+        # be reporting a log that never existed.
+        records.append(json.loads(line))
     return records
 
 
@@ -371,6 +425,7 @@ __all__ = [
     "EventLog",
     "EventSink",
     "JsonlSink",
+    "TornLogTail",
     "SCHEMA",
     "call_states",
     "digest",
