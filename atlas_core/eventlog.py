@@ -41,16 +41,12 @@ because a source's bytes reach it through several channels; a durable log is
 another channel, and one that persists whether or not anyone exports the run.
 The same `redact_document` runs over every event payload before it is written.
 
-What this module does **not** do is resume. It records enough for the resume
-work to tell the three states above apart, and stops there. Locking, idempotent
-replay and `interrupted`/`resumed` events are their own problem.
-
-**And one limit worth knowing before relying on it.** The log records what a run
-*did*, not what it started with. A run's initial snapshot and the observations
-it was handed are not events — only re-reads are, as `observation_recorded` with
-their supersessions. So the log alone cannot rebuild the evidence a run began
-from; it can say what changed under the run and what the run reached for. Closing
-that is resume's business, and stating it is this module's.
+Resume extends this record without pretending it contains source bytes.
+`run_started` binds the run to digests of its initial inputs and snapshot id;
+the host supplies those inputs again and the controller compares them before
+replay. `RunLock` serializes one run id, and `interrupted`/`resumed` make the
+continuation explicit. Unknown calls are replayed only when their start event
+declared them idempotent.
 """
 
 from __future__ import annotations
@@ -58,6 +54,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import fcntl
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +67,8 @@ SCHEMA = "atlas-event.v1"
 #: person who wrote it.
 EVENT_KINDS: tuple[str, ...] = (
     "run_started",
+    "interrupted",
+    "resumed",
     "plan_selected",
     "call_started",
     "call_finished",
@@ -102,6 +101,10 @@ CALL_STATES: tuple[str, ...] = ("unknown", *CALL_OUTCOMES)
 
 class AppendOnlyViolation(RuntimeError):
     """An attempt to write history rather than extend it."""
+
+
+class ResumeRefused(RuntimeError):
+    """A persisted run cannot be resumed without guessing or duplicating work."""
 
 
 def _canonical(value: object) -> object:
@@ -205,12 +208,36 @@ class EventLog:
     happen.
     """
 
-    def __init__(self, run_id: str, sink: EventSink | None = None) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        sink: EventSink | None = None,
+        *,
+        previous: Iterable[Mapping[str, Any]] = (),
+    ) -> None:
         if not run_id:
             raise ValueError("a log belongs to a run")
         self.run_id = run_id
         self._sink = sink
-        self._events: list[Event] = []
+        self._events = [self._event_from_record(record) for record in previous]
+        if any(event.run_id != run_id for event in self._events):
+            raise ResumeRefused("a resume log must contain exactly one run id")
+        if [event.sequence for event in self._events] != list(range(len(self._events))):
+            raise ResumeRefused("event sequence is not contiguous from zero")
+
+    @staticmethod
+    def _event_from_record(record: Mapping[str, Any]) -> Event:
+        if record.get("schema") != SCHEMA:
+            raise ResumeRefused("resume requires atlas-event.v1 records")
+        return Event(
+            run_id=str(record.get("run_id", "")),
+            sequence=int(record.get("sequence", -1)),
+            kind=str(record.get("kind", "")),
+            recorded_at=str(record.get("recorded_at", "")),
+            iteration=int(record.get("iteration", 0)),
+            call_id=record.get("call_id"),
+            payload=dict(record.get("payload", {})),
+        )
 
     def __len__(self) -> int:
         return len(self._events)
@@ -375,6 +402,38 @@ class JsonlSink:
             os.fsync(handle.fileno())
 
 
+class RunLock:
+    """An advisory, process-wide lock held for one run or resume attempt."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self._handle: Any = None
+
+    def acquire(self) -> "RunLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self.path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.close()
+            raise ResumeRefused(f"run is already locked: {self.path}") from exc
+        self._handle = handle
+        return self
+
+    def release(self) -> None:
+        if self._handle is None:
+            return
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        self._handle.close()
+        self._handle = None
+
+    def __enter__(self) -> "RunLock":
+        return self.acquire()
+
+    def __exit__(self, *_: object) -> None:
+        self.release()
+
+
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     """Every whole record in a log file, in order.
 
@@ -439,6 +498,8 @@ __all__ = [
     "EventLog",
     "EventSink",
     "JsonlSink",
+    "ResumeRefused",
+    "RunLock",
     "TornLogTail",
     "SCHEMA",
     "call_states",

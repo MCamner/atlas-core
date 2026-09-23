@@ -53,11 +53,11 @@ returns a usable reply; charging tokens against the budget happens after it and
 can fail on a reply the provider delivered perfectly well. The run document is
 where that failure belongs, and the call keeps the outcome it actually had.
 
-**One limit to know before relying on it:** the log records what a run did, not
-what it started with. A run's initial snapshot and the observations it was
-handed are not events — only re-reads are. The log alone cannot rebuild the
-evidence a run began from; it can say what changed under the run. Closing that
-belongs to resume.
+`run_started` binds a resumable run to digests of its task, initial prose
+observations and evidence manifest, plus the snapshot id and iteration bound.
+Raw observations remain outside the log. A host that resumes supplies them
+again, and Core rejects a changed digest or snapshot rather than reconstructing
+source bytes from persistent metadata.
 
 Payloads are masked by `redact_document` before they are written, because this
 file persists whether or not anyone exports the run. The task reaches the log as
@@ -66,8 +66,22 @@ a digest rather than as text, and a call's input as `input_sha256`. — of the
 budget and tool handles; for a read, the whole `ObservationRequest`. A digest
 over part of the input would say "same" for calls handed different things.
 
-**Resume is not here.** This records enough to tell the three states apart and
-stops: no locking, no replay, no `interrupted` or `resumed` events.
+### Safe read-only resume
+
+`AtlasController(..., events=JsonlSink(path)).resume(task, run_id=..., ...)`
+resumes one interrupted run from a shared JSONL file. It holds an advisory lock
+for that run id while it re-reads, validates and extends the log. Other run ids
+in the same file are independent.
+
+Resume appends `interrupted` and `resumed`, preserves the run id and continues
+the event sequence. Replay starts the bounded read-only loop from its supplied
+initial state. It is allowed only when the task, initial observations,
+snapshot, evidence digests and iteration bound match `run_started`. An
+unfinished call must declare `idempotent: true`; otherwise Core raises
+`ResumeRefused`. Read tools and observer reads are idempotent. A model adapter
+must opt in explicitly; `StubModelAdapter` does because it is deterministic.
+Memory writers are refused because their prior outcome is not represented in
+the event log. A run with `run_stopped` is complete and cannot be resumed.
 
 ## Versioned contracts and migration
 

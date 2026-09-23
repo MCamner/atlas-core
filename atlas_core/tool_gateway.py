@@ -71,11 +71,18 @@ class ToolGateway:
 
     def invoke(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
         self.budget.check()
+        tool = self._tools.get(name)
         # Started before anything can refuse it, so a denial is recorded as a
         # call that happened and was refused — not as one that never occurred.
         # A reader of the log needs to see the attempt.
         call = (
-            self._log.start_call("tool_call", target=name, call_input=arguments)
+            self._log.start_call(
+                "tool_call",
+                target=name,
+                call_input=arguments,
+                idempotent=tool is not None and tool.capability == "read",
+                capability=tool.capability if tool is not None else None,
+            )
             if self._log is not None
             else None
         )
@@ -94,7 +101,6 @@ class ToolGateway:
 
         # Name lookup precedes budget reservation. An attacker cannot use
         # arbitrary model/README text to invent a new tool.
-        tool = self._tools.get(name)
         if tool is None:
             record("denied", "tool not registered")
             raise ToolDenied("tool not registered")
