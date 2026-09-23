@@ -45,6 +45,8 @@ class StubModelAdapter:
     back in" assertable.
     """
 
+    idempotent = True
+
     def __init__(
         self,
         output: str,

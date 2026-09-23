@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+Roadmap v1.3 safe resume:
+
+- Added `AtlasController.resume(..., run_id=...)` for interrupted read-only
+  runs backed by `JsonlSink`.
+- Resume verifies the task, initial observations, evidence digest, snapshot and
+  iteration bound before replay, preserves the run id and event sequence, and
+  appends explicit `interrupted` and `resumed` events.
+- Added a per-run advisory `RunLock`; separate runs may share one JSONL file.
+- Unfinished calls are replayable only when they declared `idempotent: true`.
+  Observer reads and read-capability tools qualify. Model adapters must opt in;
+  the deterministic `StubModelAdapter` does. Unknown or write-like outcomes
+  fail closed with `ResumeRefused`.
+- Resume refuses configured memory writers because the current log cannot
+  prove whether a previous memory write completed.
+
 Roadmap v1.3 box two: an append-only event log, and the three states it can
 honestly attest.
 

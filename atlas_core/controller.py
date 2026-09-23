@@ -1,6 +1,7 @@
 from __future__ import annotations
-from typing import Any, Callable, Literal, Mapping, overload
+from typing import Any, Callable, Literal, Mapping, cast, overload
 import json
+from pathlib import Path
 
 from .state import AtlasEvaluation, AtlasRunState, retry_class
 from .router import select_route
@@ -12,7 +13,16 @@ from .memory import build_memory_candidate, save_local_memory
 from .safety import safety_notice
 from .adapters.model import ModelAdapter, ModelResult
 from .adapters.base import MemoryAdapter
-from .eventlog import EventLog, EventSink, digest
+from .eventlog import (
+    EventLog,
+    EventSink,
+    JsonlSink,
+    ResumeRefused,
+    RunLock,
+    digest,
+    read_jsonl,
+    unfinished_calls,
+)
 from .evidence_base import EvidenceBase
 from .machine import classify_stop, stop_class_of
 from .snapshot import DriftReport, detect_drift
@@ -29,6 +39,19 @@ from .tool_gateway import ToolDefinition, ToolGateway
 # Provider messages are unbounded and may embed request content, so the run
 # record keeps a bounded excerpt rather than whatever the provider returned.
 MAX_FAILURE_MESSAGE = 512
+_RESUME_TOKEN = object()
+
+
+def _evidence_identity(evidence: EvidenceBase | None) -> tuple[str | None, str | None]:
+    if evidence is None:
+        return None, None
+    material = {
+        "snapshot_id": evidence.snapshot.snapshot_id,
+        "observations": sorted(
+            (item.source_id, item.content_sha256) for item in evidence.observations
+        ),
+    }
+    return evidence.snapshot.snapshot_id, digest(material)
 
 
 def _check_model_result(result: object) -> None:
@@ -139,6 +162,115 @@ class AtlasController:
         #: log records what happened, it does not decide anything.
         self.events = events
 
+    def resume(
+        self,
+        task: str,
+        *,
+        run_id: str,
+        observations: list[str] | None = None,
+        evidence: EvidenceBase | None = None,
+        json_mode: bool = False,
+        limits: RunLimits | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
+        observer: Observer | None = None,
+    ) -> str | dict[str, Any]:
+        """Resume one interrupted read-only run from its durable event log.
+
+        Raw evidence is deliberately not reconstructed from the log. The host
+        supplies it again and its snapshot/digest must match `run_started`.
+        """
+        if not isinstance(self.events, JsonlSink):
+            raise ResumeRefused("resume requires a durable JsonlSink")
+        if self.memory_adapter is not None or self.memory_dir is not None:
+            raise ResumeRefused(
+                "resume refuses memory writers because their prior outcome is not logged"
+            )
+        if not run_id:
+            raise ResumeRefused("resume requires a run id")
+        lock_path = Path(str(self.events.path) + f".{digest(run_id)}.lock")
+        with RunLock(lock_path):
+            return self._resume_locked(
+                task,
+                run_id=run_id,
+                observations=observations,
+                evidence=evidence,
+                json_mode=json_mode,
+                limits=limits,
+                cancelled=cancelled,
+                readers=readers,
+                observer=observer,
+            )
+
+    def _resume_locked(
+        self,
+        task: str,
+        *,
+        run_id: str,
+        observations: list[str] | None,
+        evidence: EvidenceBase | None,
+        json_mode: bool,
+        limits: RunLimits | None,
+        cancelled: Callable[[], bool] | None,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None,
+        observer: Observer | None,
+    ) -> str | dict[str, Any]:
+        assert isinstance(self.events, JsonlSink)
+        records = [
+            record
+            for record in read_jsonl(self.events.path)
+            if record.get("run_id") == run_id
+        ]
+        if not records:
+            raise ResumeRefused(f"resume log has no run {run_id!r}")
+        if any(record.get("kind") == "run_stopped" for record in records):
+            raise ResumeRefused("run already stopped and cannot be resumed")
+        started = next(
+            (record for record in records if record.get("kind") == "run_started"),
+            None,
+        )
+        if started is None:
+            raise ResumeRefused("resume log has no run_started event")
+        payload = started.get("payload", {})
+        if payload.get("task_sha256") != digest(task):
+            raise ResumeRefused("task does not match the interrupted run")
+        if payload.get("max_iterations") != self.max_iterations:
+            raise ResumeRefused("max_iterations does not match the interrupted run")
+        if payload.get("observations_sha256") != digest(observations or []):
+            raise ResumeRefused("observations do not match the interrupted run")
+        snapshot_id, evidence_sha256 = _evidence_identity(evidence)
+        if payload.get("snapshot_id") != snapshot_id:
+            raise ResumeRefused("evidence snapshot does not match the interrupted run")
+        if payload.get("evidence_sha256") != evidence_sha256:
+            raise ResumeRefused("evidence does not match the interrupted run")
+
+        unknown = set(unfinished_calls(records))
+        unsafe = [
+            record.get("call_id")
+            for record in records
+            if record.get("kind") == "call_started"
+            and record.get("call_id") in unknown
+            and record.get("payload", {}).get("idempotent") is not True
+        ]
+        if unsafe:
+            raise ResumeRefused(
+                "cannot replay an unfinished non-idempotent call: "
+                + ", ".join(str(item) for item in unsafe)
+            )
+
+        return cast(Any, self.run)(
+            task,
+            observations=observations,
+            evidence=evidence,
+            json_mode=json_mode,
+            limits=limits,
+            cancelled=cancelled,
+            readers=readers,
+            observer=observer,
+            _resume_records=records,
+            _resume_token=_RESUME_TOKEN,
+        )
+
     @overload
     def run(
         self,
@@ -192,6 +324,8 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        _resume_records: list[dict[str, Any]] | None = None,
+        _resume_token: object | None = None,
     ) -> str | dict[str, Any]:
         """Run the loop.
 
@@ -209,19 +343,50 @@ class AtlasController:
         # is an unmetered read path, and P0.3 has none.
         if observer is not None and limits is None:
             raise ValueError("An observer requires RunLimits; no unmetered host reads")
-        state = AtlasRunState(task=task, max_iterations=self.max_iterations)
+        if _resume_records is not None and _resume_token is not _RESUME_TOKEN:
+            raise ResumeRefused("resume records may only enter through resume()")
+        resumed_run_id = (
+            str(_resume_records[0]["run_id"]) if _resume_records is not None else None
+        )
+        if resumed_run_id is None:
+            state = AtlasRunState(task=task, max_iterations=self.max_iterations)
+        else:
+            state = AtlasRunState(
+                task=task,
+                run_id=resumed_run_id,
+                max_iterations=self.max_iterations,
+            )
         # The log is built here because it belongs to one run, and the run id
         # does not exist until now. Absent when no sink was configured, and a
         # run with no log behaves identically — the log records, it decides
         # nothing.
-        log = EventLog(state.run_id, self.events) if self.events is not None else None
-        if log is not None:
+        log = (
+            EventLog(state.run_id, self.events, previous=_resume_records or ())
+            if self.events is not None
+            else None
+        )
+        if log is not None and _resume_records is None:
             # The digest, not the task. This file persists whether or not
             # anyone exports the run.
             log.append(
                 "run_started",
                 task_sha256=digest(task),
                 max_iterations=state.max_iterations,
+                observations_sha256=digest(observations or []),
+                snapshot_id=_evidence_identity(evidence)[0],
+                evidence_sha256=_evidence_identity(evidence)[1],
+            )
+        elif log is not None:
+            unknown = unfinished_calls(_resume_records or ())
+            log.append(
+                "interrupted",
+                unfinished_calls=unknown,
+                detected_after_sequence=len(_resume_records or ()) - 1,
+            )
+            log.append(
+                "resumed",
+                replay="read_only_from_start",
+                snapshot_id=_evidence_identity(evidence)[0],
             )
         budget = RunBudget(limits, cancelled=cancelled) if limits is not None else None
         gateway = (
@@ -387,6 +552,7 @@ class AtlasController:
                     # The whole request. On a first read `paths` is empty and
                     # the patterns and the question are what was asked for.
                     call_input=request,
+                    idempotent=True,
                 )
                 if log is not None
                 else None
@@ -623,6 +789,9 @@ class AtlasController:
                             target=getattr(self.model_adapter, "provider", None)
                             or type(self.model_adapter).__name__,
                             call_input=model_input,
+                            idempotent=bool(
+                                getattr(self.model_adapter, "idempotent", False)
+                            ),
                         )
                         if log is not None
                         else None
