@@ -54,6 +54,22 @@ even when model text claims `approved: true`. Nested calls share the same
 budget; retries never reset counters. Tool outputs must be JSON and are charged
 to the UTF-8 output budget.
 
+Each `ToolDefinition` also declares its route allowlist, input and output JSON
+schemas, timeout, execution mode, idempotence and retry bound. The selected
+route is set by the controller before model execution. Route and input failures
+are denied before quota reservation or handler execution; output failures are
+failed calls. Every retry reserves another tool call from the same run budget
+and receives its own start/finish events. `max_attempts > 1` is rejected unless
+the host explicitly sets `idempotent=True`.
+
+`sandbox="isolated_process"` runs one call in a POSIX child session, caps IPC,
+and kills the process group at the smaller of the tool timeout and remaining
+run deadline. Nested tools are refused there because a forked budget would not
+be shared accounting. `sandbox="in_process"` preserves nested calls and can
+only detect timeout after a synchronous handler returns. Neither mode lowers
+OS privileges; untrusted handlers still require a host-provided account or
+container with read-only mounts and network policy.
+
 Since P1.2 the live model adapter also declares **which** of those tools it may
 ask for. `LiveModelAdapter.capabilities` is a list of tool names, **empty by
 default**, set by host code holding the object and by nothing else — not from
@@ -65,11 +81,8 @@ can only narrow: a declared `write` tool is still refused by the gateway.
 `invoke_tool` is the single path and adds exactly that one check on top of the
 gateway; there is no second registry and no branch that skips it.
 
-**Tool use itself is not implemented.** The adapter sends one request and reads
-one reply, nothing in the package calls `invoke_tool`, and every run records
-`tools_invoked: 0`. What exists is the block and the declaration. Actual reported model tokens are mandatory. Locks
-prevent concurrent quota oversubscription. Unmetered memory reads/writes are
-disabled in budgeted runs.
+Actual reported model tokens are mandatory. Locks prevent concurrent quota
+oversubscription. Unmetered memory reads/writes are disabled in budgeted runs.
 
 In-process adapters check the monotonic deadline and `cancelled` callback at
 cooperative boundaries. Malformed explicitly-declared model JSON and provider

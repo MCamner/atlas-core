@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+Roadmap v1.3 tool adapter contract:
+
+- `ToolDefinition` now declares route allowlists, bounded JSON input/output
+  schemas, timeout, execution mode, idempotence and retry policy beside its
+  existing capability.
+- `ToolGateway` enforces route and input before execution, validates strict JSON
+  output, and charges every attempt to the same run budget. Retries require
+  explicit `idempotent=True` and each attempt receives separate event records.
+- `isolated_process` gives trusted POSIX handlers a hard per-call process
+  timeout with capped IPC and descendant termination. It is explicitly not an
+  OS privilege sandbox. `in_process` retains nested calls and cooperative
+  timeout behavior.
+- The controller now binds the selected route to the gateway before model
+  execution.
+
 Roadmap v1.3 safe resume:
 
 - Added `AtlasController.resume(..., run_id=...)` for interrupted read-only
