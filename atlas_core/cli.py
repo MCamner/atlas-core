@@ -1,6 +1,6 @@
 from __future__ import annotations
 import argparse, json, sys
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal
 from .budget import RunBudget, RunLimits
 from . import __version__
 from .controller import AtlasController
@@ -35,6 +35,14 @@ def _print_run(run: dict, *, json_mode: bool) -> int:
     return EXIT_CODES.get(run.get('stop_reason') or '', UNKNOWN_STOP_REASON_EXIT)
 
 
+class WorkerResultUnavailable(Exception):
+    """The worker logged its own stop, but its run document never arrived."""
+
+    def __init__(self, error: dict[str, Any]) -> None:
+        super().__init__(error['message'])
+        self.error = error
+
+
 def _worker_failure(
     args: argparse.Namespace, *,
     reason: Literal['budget_exhausted', 'tool_error', 'cancelled'],
@@ -46,30 +54,38 @@ def _worker_failure(
     if args.run_id:
         state.run_id = args.run_id
     state.enter('observing')
-    logged: str = reason
     if args.event_log:
-        # The log is the audit source: seal the lost run there, and report
-        # whatever stop it holds — the worker's own, if it got that far.
+        # The log is the audit source: seal the lost run there. A stop the
+        # worker already logged means the run ended and only its result was
+        # lost; the parent holds that terminal event, not the run document.
         try:
-            logged = seal_lost_run(
+            logged, sealed = seal_lost_run(
                 args.event_log, args.run_id, stop_reason=reason, detail=detail[:512],
                 task=args.task, max_iterations=args.max_iterations,
             )
         except (ResumeRefused, EventLogInUse, InspectError, OSError, ValueError) as exc:
             state.metadata['event_log_unsealed'] = str(exc)[:512]
-    if logged == 'budget_exhausted' and reason == 'budget_exhausted':
+        else:
+            if not sealed:
+                raise WorkerResultUnavailable({
+                    'error': 'worker_result_unavailable',
+                    'run_id': args.run_id,
+                    'event_log': args.event_log,
+                    'logged_stop_reason': logged,
+                    'transport_error': error,
+                    'message': detail[:512],
+                })
+    if reason == 'budget_exhausted':
         state.metadata['budget_exhausted'] = detail
     else:
         state.metadata['failure'] = {
             'stage': 'cli_worker', 'error': error, 'message': detail[:512],
         }
-    if logged != reason:
-        state.metadata['failure']['logged_stop_reason'] = logged
-    state.stop(cast(Any, logged))
+    state.stop(reason)
     return state.to_dict()
 
 
-def _run_hard_cli(args: argparse.Namespace) -> int:
+def _run_worker(args: argparse.Namespace) -> int:
     # Only the *public* CLI entrypoint (`main()` with argv=None) takes this
     # outer boundary. Embedded `main([...])` and `AtlasController.run()` are
     # in-process APIs and retain their documented cooperative contract.
@@ -131,6 +147,20 @@ def _run_hard_cli(args: argparse.Namespace) -> int:
                 args, reason='tool_error', detail=str(exc), error='WorkerProtocolError',
             )
     return _print_run(run, json_mode=args.json)
+
+
+def _run_hard_cli(args: argparse.Namespace) -> int:
+    try:
+        return _run_worker(args)
+    except WorkerResultUnavailable as lost:
+        # No run document on stdout: the host reads the run from the log.
+        if args.json:
+            print(json.dumps(lost.error, ensure_ascii=False), file=sys.stderr)
+        else:
+            print(f"atlas run: worker result unavailable ({lost.error['transport_error']}); "
+                  f"run {args.run_id!r} stopped {lost.error['logged_stop_reason']} in "
+                  f"{args.event_log} — see `atlas inspect`", file=sys.stderr)
+        return 1
 
 
 def _start(start: Callable[[], dict]) -> dict | None:

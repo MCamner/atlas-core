@@ -15,7 +15,9 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from typing import Any
 import unittest
+from unittest import mock
 
 from atlas_core.budget import RunBudget, RunLimits
 from atlas_core.cli import main
@@ -36,6 +38,7 @@ from atlas_core.host_api import (
     writer_lock_path,
 )
 from atlas_core.inspect_run import inspect_run
+from atlas_core.process_guard import WorkerDeadlineExceeded, WorkerResult
 from test_schemas import SchemaAssertions, load
 
 TASK = "granska atlas-core och hitta nästa bästa förbättring"
@@ -310,7 +313,7 @@ class TestSealLostRun(HostApiCase):
     """When the public CLI loses its worker, the log must end where the CLI
     result does — the event log is the audit source, not the parent's memory."""
 
-    def _seal(self, reason: str = "budget_exhausted") -> str:
+    def _seal(self, reason: str = "budget_exhausted") -> tuple[str, bool]:
         return seal_lost_run(
             self.log, "host-1", stop_reason=reason, detail="wall_seconds",
             task=TASK, max_iterations=2,
@@ -320,14 +323,14 @@ class TestSealLostRun(HostApiCase):
         log = EventLog("host-1", JsonlSink(self.log))
         log.append("run_started", max_iterations=2)
         log.append("plan_selected", iteration=1, route="repo_review", steps=[])
-        self.assertEqual(self._seal(), "budget_exhausted")
+        self.assertEqual(self._seal(), ("budget_exhausted", True))
         status = run_status(self.log, "host-1")
         self.assertEqual((status["state"], status["stop_reason"]),
                          ("finished", "budget_exhausted"))
         self.assertEqual(inspect_run(self.log, "host-1")["iterations"], 1)
 
     def test_worker_killed_before_writing_anything(self) -> None:
-        self.assertEqual(self._seal(), "budget_exhausted")
+        self.assertEqual(self._seal(), ("budget_exhausted", True))
         kinds = [record["kind"] for record in self._records("host-1")]
         self.assertEqual(kinds, ["run_started", "run_stopped"])
         self.assertEqual(run_status(self.log, "host-1")["state"], "finished")
@@ -338,15 +341,77 @@ class TestSealLostRun(HostApiCase):
         log.append("run_stopped", stop_reason="insufficient_evidence",
                    stop_class="bounded", status="stopped")
         before = self.log.read_bytes()
-        self.assertEqual(self._seal(), "insufficient_evidence")
+        self.assertEqual(self._seal(), ("insufficient_evidence", False))
         self.assertEqual(self.log.read_bytes(), before)
 
     def test_torn_tail_from_the_killed_worker_is_dropped_then_sealed(self) -> None:
         EventLog("host-1", JsonlSink(self.log)).append("run_started", max_iterations=2)
         with self.log.open("a", encoding="utf-8") as handle:
             handle.write('{"schema": "atlas-event.v1", "run_')
-        self.assertEqual(self._seal("cancelled"), "cancelled")
+        self.assertEqual(self._seal("cancelled"), ("cancelled", True))
         self.assertEqual(run_status(self.log, "host-1")["stop_reason"], "cancelled")
+
+
+class TestLostWorkerTransport(HostApiCase):
+    """The worker finished and logged its stop, then its result was lost on
+    the way to the parent. The log decides what the run did; the transport
+    decides whether the CLI can deliver the run document. The parent never
+    rebuilds an `atlas-run.v1` it did not receive."""
+
+    def _public_cli(self, worker: Any, loss: str) -> tuple[int, str, str]:
+        def fake_process(command: list[str], **_: Any) -> WorkerResult:
+            argv = command[command.index("atlas_core.worker_cli") + 1:]
+            worker(argv)
+            if loss == "killed":
+                raise WorkerDeadlineExceeded("worker timed out")
+            return WorkerResult(stdout=b"", stderr=b"", returncode=0)
+
+        out, err = StringIO(), StringIO()
+        with mock.patch("atlas_core.cli.run_bounded_process", fake_process), \
+                mock.patch.object(sys, "argv", ["atlas", "run", TASK, "--event-log",
+                                                str(self.log), "--json"]), \
+                redirect_stdout(out), redirect_stderr(err):
+            code = main()
+        return code, out.getvalue(), err.getvalue()
+
+    def _real_worker(self, argv: list[str]) -> None:
+        with redirect_stdout(StringIO()):
+            main(argv)
+
+    def _cancelled_worker(self, argv: list[str]) -> None:
+        request_cancel(self.log, argv[argv.index("--run-id") + 1])
+        self._real_worker(argv)
+
+    def _insufficient_worker(self, argv: list[str]) -> None:
+        log = EventLog(argv[argv.index("--run-id") + 1], JsonlSink(self.log))
+        log.append("run_started", max_iterations=2)
+        log.append("run_stopped", stop_reason="insufficient_evidence",
+                   stop_class="bounded", status="stopped")
+
+    def test_logged_stop_is_never_rebuilt_into_a_run_document(self) -> None:
+        workers = {
+            "passed": self._real_worker,
+            "insufficient_evidence": self._insufficient_worker,
+            "cancelled": self._cancelled_worker,
+        }
+        for logged, worker in workers.items():
+            for loss in ("killed", "protocol"):
+                with self.subTest(logged=logged, loss=loss):
+                    if self.log.exists():
+                        self.log.unlink()
+                    code, out, err = self._public_cli(worker, loss)
+                    self.assertEqual(code, 1, err)
+                    self.assertEqual(out, "")
+                    error = json.loads(err)
+                    self.assertEqual(error["error"], "worker_result_unavailable")
+                    self.assertEqual(error["logged_stop_reason"], logged)
+                    run_id = error["run_id"]
+                    records = self._records(run_id)
+                    self.assertNotIn("cli_parent", json.dumps(records))
+                    status = run_status(self.log, run_id)
+                    self.assertEqual((status["state"], status["stop_reason"]),
+                                     ("finished", logged))
+                    self.assertEqual(inspect_run(self.log, run_id)["stop_reason"], logged)
 
 
 @unittest.skipUnless(os.name == "posix", "POSIX process-group guard")

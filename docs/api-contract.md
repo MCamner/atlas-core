@@ -847,9 +847,24 @@ deadline, output cap, interrupt) or cannot read its result, the parent takes
 the log's locks, drops a torn tail the kill left, and appends `run_stopped`
 with `recorded_by: "cli_parent"` — preceded by `run_started` if the worker
 never wrote one. The CLI result then carries the same stop reason as the log.
-If the worker had already logged a stop, the log wins and the CLI reports
-that reason, with the transport failure under `metadata.failure`. With
-`--event-log` and no `--run-id`, the parent allocates the id so it can do this.
+With `--event-log` and no `--run-id`, the parent allocates the id so it can do
+this.
+
+**A lost result is not rebuilt.** If the worker had already logged its stop,
+the run finished and only its `atlas-run.v1` was lost on the way back. The log
+is left untouched and still decides the run state (`atlas status`, `atlas
+inspect`). The parent has the terminal event but not the answer or the
+evaluations, so it prints no run document: stdout is empty, the exit code is
+1, and stderr carries the diagnostic — one JSON object with `--json`:
+
+```json
+{"error": "worker_result_unavailable", "run_id": "…", "event_log": "…",
+ "logged_stop_reason": "passed", "transport_error": "WorkerProtocolError",
+ "message": "…"}
+```
+
+The event log decides the run state; the transport decides whether the CLI
+can deliver the run document.
 
 ### Optional cooperative run budget (P0.3, partial)
 

@@ -17,6 +17,10 @@ Roadmap v1.4 host run API (Core side):
 - When the public CLI loses its worker, the parent seals the run in the event
   log (`recorded_by: "cli_parent"`), so the CLI result and `atlas status`
   name the same terminal state. A stop the worker already logged wins.
+- A worker that logged its own stop but whose result never arrived is not
+  rebuilt into an `atlas-run.v1`: `atlas run` exits 1 with an empty stdout and
+  a `worker_result_unavailable` diagnostic on stderr; the log keeps the run's
+  real stop for `status` and `inspect`.
 - Fixed: a run that stopped before its first iteration (early cancel, budget,
   failing reader) returned without `run_stopped`, so its history read as a
   crash. Every exit now records its stop.

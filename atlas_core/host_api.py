@@ -29,8 +29,13 @@ file. Serialized runs sharing a log remain possible through the Python API.
 The public CLI runs the loop in a worker it kills at the deadline. A killed
 worker cannot write `run_stopped`, so the parent does, under both locks and
 after dropping any torn tail the kill left: the CLI result and the log then
-name the same terminal state. A stop the worker already logged wins, because
-the log is the audit source and the parent's view is only what it received.
+name the same terminal state.
+
+A stop the worker already logged wins, because the log is the audit source.
+But then the run finished and only its result was lost: the parent has the
+terminal event, not the answer or the evaluations, and must not rebuild an
+`atlas-run.v1` from it. The CLI reports a transport failure instead and the
+host reads the run through `status` and `inspect`.
 
 Nothing here writes to the event log. A second writer to that file would be a
 cross-process locking problem `JsonlSink` explicitly does not solve, and a
@@ -209,8 +214,11 @@ def cancel_requested(log_path: str | Path, run_id: str) -> Callable[[], bool]:
 def seal_lost_run(
     log_path: str | Path, run_id: str, *, stop_reason: str, detail: str,
     task: str, max_iterations: int,
-) -> str:
-    """Record the stop of a run whose worker is gone. Returns the logged stop.
+) -> tuple[str, bool]:
+    """Record the stop of a run whose worker is gone.
+
+    Returns the logged stop reason and whether this call wrote it. A stop that
+    is already logged is the worker's: the run ended, only its result was lost.
 
     Waits briefly for the dead worker's locks to be released; raises
     `ResumeRefused` if they are not, or if the history is not a valid log.
@@ -230,7 +238,7 @@ def seal_lost_run(
         records = _records(log_path, run_id)
         for record in records:
             if record.get("kind") == "run_stopped":
-                return str(record["payload"]["stop_reason"])
+                return str(record["payload"]["stop_reason"]), False
         log = EventLog(run_id, sink, previous=records)
         if not records:
             # What the worker's own run_started would have held: the hard
@@ -253,7 +261,7 @@ def seal_lost_run(
             recorded_by="cli_parent",
             detail=detail,
         )
-        return stop_reason
+        return stop_reason, True
     finally:
         if run_lock is not None:
             run_lock.release()
