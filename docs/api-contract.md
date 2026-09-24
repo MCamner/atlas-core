@@ -808,6 +808,34 @@ One JSONL may contain several runs when writers are serialized. Concurrent runs
 must use separate event-log paths; `JsonlSink` does not claim cross-run
 shared-file writer locking.
 
+### Host run API (v1.4)
+
+A host that runs Core as a child process drives a run through five commands.
+All of them read the same durable event log; none of them is a second record
+of the run.
+
+| Command | Does | Exit |
+| --- | --- | --- |
+| `atlas create` | Prints a fresh run id. Writes nothing. | 0 |
+| `atlas run TASK --run-id ID --event-log PATH` | Runs under that id. An id the log already holds is refused. | as `atlas run` |
+| `atlas status ID --event-log PATH [--json]` | `atlas-status.v1`: `not_found`, `running`, `finished` or `interrupted`. | 0; 1 on invalid history |
+| `atlas cancel ID --event-log PATH [--json]` | Asks the run to stop. Allowed before the run starts. | 0; 2 if already finished/interrupted |
+| `atlas events ID --event-log PATH [--follow] [--timeout S]` | Prints the run's `atlas-event.v1` records as JSONL; `--follow` streams until `run_stopped`. | 0; 2 interrupted or timed out; 1 not found without `--follow` |
+
+Run ids are 1–128 characters of `A-Z a-z 0-9 . _ : -`, starting with a letter
+or digit. `--run-id` requires `--event-log`.
+
+A fresh run with a `JsonlSink` holds `<log>.<sha256(id)>.lock` from before
+`run_started` until after `run_stopped`. `running` means a process holds that
+lock; a history with no stop and no held lock is `interrupted`. A cancel request
+is the permanent marker `<log>.<sha256(id)>.cancel`, never an event: the run
+records `run_stopped` with `cancelled` when it honours the request, and that
+is the fact the log keeps. Cancellation is cooperative and is checked at the
+run's budget boundaries; the public CLI's worker deadline stays the hard bound.
+
+Every exit from a run, including one before the first iteration, appends
+`run_stopped`.
+
 ### Optional cooperative run budget (P0.3, partial)
 
 `AtlasController.run(..., limits=RunLimits(...))` shares one `RunBudget` with

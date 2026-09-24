@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-status.v1.json",
+  "title": "Atlas Run Status",
+  "description": "What one run is doing now, read from its validated atlas-event.v1 history and the run's lock and cancel sidecar files. Derived; the event log remains the audit source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "state",
+    "status",
+    "stop_reason",
+    "iteration",
+    "event_count",
+    "last_event_kind",
+    "cancel_requested"
+  ],
+  "properties": {
+    "schema": { "const": "atlas-status.v1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "state": { "enum": ["not_found", "running", "finished", "interrupted"] },
+    "status": { "type": ["string", "null"] },
+    "stop_reason": { "type": ["string", "null"] },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "event_count": { "type": "integer", "minimum": 0 },
+    "last_event_kind": { "type": ["string", "null"] },
+    "cancel_requested": { "type": "boolean" }
+  }
+}

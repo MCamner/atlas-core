@@ -24,6 +24,7 @@ from .eventlog import (
     unfinished_calls,
 )
 from .evidence_base import EvidenceBase
+from .host_api import RunIdInUse, lock_path, new_run_id, validate_run_id
 from .machine import classify_stop, stop_class_of
 from .snapshot import DriftReport, detect_drift
 from .observation import Observation
@@ -188,8 +189,7 @@ class AtlasController:
             )
         if not run_id:
             raise ResumeRefused("resume requires a run id")
-        lock_path = Path(str(self.events.path) + f".{digest(run_id)}.lock")
-        with RunLock(lock_path):
+        with RunLock(lock_path(self.events.path, run_id)):
             return self._resume_locked(
                 task,
                 run_id=run_id,
@@ -283,6 +283,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        run_id: str | None = ...,
     ) -> str: ...
 
     @overload
@@ -297,6 +298,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        run_id: str | None = ...,
     ) -> dict[str, Any]: ...
 
     @overload
@@ -311,6 +313,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        run_id: str | None = ...,
     ) -> str | dict[str, Any]: ...
 
     def run(
@@ -324,10 +327,63 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        run_id: str | None = None,
         _resume_records: list[dict[str, Any]] | None = None,
         _resume_token: object | None = None,
     ) -> str | dict[str, Any]:
         """Run the loop.
+
+        `run_id` lets a host name the run before it exists (v1.4 `create`).
+        With a durable `JsonlSink`, a fresh run holds the run's lock for its
+        whole life, so `atlas status` can tell a live run from an interrupted
+        one, and an id the log already holds is refused before anything is
+        written: two runs under one id would be one history nobody can read.
+        """
+        if run_id is not None:
+            validate_run_id(run_id)
+        if _resume_records is not None or not isinstance(self.events, JsonlSink):
+            return self._run(
+                task, observations=observations, evidence=evidence,
+                json_mode=json_mode, limits=limits, cancelled=cancelled,
+                readers=readers, observer=observer, run_id=run_id,
+                _resume_records=_resume_records, _resume_token=_resume_token,
+            )
+        run_id = run_id or new_run_id()
+        try:
+            lock = RunLock(lock_path(self.events.path, run_id)).acquire()
+        except ResumeRefused as exc:
+            raise RunIdInUse(f"run {run_id!r} is held by a live process") from exc
+        try:
+            if any(
+                record.get("run_id") == run_id
+                for record in (read_jsonl(self.events.path)
+                               if self.events.path.exists() else [])
+            ):
+                raise RunIdInUse(f"run {run_id!r} already exists in {self.events.path}")
+            return self._run(
+                task, observations=observations, evidence=evidence,
+                json_mode=json_mode, limits=limits, cancelled=cancelled,
+                readers=readers, observer=observer, run_id=run_id,
+            )
+        finally:
+            lock.release()
+
+    def _run(
+        self,
+        task: str,
+        *,
+        observations: list[str] | None = None,
+        evidence: EvidenceBase | None = None,
+        json_mode: bool = False,
+        limits: RunLimits | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
+        observer: Observer | None = None,
+        run_id: str | None = None,
+        _resume_records: list[dict[str, Any]] | None = None,
+        _resume_token: object | None = None,
+    ) -> str | dict[str, Any]:
+        """The loop itself. `run` decides identity and locking first.
 
         `observations` is prose context; `evidence` is verifiable sources. They
         are separate parameters because they are separate things, and passing
@@ -348,12 +404,13 @@ class AtlasController:
         resumed_run_id = (
             str(_resume_records[0]["run_id"]) if _resume_records is not None else None
         )
-        if resumed_run_id is None:
+        chosen_run_id = resumed_run_id or run_id
+        if chosen_run_id is None:
             state = AtlasRunState(task=task, max_iterations=self.max_iterations)
         else:
             state = AtlasRunState(
                 task=task,
-                run_id=resumed_run_id,
+                run_id=chosen_run_id,
                 max_iterations=self.max_iterations,
             )
         # The log is built here because it belongs to one run, and the run id
@@ -678,6 +735,19 @@ class AtlasController:
         #: `_material_signature` for what counts as material and why.
         materials: list[tuple[Any, ...]] = []
 
+        def stopped() -> str | dict[str, Any]:
+            """Every exit records its stop. A history without `run_stopped`
+            reads as a crash, so an early stop must not skip it."""
+            if log is not None:
+                log.append(
+                    "run_stopped",
+                    iteration=state.iteration,
+                    stop_reason=state.stop_reason,
+                    stop_class=stop_class_of(state.stop_reason),
+                    status=state.status,
+                )
+            return finalize(state, json_mode=json_mode)
+
         state.enter("observing")
         # Copy: the caller's list must not grow as a side effect of a run.
         state.observations.extend(list(observations or []))
@@ -708,7 +778,7 @@ class AtlasController:
                 }
             if state.stop_reason is not None:
                 state.metadata["budget_usage"] = budget.usage()
-                return finalize(state, json_mode=json_mode)
+                return stopped()
         # No unmetered reads from host adapters in resource-limited runs.
         if self.memory_adapter and budget is None:
             state.observations.extend(self.memory_adapter.read(task))
@@ -723,7 +793,7 @@ class AtlasController:
         if expired():
             if budget is not None:
                 state.metadata["budget_usage"] = budget.usage()
-            return finalize(state, json_mode=json_mode)
+            return stopped()
         while state.iteration < state.max_iterations:
             if expired():
                 break
@@ -1093,12 +1163,4 @@ class AtlasController:
             if saved_path:
                 candidate["saved_path"] = saved_path
             state.memory_candidates.append(candidate)
-        if log is not None:
-            log.append(
-                "run_stopped",
-                iteration=state.iteration,
-                stop_reason=state.stop_reason,
-                stop_class=stop_class_of(state.stop_reason),
-                status=state.status,
-            )
-        return finalize(state, json_mode=json_mode)
+        return stopped()

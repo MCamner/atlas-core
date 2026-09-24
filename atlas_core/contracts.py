@@ -265,6 +265,22 @@ CONTRACTS: dict[str, Contract] = {
             },
         ),
         Contract(
+            name="Status",
+            version=1,
+            schema_file="atlas-status.v1.json",
+            owners={
+                "schema": "core",
+                "run_id": "core",
+                "state": "derived",
+                "status": "derived",
+                "stop_reason": "derived",
+                "iteration": "derived",
+                "event_count": "derived",
+                "last_event_kind": "derived",
+                "cancel_requested": "derived",
+            },
+        ),
+        Contract(
             name="Run",
             version=2,
             schema_file="atlas-run.v2.json",
