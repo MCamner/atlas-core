@@ -731,6 +731,8 @@ class AtlasController:
             state.enter("routing")
             route = select_route(task)
             state.route = route
+            if gateway is not None:
+                gateway.set_route(route.name)
             state.enter("planning")
             # The plan binds to the state the run carries. It does not go and
             # take a snapshot: taking one is reading, and reading is the

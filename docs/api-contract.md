@@ -763,15 +763,39 @@ deliberately so. Byte equality says a provider returned the same string, which
 is a statement about spend; the failure signature says the feedback would
 repeat, which is a statement about the contract.
 
+### Tool adapter contract
+
+`ToolDefinition` declares `capability`, `allowed_routes`, `input_schema`,
+`output_schema`, `timeout_seconds`, `sandbox`, `idempotent`, `max_attempts` and
+`retry_on`. The gateway rejects unknown tools, every write/network capability,
+route mismatches and malformed input before the handler runs. Output must be
+strict JSON and match its schema. The supported schema subset is `type`,
+`enum`, object `required`/`properties`/`additionalProperties`, and array
+`items`; unsupported type declarations fail closed.
+
+Every attempt consumes the shared run budget and is a separate event-log call.
+More than one attempt requires `idempotent=True`; a read capability defaults to
+idempotent for backward compatibility but that default does not enable retry.
+The controller installs its selected route on the gateway before a model can
+invoke a tool.
+
+`in_process` supports nested tool calls with the same gateway and budget. Its
+timeout is cooperative: a synchronous handler cannot be preempted and an
+overrun is reported when it returns. `isolated_process` is the hard POSIX
+boundary: one child session, capped JSON IPC and process-group termination at
+the smaller of the tool timeout and remaining run deadline. Nested calls are
+refused in that mode because copied accounting is not shared accounting. This
+is process isolation, not a filesystem/network privilege sandbox.
+
 ### Optional cooperative run budget (P0.3, partial)
 
 `AtlasController.run(..., limits=RunLimits(...))` shares one `RunBudget` with
 its model adapter (`budget` keyword). Model calls, reported *actual* aggregate
 `metadata["usage_tokens"]`, and UTF-8 output bytes are charged across retries.
 An adapter that does not report nonnegative usage fails as `tool_error`, not a
-made-up zero. The same budget exposes `reserve_tool()` for trusted nested tool
-adapters, but no host tool gateway is wired yet; direct calls inside an
-arbitrary Python adapter cannot be metered or sandboxed by Atlas Core.
+made-up zero. The same budget exposes `reserve_tool()` to the Atlas-managed
+gateway. Direct calls made around that gateway by arbitrary Python remain
+outside Core's metering and process policy.
 
 The monotonic wall deadline is checked before and after synchronous stages.
 **This is not an in-call timeout**: the model adapter itself must enforce the

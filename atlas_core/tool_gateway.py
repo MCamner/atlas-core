@@ -1,15 +1,20 @@
-"""Atlas-owned tool execution boundary.
+"""Atlas-owned, fail-closed boundary for trusted host tool adapters.
 
-Only trusted host code may register ToolDefinition handlers. Repository/model text
-is always data and cannot register tools, authorize writes or pick capabilities.
-A handler is Python code in the host process, NOT a sandbox: all privileged
-adapters must be reviewed and must not call external tools around this gateway.
+Repository and model text are data: only host code registers definitions. The
+gateway enforces route, capability, JSON schemas, timeout, shared budget and
+retry policy before returning a result. ``isolated_process`` supplies a hard
+POSIX process timeout; it is process isolation, not an OS privilege sandbox.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
+import multiprocessing
+from multiprocessing.connection import Connection
+import os
 import re
+import signal
+import time
 from typing import Any, Callable, Mapping
 
 from .budget import RunBudget
@@ -20,11 +25,77 @@ class ToolDenied(PermissionError):
     """A request was denied before any handler was invoked."""
 
 
+class ToolSchemaError(ValueError):
+    """Tool input or output did not match its host-declared JSON schema."""
+
+
+class ToolTimeout(TimeoutError):
+    """A tool exceeded its own timeout or the remaining run deadline."""
+
+
+class _RemoteToolError(RuntimeError):
+    def __init__(self, error: str, retryable: bool) -> None:
+        super().__init__(error)
+        self.retryable = retryable
+
+
+JsonSchema = Mapping[str, Any]
+
+
+def _validate_schema(value: Any, schema: JsonSchema, *, path: str = "$") -> None:
+    """Validate the bounded JSON-schema subset tool contracts use."""
+    expected = schema.get("type")
+    matches = {
+        "object": lambda item: isinstance(item, dict),
+        "array": lambda item: isinstance(item, list),
+        "string": lambda item: isinstance(item, str),
+        "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+        "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+        "boolean": lambda item: isinstance(item, bool),
+        "null": lambda item: item is None,
+    }
+    if expected is not None:
+        allowed = [expected] if isinstance(expected, str) else list(expected)
+        if not allowed or any(item not in matches for item in allowed):
+            raise ValueError(f"unsupported schema type at {path}")
+        if not any(matches[item](value) for item in allowed):
+            raise ToolSchemaError(f"{path} must have type {allowed}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ToolSchemaError(f"{path} is not in the declared enum")
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        if not isinstance(properties, Mapping) or not isinstance(required, list):
+            raise ValueError(f"invalid object schema at {path}")
+        missing = [name for name in required if name not in value]
+        if missing:
+            raise ToolSchemaError(f"{path} is missing required keys: {missing}")
+        if schema.get("additionalProperties") is False:
+            extra = sorted(set(value) - set(properties))
+            if extra:
+                raise ToolSchemaError(f"{path} has undeclared keys: {extra}")
+        for name, item in value.items():
+            child = properties.get(name)
+            if isinstance(child, Mapping):
+                _validate_schema(item, child, path=f"{path}.{name}")
+    if isinstance(value, list) and isinstance(schema.get("items"), Mapping):
+        for index, item in enumerate(value):
+            _validate_schema(item, schema["items"], path=f"{path}[{index}]")
+
+
 @dataclass(frozen=True)
 class ToolDefinition:
     name: str
     capability: str
     handler: Callable[["ToolContext", dict[str, Any]], Any]
+    allowed_routes: tuple[str, ...] = ("*",)
+    input_schema: JsonSchema = field(default_factory=lambda: {"type": "object"})
+    output_schema: JsonSchema = field(default_factory=dict)
+    timeout_seconds: float = 5.0
+    sandbox: str = "in_process"
+    idempotent: bool | None = None
+    max_attempts: int = 1
+    retry_on: tuple[type[Exception], ...] = (OSError, TimeoutError)
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z][a-z0-9_]*", self.name):
@@ -33,19 +104,81 @@ class ToolDefinition:
             raise ValueError("unknown tool capability")
         if not callable(self.handler):
             raise TypeError("tool handler must be callable")
+        if not self.allowed_routes or any(
+            not isinstance(route, str) or not route for route in self.allowed_routes
+        ):
+            raise ValueError("allowed_routes must declare at least one route")
+        if self.sandbox not in {"in_process", "isolated_process"}:
+            raise ValueError("sandbox must be in_process or isolated_process")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be positive")
+        if isinstance(self.max_attempts, bool) or self.max_attempts < 1:
+            raise ValueError("max_attempts must be a positive integer")
+        if self.max_attempts > 1 and self.idempotent is not True:
+            raise ValueError("retries require idempotent=True")
+        if any(
+            not isinstance(item, type) or not issubclass(item, Exception)
+            for item in self.retry_on
+        ):
+            raise TypeError("retry_on must contain Exception types")
+        for schema in (self.input_schema, self.output_schema):
+            if not isinstance(schema, Mapping):
+                raise TypeError("tool schemas must be mappings")
+
+    @property
+    def is_idempotent(self) -> bool:
+        return self.idempotent is True or (
+            self.idempotent is None and self.capability == "read"
+        )
 
 
 @dataclass(frozen=True)
 class ToolContext:
-    """Nested tool requests carry the SAME gateway and budget, never a reset."""
     gateway: "ToolGateway"
+    nested_allowed: bool = True
 
     @property
     def budget(self) -> RunBudget:
         return self.gateway.budget
 
     def invoke(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
+        if not self.nested_allowed:
+            raise ToolDenied("nested calls are unavailable in isolated_process")
         return self.gateway.invoke(name, arguments)
+
+
+def _isolated_worker(
+    channel: Connection,
+    handler: Callable[[ToolContext, dict[str, Any]], Any],
+    gateway: "ToolGateway",
+    arguments: dict[str, Any],
+    retry_on: tuple[type[Exception], ...],
+) -> None:
+    os.setsid()
+    try:
+        result = handler(ToolContext(gateway, nested_allowed=False), arguments)
+        payload = {"ok": True, "result": result}
+        raw = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except BaseException as exc:
+        raw = json.dumps(
+            {
+                "ok": False,
+                "error": type(exc).__name__,
+                "message": str(exc)[:256],
+                "retryable": isinstance(exc, retry_on),
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+    try:
+        channel.send_bytes(raw)
+    except (OSError, ValueError):
+        pass
+    finally:
+        channel.close()
 
 
 class ToolGateway:
@@ -54,7 +187,7 @@ class ToolGateway:
         *,
         budget: RunBudget,
         tools: Mapping[str, ToolDefinition],
-        log: "EventLog | None" = None,
+        log: EventLog | None = None,
     ):
         if not isinstance(budget, RunBudget):
             raise TypeError("tool gateway requires a shared RunBudget")
@@ -62,80 +195,152 @@ class ToolGateway:
             raise ValueError("tool registry key/name mismatch")
         self.budget = budget
         self._tools = dict(tools)
-        #: The run's append-only log, or None. This is where `denied` is
-        #: knowable: a refusal happens here, before any handler runs, and
-        #: nothing downstream can tell a denial from a call that was never
-        #: attempted. Optional and inert — a gateway with no log denies and
-        #: allows exactly what it did before.
         self._log = log
+        self._route: str | None = None
+
+    def set_route(self, route: str) -> None:
+        if not route:
+            raise ValueError("route cannot be empty")
+        self._route = route
+
+    def _start_call(
+        self,
+        tool: ToolDefinition | None,
+        name: str,
+        arguments: object,
+        attempt: int,
+    ) -> str | None:
+        if self._log is None:
+            return None
+        return self._log.start_call(
+            "tool_call",
+            target=name,
+            call_input=arguments,
+            idempotent=tool.is_idempotent if tool is not None else False,
+            capability=tool.capability if tool is not None else None,
+            route=self._route,
+            sandbox=tool.sandbox if tool is not None else None,
+            attempt=attempt,
+        )
+
+    def _finish(
+        self, call: str | None, outcome: str, error: str | None = None
+    ) -> None:
+        if self._log is not None and call is not None:
+            self._log.finish_call(call, outcome, error=error)
+
+    def _run_isolated(self, tool: ToolDefinition, arguments: dict[str, Any]) -> Any:
+        if os.name != "posix":
+            raise ToolDenied("isolated_process requires POSIX")
+        context = multiprocessing.get_context("fork")
+        receive, send = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_isolated_worker,
+            args=(send, tool.handler, self, arguments, tool.retry_on),
+            daemon=False,
+        )
+        timeout = min(tool.timeout_seconds, self.budget.remaining_seconds())
+        try:
+            process.start()
+            send.close()
+            if not receive.poll(timeout):
+                raise ToolTimeout(f"{tool.name} exceeded {timeout:.3f}s")
+            raw = receive.recv_bytes(maxlength=16 * 1024 * 1024)
+            payload = json.loads(raw.decode("utf-8"))
+            if not isinstance(payload, dict) or payload.get("ok") is not True:
+                error = (
+                    payload.get("error", "ToolProcessError")
+                    if isinstance(payload, dict)
+                    else "ToolProcessError"
+                )
+                raise _RemoteToolError(
+                    str(error), bool(payload.get("retryable", False))
+                )
+            return payload.get("result")
+        finally:
+            if process.pid is not None and process.is_alive():
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                process.kill()
+            process.join(timeout=1)
+            receive.close()
+            send.close()
+
+    def _execute(self, tool: ToolDefinition, arguments: dict[str, Any]) -> Any:
+        if tool.sandbox == "isolated_process":
+            return self._run_isolated(tool, arguments)
+        started = time.monotonic()
+        result = tool.handler(ToolContext(self), dict(arguments))
+        if time.monotonic() - started > tool.timeout_seconds:
+            raise ToolTimeout(f"{tool.name} exceeded {tool.timeout_seconds:.3f}s")
+        return result
 
     def invoke(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
         self.budget.check()
         tool = self._tools.get(name)
-        # Started before anything can refuse it, so a denial is recorded as a
-        # call that happened and was refused — not as one that never occurred.
-        # A reader of the log needs to see the attempt.
-        call = (
-            self._log.start_call(
-                "tool_call",
-                target=name,
-                call_input=arguments,
-                idempotent=tool is not None and tool.capability == "read",
-                capability=tool.capability if tool is not None else None,
-            )
-            if self._log is not None
-            else None
-        )
-
-        def record(outcome: str, error: str | None = None) -> None:
-            """Every exit from here names an outcome.
-
-            An unfinished call means "began, outcome unknown", which is a real
-            state and an expensive one — it is what a crash leaves, and what the
-            resume work has to reason about. Leaving one behind for a refusal
-            this code saw and understood would put noise in exactly the signal
-            that has to stay trustworthy.
-            """
-            if self._log is not None and call is not None:
-                self._log.finish_call(call, outcome, error=error)
-
-        # Name lookup precedes budget reservation. An attacker cannot use
-        # arbitrary model/README text to invent a new tool.
+        call = self._start_call(tool, name, arguments, 1)
         if tool is None:
-            record("denied", "tool not registered")
+            self._finish(call, "denied", "tool not registered")
             raise ToolDenied("tool not registered")
         if tool.capability != "read":
-            # No write/approval execution exists in P0.3. A string saying
-            # "approved" or a declared read-only operation cannot bypass it.
-            record("denied", "capability not allowed in read-only run")
+            self._finish(call, "denied", "capability not allowed in read-only run")
             raise ToolDenied("capability not allowed in read-only run")
+        if "*" not in tool.allowed_routes and self._route not in tool.allowed_routes:
+            self._finish(call, "denied", "tool not allowed for route")
+            raise ToolDenied("tool not allowed for route")
         if arguments is None:
             arguments = {}
-        if not isinstance(arguments, dict) or not all(isinstance(k, str) for k in arguments):
-            record("denied", "TypeError")
+        if not isinstance(arguments, dict) or not all(
+            isinstance(key, str) for key in arguments
+        ):
+            self._finish(call, "denied", "TypeError")
             raise TypeError("tool arguments must be a string-keyed object")
-
         try:
-            # A quota refusal here is a denial, not a failure: nothing ran.
-            self.budget.reserve_tool()
-        except Exception as exc:
-            record("denied", type(exc).__name__)
-            raise
+            _validate_schema(arguments, tool.input_schema)
+        except ToolSchemaError as exc:
+            self._finish(call, "denied", "ToolSchemaError")
+            raise ToolSchemaError("tool input does not match input_schema") from exc
 
-        try:
-            result = tool.handler(ToolContext(self), dict(arguments))
-            self.budget.check()
-            # Do not return an unlimited tool result. Strict JSON also disallows
-            # arbitrary objects with surprising __str__/serialization behaviour.
+        for attempt in range(1, tool.max_attempts + 1):
+            if attempt > 1:
+                call = self._start_call(tool, name, arguments, attempt)
             try:
+                self.budget.reserve_tool()
+            except Exception as exc:
+                self._finish(call, "denied", type(exc).__name__)
+                raise
+            try:
+                result = self._execute(tool, arguments)
+                self.budget.check()
                 serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
-            except (ValueError, TypeError) as exc:
-                raise TypeError("tool returned non-JSON value") from exc
-            self.budget.charge_output(serialized)
-        except Exception as exc:
-            # The handler ran, so the side effect may have happened. `failed`
-            # rather than `denied`, and never left unfinished.
-            record("failed", type(exc).__name__)
-            raise
-        record("ok")
-        return result
+                _validate_schema(result, tool.output_schema)
+                self.budget.charge_output(serialized)
+            except Exception as exc:
+                self._finish(call, "failed", type(exc).__name__)
+                retryable = isinstance(exc, tool.retry_on) or (
+                    isinstance(exc, _RemoteToolError) and exc.retryable
+                )
+                if attempt < tool.max_attempts and retryable:
+                    continue
+                if isinstance(exc, ToolSchemaError):
+                    raise ToolSchemaError(
+                        "tool output does not match output_schema"
+                    ) from exc
+                if isinstance(exc, (ValueError, TypeError)) and "JSON" in str(exc):
+                    raise TypeError("tool returned non-JSON value") from exc
+                raise
+            self._finish(call, "ok")
+            return result
+        raise AssertionError("positive max_attempts guarantees an attempt")
+
+
+__all__ = [
+    "ToolContext",
+    "ToolDefinition",
+    "ToolDenied",
+    "ToolGateway",
+    "ToolSchemaError",
+    "ToolTimeout",
+]

@@ -257,6 +257,8 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - Oavslutade anrop får bara spelas om när de uttryckligen är idempotenta. Observer-läsningar och read-tools är det; modelladaptrar måste opta in och minnesskrivare vägras eftersom deras tidigare utfall inte kan bevisas ur loggen. Resume behåller run-id och sekvens och lägger till `interrupted` samt `resumed`.
   - Verifierat lokalt med resume-, lås-, delad-logg-, mismatch- och replaytester samt hela testsuiten. Release/CI-bevis tillkommer först efter PR.
 - [ ] Verktygsadapter: deklarerade capabilities (`read`, `write`, `network`), allowlist per route, input/output-schema, timeout, budget, sandbox, retries bara för idempotenta anrop.
+  - **Implementerad och lokalt verifierad på `feat/v13-tool-adapter-contract`; rutan stängs först med mergad PR och CI-bevis.** `ToolDefinition` bär route-, schema-, timeout-, sandbox- och retrykontrakt; gatewayen verkställer dem och varje försök delar run-budget och får egna event.
+  - `isolated_process` ger hård POSIX-timeout och processavslut men påstår inte OS-isolering. `in_process` behåller nästlade anrop och har kooperativ timeout. Retry kräver uttrycklig idempotens; write/network är fortsatt blockerade i read-only-kärnan.
 - [ ] Kör unit-, schema-, kontrakts-, integration-, property-/fuzz- och regressionstester för state transitions, malformed events och flera parallella runs.
 - [ ] Lägg maskinläsbar `atlas inspect <run-id>`/export och en kort, mänskligt läsbar slutrapport med källor, osäkerheter och varför loopen stoppade.
 

@@ -70,6 +70,11 @@ class RunBudget:
         if self._clock() >= self.deadline:
             raise BudgetExceeded("wall_seconds")
 
+    def remaining_seconds(self) -> float:
+        with self._lock:
+            self.check()
+            return max(0.0, self.deadline - self._clock())
+
     def reserve_model(self) -> None:
         with self._lock:
             self.check()
