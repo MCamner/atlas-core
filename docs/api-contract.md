@@ -804,9 +804,67 @@ inspection payload shapes or a stop before the final event returns exit code 1
 with a diagnostic on stderr. A run without `run_stopped` is reported as
 `interrupted`; an unfinished call remains `unknown`, never inferred as failed.
 
-One JSONL may contain several runs when writers are serialized. Concurrent runs
-must use separate event-log paths; `JsonlSink` does not claim cross-run
-shared-file writer locking.
+One JSONL may contain several runs when writers are serialized through the
+Python API. Concurrent writers are refused, not interleaved: a durable run or
+resume holds `<log>.writer.lock`, and a second one gets `EventLogInUse`. The
+CLI runs one run per event log (see Host run API).
+
+### Host run API (v1.4)
+
+A host that runs Core as a child process drives a run through five commands.
+All of them read the same durable event log; none of them is a second record
+of the run.
+
+| Command | Does | Exit |
+| --- | --- | --- |
+| `atlas create` | Prints a fresh run id. Writes nothing. | 0 |
+| `atlas run TASK --run-id ID --event-log PATH` | Runs under that id. An id the log already holds is refused. | as `atlas run` |
+| `atlas status ID --event-log PATH [--json]` | `atlas-status.v1`: `not_found`, `running`, `finished` or `interrupted`. | 0; 1 on invalid history |
+| `atlas cancel ID --event-log PATH [--json]` | Asks the run to stop. Allowed before the run starts. | 0; 2 if already finished/interrupted |
+| `atlas events ID --event-log PATH [--follow] [--timeout S]` | Prints the run's `atlas-event.v1` records as JSONL; `--follow` streams until `run_stopped`. | 0; 2 interrupted or timed out; 1 not found without `--follow` |
+
+Run ids are 1–128 characters of `A-Z a-z 0-9 . _ : -`, starting with a letter
+or digit. `--run-id` requires `--event-log`.
+
+A fresh run with a `JsonlSink` holds `<log>.<sha256(id)>.lock` from before
+`run_started` until after `run_stopped`. `running` means a process holds that
+lock; a history with no stop and no held lock is `interrupted`. A cancel request
+is the permanent marker `<log>.<sha256(id)>.cancel`, never an event: the run
+records `run_stopped` with `cancelled` when it honours the request, and that
+is the fact the log keeps. Cancellation is cooperative and is checked at the
+run's budget boundaries; the public CLI's worker deadline stays the hard bound.
+
+Every exit from a run, including one before the first iteration, appends
+`run_stopped`.
+
+**One run per event log.** `atlas run --event-log PATH` refuses a log that
+already holds a run (exit 1, nothing written). A host stores `(run_id,
+event_log)` and uses that pair for every later command. This is a refusal of
+shared-log concurrency, not support for it.
+
+**A lost worker is sealed.** When the public CLI kills its worker (wall
+deadline, output cap, interrupt) or cannot read its result, the parent takes
+the log's locks, drops a torn tail the kill left, and appends `run_stopped`
+with `recorded_by: "cli_parent"` — preceded by `run_started` if the worker
+never wrote one. The CLI result then carries the same stop reason as the log.
+With `--event-log` and no `--run-id`, the parent allocates the id so it can do
+this.
+
+**A lost result is not rebuilt.** If the worker had already logged its stop,
+the run finished and only its `atlas-run.v1` was lost on the way back. The log
+is left untouched and still decides the run state (`atlas status`, `atlas
+inspect`). The parent has the terminal event but not the answer or the
+evaluations, so it prints no run document: stdout is empty, the exit code is
+1, and stderr carries the diagnostic — one JSON object with `--json`:
+
+```json
+{"error": "worker_result_unavailable", "run_id": "…", "event_log": "…",
+ "logged_stop_reason": "passed", "transport_error": "WorkerProtocolError",
+ "message": "…"}
+```
+
+The event log decides the run state; the transport decides whether the CLI
+can deliver the run document.
 
 ### Optional cooperative run budget (P0.3, partial)
 

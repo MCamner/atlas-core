@@ -273,6 +273,9 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 ### Atlas One (äger UI-arbetet i `MCamner/atlas-one`)
 
 - [ ] Publicera Core API/CLI-kontrakt för create/run/status/cancel/inspect, inklusive schema-version och streaming av progress-events. Anpassning i Atlas One görs i *dess* repo med separat PR.
+  - **Implementerad och lokalt verifierad på `feat/v14-host-run-api`; rutan stängs efter mergad PR och CI.** `atlas create|status|cancel|events` plus `run --run-id`. Status är `atlas-status.v1`, events strömmas som `atlas-event.v1` JSONL. Allt läses ur eventloggen. Lås och cancel är sidofiler, inga händelser. Cancel är kooperativ.
+  - **Två kontraktsgränser stängda före merge.** (A) En worker som dödas vid hård deadline hann inte skriva `run_stopped`, så CLI-resultatet sa `budget_exhausted` medan status sa `interrupted`. Nu förseglar parent-processen körningen i loggen, och om workern redan loggat ett stopp är det loggen som gäller. (B) Olika run-id kunde skriva samtidigt till samma JSONL. Nu håller varje skrivare ett lås på loggfilen och en andra skrivare vägras. CLI:n kör en run per eventlogg. Samtidiga runs i samma logg stöds inte i v1.4.
+  - **Hittat på vägen:** en körning som stoppade före första iterationen skrev aldrig `run_stopped` och såg ut som en krasch. Det är rättat och har ett regressionstest.
 - [ ] Visa observerade källor, faktiska iterationer, budget, verifieringsstatus och `approval_required` i UI. Märk prompt-preview separat från exekverad/verifierad run.
 - [ ] Kontraktstest med mock Core och lokal smoke-test från Atlas One till Core; frontend får inte bli en alternativ evaluator.
 

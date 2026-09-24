@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Roadmap v1.4 host run API (Core side):
+
+- Added `atlas create`, `atlas run --run-id ID`, `atlas status`, `atlas cancel`
+  and `atlas events [--follow]` so a separate host process can name a run
+  before it starts, poll it, stop it and stream its `atlas-event.v1` records.
+  Status is the new `atlas-status.v1` contract.
+- `AtlasController.run(..., run_id=...)` accepts a host-chosen id, refuses an
+  id the log already holds, and holds the run lock for the whole of a fresh
+  durable run so `running` and `interrupted` can be told apart.
+- One writer per event log: a durable run or resume holds
+  `<log>.writer.lock`; a concurrent writer gets `EventLogInUse`. The CLI runs
+  one run per event log.
+- When the public CLI loses its worker, the parent seals the run in the event
+  log (`recorded_by: "cli_parent"`), so the CLI result and `atlas status`
+  name the same terminal state. A stop the worker already logged wins.
+- A worker that logged its own stop but whose result never arrived is not
+  rebuilt into an `atlas-run.v1`: `atlas run` exits 1 with an empty stdout and
+  a `worker_result_unavailable` diagnostic on stderr; the log keeps the run's
+  real stop for `status` and `inspect`.
+- Fixed: a run that stopped before its first iteration (early cancel, budget,
+  failing reader) returned without `run_stopped`, so its history read as a
+  crash. Every exit now records its stop.
+
 Roadmap v1.3 inspection and resilience completion:
 
 - Added `atlas run --event-log PATH` and read-only

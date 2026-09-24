@@ -1,6 +1,6 @@
 from __future__ import annotations
 import argparse, json, sys
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 from .budget import RunBudget, RunLimits
 from . import __version__
 from .controller import AtlasController
@@ -10,8 +10,12 @@ from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
 from .finalizer import render_run_text
-from .eventlog import JsonlSink
+from .eventlog import JsonlSink, ResumeRefused
 from .inspect_run import InspectError, inspect_run, render_inspection
+from .host_api import (
+    EventLogInUse, FollowEnded, RunIdInUse, log_holds_a_run, seal_lost_run, cancel_requested, dump_jsonl, follow_events,
+    new_run_id, request_cancel, run_status, validate_run_id,
+)
 from .machine import STOP_REASONS, exit_codes
 from .process_guard import (
     WorkerDeadlineExceeded, WorkerOutputExceeded, run_bounded_process,
@@ -31,6 +35,14 @@ def _print_run(run: dict, *, json_mode: bool) -> int:
     return EXIT_CODES.get(run.get('stop_reason') or '', UNKNOWN_STOP_REASON_EXIT)
 
 
+class WorkerResultUnavailable(Exception):
+    """The worker logged its own stop, but its run document never arrived."""
+
+    def __init__(self, error: dict[str, Any]) -> None:
+        super().__init__(error['message'])
+        self.error = error
+
+
 def _worker_failure(
     args: argparse.Namespace, *,
     reason: Literal['budget_exhausted', 'tool_error', 'cancelled'],
@@ -39,7 +51,30 @@ def _worker_failure(
     # The worker may be stuck or have been killed. Never synthesize a graded
     # answer, old evaluations, or a successful run from its partial stdout.
     state = AtlasRunState(task=args.task, max_iterations=args.max_iterations)
+    if args.run_id:
+        state.run_id = args.run_id
     state.enter('observing')
+    if args.event_log:
+        # The log is the audit source: seal the lost run there. A stop the
+        # worker already logged means the run ended and only its result was
+        # lost; the parent holds that terminal event, not the run document.
+        try:
+            logged, sealed = seal_lost_run(
+                args.event_log, args.run_id, stop_reason=reason, detail=detail[:512],
+                task=args.task, max_iterations=args.max_iterations,
+            )
+        except (ResumeRefused, EventLogInUse, InspectError, OSError, ValueError) as exc:
+            state.metadata['event_log_unsealed'] = str(exc)[:512]
+        else:
+            if not sealed:
+                raise WorkerResultUnavailable({
+                    'error': 'worker_result_unavailable',
+                    'run_id': args.run_id,
+                    'event_log': args.event_log,
+                    'logged_stop_reason': logged,
+                    'transport_error': error,
+                    'message': detail[:512],
+                })
     if reason == 'budget_exhausted':
         state.metadata['budget_exhausted'] = detail
     else:
@@ -50,7 +85,7 @@ def _worker_failure(
     return state.to_dict()
 
 
-def _run_hard_cli(args: argparse.Namespace) -> int:
+def _run_worker(args: argparse.Namespace) -> int:
     # Only the *public* CLI entrypoint (`main()` with argv=None) takes this
     # outer boundary. Embedded `main([...])` and `AtlasController.run()` are
     # in-process APIs and retain their documented cooperative contract.
@@ -59,7 +94,19 @@ def _run_hard_cli(args: argparse.Namespace) -> int:
         tool_calls=args.max_tool_calls, tokens=0,
         output_bytes=args.max_output_bytes,
     )
-    command = [sys.executable, '-m', 'atlas_core.worker_cli', *sys.argv[1:], '--json']
+    extra: list[str] = []
+    if args.event_log:
+        if log_holds_a_run(args.event_log):
+            # Checked again, under the writer lock, in the worker. Refusing
+            # here keeps a refused start from being reported as a failed run.
+            print(f"atlas run: {args.event_log} already holds a run; "
+                  "one run per event log", file=sys.stderr)
+            return 1
+        if not args.run_id:
+            # The parent must know the id to seal the run if it loses the worker.
+            args.run_id = new_run_id()
+            extra = ['--run-id', args.run_id]
+    command = [sys.executable, '-m', 'atlas_core.worker_cli', *sys.argv[1:], *extra, '--json']
     # JSON repeats some source text in several fields. Limit the transport
     # independently of the controller's tighter observation/output quota.
     stdout_cap = min(16 * 1024 * 1024, max(262144, limits.output_bytes * 8 + 65536))
@@ -102,6 +149,71 @@ def _run_hard_cli(args: argparse.Namespace) -> int:
     return _print_run(run, json_mode=args.json)
 
 
+def _run_hard_cli(args: argparse.Namespace) -> int:
+    try:
+        return _run_worker(args)
+    except WorkerResultUnavailable as lost:
+        # No run document on stdout: the host reads the run from the log.
+        if args.json:
+            print(json.dumps(lost.error, ensure_ascii=False), file=sys.stderr)
+        else:
+            print(f"atlas run: worker result unavailable ({lost.error['transport_error']}); "
+                  f"run {args.run_id!r} stopped {lost.error['logged_stop_reason']} in "
+                  f"{args.event_log} — see `atlas inspect`", file=sys.stderr)
+        return 1
+
+
+def _start(start: Callable[[], dict]) -> dict | None:
+    try:
+        return start()
+    except (RunIdInUse, EventLogInUse) as exc:
+        print(f"atlas run: {exc}", file=sys.stderr)
+        return None
+
+
+def _host_command(args: argparse.Namespace) -> int:
+    """status / cancel / events: exit 0 answered, 1 cannot answer, 2 the answer
+    is that the request cannot be met (finished, interrupted, timed out)."""
+    name = f"atlas {args.command}"
+    try:
+        validate_run_id(args.run_id)
+        if args.command == 'events':
+            if not args.follow:
+                status = run_status(args.event_log, args.run_id)
+                if status['state'] == 'not_found':
+                    print(f"{name}: run {args.run_id!r} not found", file=sys.stderr)
+                    return 1
+            try:
+                for record in follow_events(
+                    args.event_log, args.run_id,
+                    timeout=args.timeout if args.follow else 0.0,
+                ):
+                    print(dump_jsonl(record), flush=True)
+            except FollowEnded as ended:
+                if args.follow:
+                    print(f"{name}: {ended.reason} before run_stopped", file=sys.stderr)
+                    return 2
+            return 0
+        status = run_status(args.event_log, args.run_id)
+        if args.command == 'cancel':
+            if status['state'] in ('finished', 'interrupted'):
+                print(f"{name}: run {args.run_id!r} already {status['state']}; "
+                      "nothing to cancel", file=sys.stderr)
+                return 2
+            request_cancel(args.event_log, args.run_id)
+            status['cancel_requested'] = True
+    except (InspectError, ValueError) as exc:
+        print(f"{name}: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+    else:
+        print(f"{status['run_id']}: {status['state']}"
+              + (f" ({status['stop_reason']})" if status['stop_reason'] else "")
+              + (" — cancel requested" if status['cancel_requested'] else ""))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='atlas', description='Atlas Core loop engine')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -120,6 +232,21 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument('--mqobsidian-path', default=None, help='Optional mqobsidian vault path')
     run_p.add_argument('--mq-project', default=None, help='Project name for mqobsidian context')
     run_p.add_argument('--event-log', default=None, help='Append run events to this JSONL file')
+    run_p.add_argument('--run-id', default=None, help='Run ID from `atlas create`; requires --event-log')
+    sub.add_parser('create', help='Allocate a run ID for a later `atlas run --run-id`')
+    status_p = sub.add_parser('status', help='Report whether a run is running, finished or interrupted')
+    status_p.add_argument('run_id', help='Run ID')
+    status_p.add_argument('--event-log', required=True, help='JSONL event log the run writes')
+    status_p.add_argument('--json', action='store_true', help='Print atlas-status.v1 JSON')
+    cancel_p = sub.add_parser('cancel', help='Ask a run to stop at its next boundary')
+    cancel_p.add_argument('run_id', help='Run ID')
+    cancel_p.add_argument('--event-log', required=True, help='JSONL event log the run writes')
+    cancel_p.add_argument('--json', action='store_true', help='Print atlas-status.v1 JSON')
+    events_p = sub.add_parser('events', help='Print one run\'s atlas-event.v1 records as JSONL')
+    events_p.add_argument('run_id', help='Run ID')
+    events_p.add_argument('--event-log', required=True, help='JSONL event log the run writes')
+    events_p.add_argument('--follow', action='store_true', help='Stream new events until run_stopped')
+    events_p.add_argument('--timeout', type=float, default=60.0, help='Give up following after this many seconds')
     inspect_p = sub.add_parser('inspect', help='Inspect one run from an event log')
     inspect_p.add_argument('run_id', help='Run ID to inspect')
     inspect_p.add_argument('--event-log', required=True, help='JSONL event log to read')
@@ -140,6 +267,11 @@ def main(argv: list[str] | None = None) -> int:
         package = generate_chatgpt_skill(args.output_dir, force=args.force)
         print(str(package))
         return 0
+    if args.command == 'create':
+        print(new_run_id())
+        return 0
+    if args.command in ('status', 'cancel', 'events'):
+        return _host_command(args)
     if args.command == 'inspect':
         try:
             report = inspect_run(args.event_log, args.run_id)
@@ -152,6 +284,13 @@ def main(argv: list[str] | None = None) -> int:
             print(render_inspection(report), end='')
         return 0
     if args.command == 'run':
+        if args.run_id is not None:
+            if not args.event_log:
+                run_p.error('--run-id requires --event-log')
+            try:
+                validate_run_id(args.run_id)
+            except ValueError as exc:
+                run_p.error(str(exc))
         if bool(args.mqobsidian_path) != bool(args.mq_project):
             run_p.error('--mqobsidian-path and --mq-project must be used together')
         # Memory and the historical unbounded behaviour demand explicit opt-in.
@@ -168,13 +307,20 @@ def main(argv: list[str] | None = None) -> int:
             memory_adapter=memory_adapter,
             events=JsonlSink(args.event_log) if args.event_log else None,
         )
+        cancelled = (
+            cancel_requested(args.event_log, args.run_id) if args.run_id else None
+        )
         if args.unsafe_legacy_unbounded:
             observations: list[str] = []
             if args.repo_path:
                 observations.extend(FilesystemRepoAdapter(args.repo_path).observe(args.task))
             if args.repo:
                 observations.extend(GitHubRepoAdapter(args.repo, ref=args.repo_ref).observe(args.task))
-            run = controller.run(args.task, observations=observations, json_mode=True)
+            run = _start(lambda: controller.run(
+                args.task, observations=observations, json_mode=True,
+                run_id=args.run_id, cancelled=cancelled,
+                one_run_per_log=bool(args.event_log),
+            ))
         else:
             readers: list[Callable[[str, RunBudget], list[str]]] = []
             if args.repo_path:
@@ -192,8 +338,13 @@ def main(argv: list[str] | None = None) -> int:
                 tool_calls=args.max_tool_calls, tokens=0,
                 output_bytes=args.max_output_bytes,
             )
-            run = controller.run(args.task, readers=readers,
-                                 limits=limits, json_mode=True)
+            run = _start(lambda: controller.run(
+                args.task, readers=readers, limits=limits, json_mode=True,
+                run_id=args.run_id, cancelled=cancelled,
+                one_run_per_log=bool(args.event_log),
+            ))
+        if run is None:
+            return 1
         return _print_run(run, json_mode=args.json)
     return 1
 
