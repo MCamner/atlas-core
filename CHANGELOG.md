@@ -10,6 +10,9 @@ Roadmap v1.3 inspection and resilience completion:
 - Added deterministic property-style state-transition coverage, malformed-event
   mutation cases, parallel-run isolation tests and an end-to-end CLI
   run-to-inspect regression.
+- Hardened inspection against forged event/call identity, finish-without-start,
+  duplicate call outcomes and malformed payload shapes; contradictory history
+  now fails closed instead of disappearing from the summary.
 
 Roadmap v1.3 tool adapter contract:
 

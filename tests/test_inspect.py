@@ -96,6 +96,72 @@ class TestRunInspection(SchemaAssertions):
         with self.assertRaisesRegex(InspectError, "invalid event history"):
             inspect_run(self.path, "run-1")
 
+    def test_forged_event_id_is_rejected(self) -> None:
+        self._complete_log()
+        records = [json.loads(line) for line in self.path.read_text().splitlines()]
+        records[1]["event_id"] = "run-1:999"
+        self.path.write_text(
+            "".join(json.dumps(record) + "\n" for record in records),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(InspectError, "event_id"):
+            inspect_run(self.path, "run-1")
+
+    def test_call_finished_without_start_is_rejected(self) -> None:
+        self._complete_log()
+        records = [json.loads(line) for line in self.path.read_text().splitlines()]
+        records[1].update(
+            kind="call_finished",
+            call_id="run-1:1",
+            payload={"outcome": "ok"},
+        )
+        self.path.write_text(
+            "".join(json.dumps(record) + "\n" for record in records),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(InspectError, "no preceding call_started"):
+            inspect_run(self.path, "run-1")
+
+    def test_duplicate_call_outcome_is_rejected(self) -> None:
+        log = EventLog("run-1", JsonlSink(self.path))
+        log.append("run_started")
+        call_id = log.start_call("tool_call", target="read_file", idempotent=True)
+        log.finish_call(call_id, "ok")
+        log.append(
+            "run_stopped",
+            stop_reason="passed",
+            stop_class="evaluation",
+            status="done",
+        )
+        records = [json.loads(line) for line in self.path.read_text().splitlines()]
+        duplicate = dict(records[2])
+        duplicate["sequence"] = 3
+        duplicate["event_id"] = "run-1:3"
+        records.insert(3, duplicate)
+        records[4]["sequence"] = 4
+        records[4]["event_id"] = "run-1:4"
+        self.path.write_text(
+            "".join(json.dumps(record) + "\n" for record in records),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(InspectError, "more than one outcome"):
+            inspect_run(self.path, "run-1")
+
+    def test_malformed_payload_shape_is_rejected_not_stringified(self) -> None:
+        self._complete_log()
+        records = [json.loads(line) for line in self.path.read_text().splitlines()]
+        records[2]["payload"]["added"] = 7
+        self.path.write_text(
+            "".join(json.dumps(record) + "\n" for record in records),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(InspectError, "observation_recorded.added"):
+            inspect_run(self.path, "run-1")
+
     def test_cli_supports_json_export_and_clear_errors(self) -> None:
         self._complete_log()
         stdout = StringIO()

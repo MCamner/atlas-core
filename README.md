@@ -123,7 +123,9 @@ atlas inspect <run-id> --event-log .atlas/events.jsonl --json
 The text report names the observed sources, unresolved evidence gaps and stop
 reason. The JSON form is the machine-readable `atlas-inspect.v1` export and
 includes the validated events for that run. Inspection is read-only and fails
-on malformed or contradictory history instead of repairing it.
+on malformed or contradictory history instead of repairing it. A JSONL file may
+contain several runs when writes are serialized; concurrent runs should use
+separate event-log paths because shared-file writer locking is not provided.
 
 With local memory:
 

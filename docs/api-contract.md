@@ -798,10 +798,15 @@ the route, iteration count, observed source IDs, unresolved evidence gaps,
 unfinished calls, stop reason, call summary and the selected events.
 
 Inspection never repairs history. A missing run, malformed JSON, non-object
-record, wrong schema, discontinuous sequence, duplicate start/stop or a stop
-before the final event returns exit code 1 with a diagnostic on stderr. A run
-without `run_stopped` is reported as `interrupted`; an unfinished call remains
-`unknown`, never inferred as failed.
+record, wrong schema, forged event/call identity, discontinuous sequence, duplicate
+start/stop, a call outcome without exactly one preceding start, malformed
+inspection payload shapes or a stop before the final event returns exit code 1
+with a diagnostic on stderr. A run without `run_stopped` is reported as
+`interrupted`; an unfinished call remains `unknown`, never inferred as failed.
+
+One JSONL may contain several runs when writers are serialized. Concurrent runs
+must use separate event-log paths; `JsonlSink` does not claim cross-run
+shared-file writer locking.
 
 ### Optional cooperative run budget (P0.3, partial)
 
