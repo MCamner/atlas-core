@@ -11,6 +11,12 @@ Roadmap v1.4 host run API (Core side):
 - `AtlasController.run(..., run_id=...)` accepts a host-chosen id, refuses an
   id the log already holds, and holds the run lock for the whole of a fresh
   durable run so `running` and `interrupted` can be told apart.
+- One writer per event log: a durable run or resume holds
+  `<log>.writer.lock`; a concurrent writer gets `EventLogInUse`. The CLI runs
+  one run per event log.
+- When the public CLI loses its worker, the parent seals the run in the event
+  log (`recorded_by: "cli_parent"`), so the CLI result and `atlas status`
+  name the same terminal state. A stop the worker already logged wins.
 - Fixed: a run that stopped before its first iteration (early cancel, budget,
   failing reader) returned without `run_stopped`, so its history read as a
   crash. Every exit now records its stop.

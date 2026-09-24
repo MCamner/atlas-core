@@ -1,6 +1,6 @@
 from __future__ import annotations
 import argparse, json, sys
-from typing import Callable, Literal
+from typing import Any, Callable, Literal, cast
 from .budget import RunBudget, RunLimits
 from . import __version__
 from .controller import AtlasController
@@ -10,10 +10,10 @@ from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
 from .finalizer import render_run_text
-from .eventlog import JsonlSink
+from .eventlog import JsonlSink, ResumeRefused
 from .inspect_run import InspectError, inspect_run, render_inspection
 from .host_api import (
-    FollowEnded, RunIdInUse, cancel_requested, dump_jsonl, follow_events,
+    EventLogInUse, FollowEnded, RunIdInUse, log_holds_a_run, seal_lost_run, cancel_requested, dump_jsonl, follow_events,
     new_run_id, request_cancel, run_status, validate_run_id,
 )
 from .machine import STOP_REASONS, exit_codes
@@ -46,13 +46,26 @@ def _worker_failure(
     if args.run_id:
         state.run_id = args.run_id
     state.enter('observing')
-    if reason == 'budget_exhausted':
+    logged: str = reason
+    if args.event_log:
+        # The log is the audit source: seal the lost run there, and report
+        # whatever stop it holds — the worker's own, if it got that far.
+        try:
+            logged = seal_lost_run(
+                args.event_log, args.run_id, stop_reason=reason, detail=detail[:512],
+                task=args.task, max_iterations=args.max_iterations,
+            )
+        except (ResumeRefused, EventLogInUse, InspectError, OSError, ValueError) as exc:
+            state.metadata['event_log_unsealed'] = str(exc)[:512]
+    if logged == 'budget_exhausted' and reason == 'budget_exhausted':
         state.metadata['budget_exhausted'] = detail
     else:
         state.metadata['failure'] = {
             'stage': 'cli_worker', 'error': error, 'message': detail[:512],
         }
-    state.stop(reason)
+    if logged != reason:
+        state.metadata['failure']['logged_stop_reason'] = logged
+    state.stop(cast(Any, logged))
     return state.to_dict()
 
 
@@ -65,12 +78,19 @@ def _run_hard_cli(args: argparse.Namespace) -> int:
         tool_calls=args.max_tool_calls, tokens=0,
         output_bytes=args.max_output_bytes,
     )
-    if args.run_id and run_status(args.event_log, args.run_id)['state'] != 'not_found':
-        # Checked again, under the lock, in the worker. Refusing here keeps a
-        # taken id from being reported as a failed run under that same id.
-        print(f"atlas run: run {args.run_id!r} already exists", file=sys.stderr)
-        return 1
-    command = [sys.executable, '-m', 'atlas_core.worker_cli', *sys.argv[1:], '--json']
+    extra: list[str] = []
+    if args.event_log:
+        if log_holds_a_run(args.event_log):
+            # Checked again, under the writer lock, in the worker. Refusing
+            # here keeps a refused start from being reported as a failed run.
+            print(f"atlas run: {args.event_log} already holds a run; "
+                  "one run per event log", file=sys.stderr)
+            return 1
+        if not args.run_id:
+            # The parent must know the id to seal the run if it loses the worker.
+            args.run_id = new_run_id()
+            extra = ['--run-id', args.run_id]
+    command = [sys.executable, '-m', 'atlas_core.worker_cli', *sys.argv[1:], *extra, '--json']
     # JSON repeats some source text in several fields. Limit the transport
     # independently of the controller's tighter observation/output quota.
     stdout_cap = min(16 * 1024 * 1024, max(262144, limits.output_bytes * 8 + 65536))
@@ -116,7 +136,7 @@ def _run_hard_cli(args: argparse.Namespace) -> int:
 def _start(start: Callable[[], dict]) -> dict | None:
     try:
         return start()
-    except RunIdInUse as exc:
+    except (RunIdInUse, EventLogInUse) as exc:
         print(f"atlas run: {exc}", file=sys.stderr)
         return None
 
@@ -269,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
             run = _start(lambda: controller.run(
                 args.task, observations=observations, json_mode=True,
                 run_id=args.run_id, cancelled=cancelled,
+                one_run_per_log=bool(args.event_log),
             ))
         else:
             readers: list[Callable[[str, RunBudget], list[str]]] = []
@@ -290,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             run = _start(lambda: controller.run(
                 args.task, readers=readers, limits=limits, json_mode=True,
                 run_id=args.run_id, cancelled=cancelled,
+                one_run_per_log=bool(args.event_log),
             ))
         if run is None:
             return 1

@@ -22,6 +22,7 @@ from atlas_core.cli import main
 from atlas_core.controller import AtlasController
 from atlas_core.eventlog import EventLog, JsonlSink, RunLock
 from atlas_core.host_api import (
+    EventLogInUse,
     RunIdInUse,
     cancel_path,
     cancel_requested,
@@ -30,8 +31,11 @@ from atlas_core.host_api import (
     new_run_id,
     request_cancel,
     run_status,
+    seal_lost_run,
     validate_run_id,
+    writer_lock_path,
 )
+from atlas_core.inspect_run import inspect_run
 from test_schemas import SchemaAssertions, load
 
 TASK = "granska atlas-core och hitta nästa bästa förbättring"
@@ -273,6 +277,78 @@ class TestCliSurface(HostApiCase):
         self.assert_matches(load("atlas-status.v1.json"), json.loads(out), "status")
 
 
+class TestOneWriterPerLog(HostApiCase):
+    """v1.4 does not add shared-log concurrency. It refuses it."""
+
+    def test_second_concurrent_writer_to_the_same_log_is_refused(self) -> None:
+        with RunLock(writer_lock_path(self.log)):
+            with self.assertRaises(EventLogInUse):
+                AtlasController(events=JsonlSink(self.log)).run(
+                    TASK, run_id="host-2", limits=LIMITS, json_mode=True,
+                )
+        self.assertFalse(self.log.exists())
+
+    def test_cli_runs_one_run_per_event_log(self) -> None:
+        code, _, _ = _cli("run", TASK, "--event-log", str(self.log))
+        self.assertIn(code, (0, 2))
+        before = self.log.read_bytes()
+        code, _, err = _cli("run", TASK, "--run-id", "host-2",
+                            "--event-log", str(self.log))
+        self.assertEqual(code, 1)
+        self.assertIn("one run per event log", err)
+        self.assertEqual(self.log.read_bytes(), before)
+
+    def test_python_api_may_still_serialize_runs_in_one_log(self) -> None:
+        for run_id in ("host-1", "host-2"):
+            AtlasController(events=JsonlSink(self.log)).run(
+                TASK, run_id=run_id, limits=LIMITS, json_mode=True,
+            )
+        self.assertEqual(run_status(self.log, "host-2")["state"], "finished")
+
+
+class TestSealLostRun(HostApiCase):
+    """When the public CLI loses its worker, the log must end where the CLI
+    result does — the event log is the audit source, not the parent's memory."""
+
+    def _seal(self, reason: str = "budget_exhausted") -> str:
+        return seal_lost_run(
+            self.log, "host-1", stop_reason=reason, detail="wall_seconds",
+            task=TASK, max_iterations=2,
+        )
+
+    def test_partial_history_gets_the_parents_stop(self) -> None:
+        log = EventLog("host-1", JsonlSink(self.log))
+        log.append("run_started", max_iterations=2)
+        log.append("plan_selected", iteration=1, route="repo_review", steps=[])
+        self.assertEqual(self._seal(), "budget_exhausted")
+        status = run_status(self.log, "host-1")
+        self.assertEqual((status["state"], status["stop_reason"]),
+                         ("finished", "budget_exhausted"))
+        self.assertEqual(inspect_run(self.log, "host-1")["iterations"], 1)
+
+    def test_worker_killed_before_writing_anything(self) -> None:
+        self.assertEqual(self._seal(), "budget_exhausted")
+        kinds = [record["kind"] for record in self._records("host-1")]
+        self.assertEqual(kinds, ["run_started", "run_stopped"])
+        self.assertEqual(run_status(self.log, "host-1")["state"], "finished")
+
+    def test_a_stop_the_worker_already_logged_wins(self) -> None:
+        log = EventLog("host-1", JsonlSink(self.log))
+        log.append("run_started", max_iterations=2)
+        log.append("run_stopped", stop_reason="insufficient_evidence",
+                   stop_class="bounded", status="stopped")
+        before = self.log.read_bytes()
+        self.assertEqual(self._seal(), "insufficient_evidence")
+        self.assertEqual(self.log.read_bytes(), before)
+
+    def test_torn_tail_from_the_killed_worker_is_dropped_then_sealed(self) -> None:
+        EventLog("host-1", JsonlSink(self.log)).append("run_started", max_iterations=2)
+        with self.log.open("a", encoding="utf-8") as handle:
+            handle.write('{"schema": "atlas-event.v1", "run_')
+        self.assertEqual(self._seal("cancelled"), "cancelled")
+        self.assertEqual(run_status(self.log, "host-1")["stop_reason"], "cancelled")
+
+
 @unittest.skipUnless(os.name == "posix", "POSIX process-group guard")
 class TestPublicCliProcess(HostApiCase):
     """The public entrypoint runs the loop in a guarded worker; the run id and
@@ -290,6 +366,31 @@ class TestPublicCliProcess(HostApiCase):
         run = json.loads(result.stdout)
         self.assertEqual((run["run_id"], run["stop_reason"]), (run_id, "cancelled"))
         self.assertEqual(run_status(self.log, run_id)["state"], "finished")
+
+    def _public_run(self, *extra: str) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(
+            [sys.executable, "-m", "atlas_core.cli", "run", TASK,
+             "--event-log", str(self.log), "--json", *extra],
+            capture_output=True, timeout=60,
+        )
+
+    def test_hard_deadline_leaves_the_same_terminal_state_in_the_log(self) -> None:
+        # No --run-id: the parent must still know which run to seal.
+        result = self._public_run("--wall-seconds", "0.05")
+        run = json.loads(result.stdout)
+        self.assertEqual(run["stop_reason"], "budget_exhausted", result.stderr)
+        self.assertEqual(result.returncode, 2)
+        status = run_status(self.log, run["run_id"])
+        self.assertEqual((status["state"], status["stop_reason"]),
+                         ("finished", "budget_exhausted"))
+
+    def test_public_cli_refuses_a_log_that_already_holds_a_run(self) -> None:
+        self.assertIn(self._public_run().returncode, (0, 2))
+        before = self.log.read_bytes()
+        result = self._public_run()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"one run per event log", result.stderr)
+        self.assertEqual(self.log.read_bytes(), before)
 
 
 if __name__ == "__main__":

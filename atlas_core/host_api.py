@@ -14,6 +14,23 @@ files next to it that are named by the run id's digest:
 | --- | --- | --- |
 | `<log>.<digest>.lock` | the run, via `RunLock` | a process is running this id now |
 | `<log>.<digest>.cancel` | `request_cancel` | a host asked this run to stop |
+| `<log>.writer.lock` | the run, via `RunLock` | a process is writing this log now |
+
+## One writer per log
+
+Concurrent runs appending to one JSONL is refused, not supported: a fresh or
+resumed durable run holds the log's writer lock and a second writer gets
+`EventLogInUse`. The CLI goes further and runs **one run per event log** — a
+host stores `(run_id, event_log)` and every command for that run uses that
+file. Serialized runs sharing a log remain possible through the Python API.
+
+## A lost worker is sealed in the log
+
+The public CLI runs the loop in a worker it kills at the deadline. A killed
+worker cannot write `run_stopped`, so the parent does, under both locks and
+after dropping any torn tail the kill left: the CLI result and the log then
+name the same terminal state. A stop the worker already logged wins, because
+the log is the audit source and the parent's view is only what it received.
 
 Nothing here writes to the event log. A second writer to that file would be a
 cross-process locking problem `JsonlSink` explicitly does not solve, and a
@@ -48,8 +65,9 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .eventlog import SCHEMA as EVENT_SCHEMA
-from .eventlog import digest, read_jsonl
+from .eventlog import EventLog, JsonlSink, ResumeRefused, RunLock, digest, read_jsonl
 from .inspect_run import inspect_run
+from .machine import STOP_REASONS, stop_class_of
 
 STATUS_SCHEMA = "atlas-status.v1"
 STATES: tuple[str, ...] = ("not_found", "running", "finished", "interrupted")
@@ -62,6 +80,10 @@ _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 class RunIdInUse(ValueError):
     """The id already names a run in this log, or a live process holds it."""
+
+
+class EventLogInUse(RuntimeError):
+    """Another process is writing this event log, or (CLI) it already holds a run."""
 
 
 class FollowEnded(RuntimeError):
@@ -92,6 +114,27 @@ def _sidecar(log_path: str | Path, run_id: str, suffix: str) -> Path:
 def lock_path(log_path: str | Path, run_id: str) -> Path:
     """The lock a run and a resume hold. Same path `AtlasController.resume` uses."""
     return _sidecar(log_path, run_id, "lock")
+
+
+def writer_lock_path(log_path: str | Path) -> Path:
+    return Path(str(log_path) + ".writer.lock")
+
+
+def hold(path: Path, *, wait: float = 0.0) -> RunLock:
+    """Take a lock or raise `ResumeRefused`; retry up to `wait` seconds."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            return RunLock(path).acquire()
+        except ResumeRefused:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
+
+
+def log_holds_a_run(log_path: str | Path) -> bool:
+    path = Path(log_path)
+    return path.exists() and bool(read_jsonl(path))
 
 
 def cancel_path(log_path: str | Path, run_id: str) -> Path:
@@ -161,6 +204,60 @@ def cancel_requested(log_path: str | Path, run_id: str) -> Callable[[], bool]:
     """The `cancelled` hook to hand `AtlasController.run`."""
     path = cancel_path(log_path, run_id)
     return path.exists
+
+
+def seal_lost_run(
+    log_path: str | Path, run_id: str, *, stop_reason: str, detail: str,
+    task: str, max_iterations: int,
+) -> str:
+    """Record the stop of a run whose worker is gone. Returns the logged stop.
+
+    Waits briefly for the dead worker's locks to be released; raises
+    `ResumeRefused` if they are not, or if the history is not a valid log.
+    """
+    if stop_reason not in STOP_REASONS:
+        raise ValueError(f"unknown stop reason {stop_reason!r}")
+    writer = hold(writer_lock_path(log_path), wait=2.0)
+    run_lock: RunLock | None = None
+    try:
+        run_lock = hold(lock_path(log_path, run_id), wait=2.0)
+        sink = JsonlSink(log_path, truncate_torn_tail=True)
+        present = read_jsonl(log_path) if Path(log_path).exists() else []
+        if any(r.get("run_id") != run_id for r in present):
+            # The CLI runs one run per log. A worker refused for that
+            # reason wrote nothing, and sealing would put a second run in.
+            raise EventLogInUse(f"{log_path} holds another run; not sealing")
+        records = _records(log_path, run_id)
+        for record in records:
+            if record.get("kind") == "run_stopped":
+                return str(record["payload"]["stop_reason"])
+        log = EventLog(run_id, sink, previous=records)
+        if not records:
+            # What the worker's own run_started would have held: the hard
+            # CLI never passes prose observations or an evidence base.
+            log.append(
+                "run_started",
+                task_sha256=digest(task),
+                max_iterations=max_iterations,
+                observations_sha256=digest([]),
+                snapshot_id=None,
+                evidence_sha256=None,
+                recorded_by="cli_parent",
+            )
+        log.append(
+            "run_stopped",
+            iteration=max((int(r.get("iteration", 0)) for r in records), default=0),
+            stop_reason=stop_reason,
+            stop_class=stop_class_of(stop_reason),
+            status=STOP_REASONS[stop_reason].status,
+            recorded_by="cli_parent",
+            detail=detail,
+        )
+        return stop_reason
+    finally:
+        if run_lock is not None:
+            run_lock.release()
+        writer.release()
 
 
 def follow_events(

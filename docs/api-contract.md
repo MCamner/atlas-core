@@ -804,9 +804,10 @@ inspection payload shapes or a stop before the final event returns exit code 1
 with a diagnostic on stderr. A run without `run_stopped` is reported as
 `interrupted`; an unfinished call remains `unknown`, never inferred as failed.
 
-One JSONL may contain several runs when writers are serialized. Concurrent runs
-must use separate event-log paths; `JsonlSink` does not claim cross-run
-shared-file writer locking.
+One JSONL may contain several runs when writers are serialized through the
+Python API. Concurrent writers are refused, not interleaved: a durable run or
+resume holds `<log>.writer.lock`, and a second one gets `EventLogInUse`. The
+CLI runs one run per event log (see Host run API).
 
 ### Host run API (v1.4)
 
@@ -835,6 +836,20 @@ run's budget boundaries; the public CLI's worker deadline stays the hard bound.
 
 Every exit from a run, including one before the first iteration, appends
 `run_stopped`.
+
+**One run per event log.** `atlas run --event-log PATH` refuses a log that
+already holds a run (exit 1, nothing written). A host stores `(run_id,
+event_log)` and uses that pair for every later command. This is a refusal of
+shared-log concurrency, not support for it.
+
+**A lost worker is sealed.** When the public CLI kills its worker (wall
+deadline, output cap, interrupt) or cannot read its result, the parent takes
+the log's locks, drops a torn tail the kill left, and appends `run_stopped`
+with `recorded_by: "cli_parent"` — preceded by `run_started` if the worker
+never wrote one. The CLI result then carries the same stop reason as the log.
+If the worker had already logged a stop, the log wins and the CLI reports
+that reason, with the transport failure under `metadata.failure`. With
+`--event-log` and no `--run-id`, the parent allocates the id so it can do this.
 
 ### Optional cooperative run budget (P0.3, partial)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Any, Callable, Literal, Mapping, cast, overload
+from contextlib import contextmanager
+from typing import Any, Callable, Iterator, Literal, Mapping, cast, overload
 import json
 from pathlib import Path
 
@@ -24,7 +25,10 @@ from .eventlog import (
     unfinished_calls,
 )
 from .evidence_base import EvidenceBase
-from .host_api import RunIdInUse, lock_path, new_run_id, validate_run_id
+from .host_api import (
+    EventLogInUse, RunIdInUse, hold, lock_path, log_holds_a_run, new_run_id,
+    validate_run_id, writer_lock_path,
+)
 from .machine import classify_stop, stop_class_of
 from .snapshot import DriftReport, detect_drift
 from .observation import Observation
@@ -189,7 +193,7 @@ class AtlasController:
             )
         if not run_id:
             raise ResumeRefused("resume requires a run id")
-        with RunLock(lock_path(self.events.path, run_id)):
+        with self._writer(), RunLock(lock_path(self.events.path, run_id)):
             return self._resume_locked(
                 task,
                 run_id=run_id,
@@ -284,6 +288,7 @@ class AtlasController:
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
         run_id: str | None = ...,
+        one_run_per_log: bool = ...,
     ) -> str: ...
 
     @overload
@@ -299,6 +304,7 @@ class AtlasController:
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
         run_id: str | None = ...,
+        one_run_per_log: bool = ...,
     ) -> dict[str, Any]: ...
 
     @overload
@@ -314,6 +320,7 @@ class AtlasController:
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
         run_id: str | None = ...,
+        one_run_per_log: bool = ...,
     ) -> str | dict[str, Any]: ...
 
     def run(
@@ -328,6 +335,7 @@ class AtlasController:
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
         run_id: str | None = None,
+        one_run_per_log: bool = False,
         _resume_records: list[dict[str, Any]] | None = None,
         _resume_token: object | None = None,
     ) -> str | dict[str, Any]:
@@ -338,6 +346,11 @@ class AtlasController:
         whole life, so `atlas status` can tell a live run from an interrupted
         one, and an id the log already holds is refused before anything is
         written: two runs under one id would be one history nobody can read.
+
+        A durable run also holds the log's writer lock, so a second process
+        appending to the same file is refused (`EventLogInUse`) rather than
+        interleaved. `one_run_per_log=True` — what the CLI passes — refuses a
+        log that already holds any run.
         """
         if run_id is not None:
             validate_run_id(run_id)
@@ -349,22 +362,45 @@ class AtlasController:
                 _resume_records=_resume_records, _resume_token=_resume_token,
             )
         run_id = run_id or new_run_id()
+        with self._writer():
+            try:
+                lock = RunLock(lock_path(self.events.path, run_id)).acquire()
+            except ResumeRefused as exc:
+                raise RunIdInUse(f"run {run_id!r} is held by a live process") from exc
+            try:
+                if one_run_per_log and log_holds_a_run(self.events.path):
+                    raise EventLogInUse(
+                        f"{self.events.path} already holds a run; "
+                        "one run per event log"
+                    )
+                if any(
+                    record.get("run_id") == run_id
+                    for record in (read_jsonl(self.events.path)
+                                   if self.events.path.exists() else [])
+                ):
+                    raise RunIdInUse(
+                        f"run {run_id!r} already exists in {self.events.path}"
+                    )
+                return self._run(
+                    task, observations=observations, evidence=evidence,
+                    json_mode=json_mode, limits=limits, cancelled=cancelled,
+                    readers=readers, observer=observer, run_id=run_id,
+                )
+            finally:
+                lock.release()
+
+    @contextmanager
+    def _writer(self) -> Iterator[None]:
+        """The log's writer lock, or `EventLogInUse`. One writer per file."""
+        assert isinstance(self.events, JsonlSink)
         try:
-            lock = RunLock(lock_path(self.events.path, run_id)).acquire()
+            lock = hold(writer_lock_path(self.events.path))
         except ResumeRefused as exc:
-            raise RunIdInUse(f"run {run_id!r} is held by a live process") from exc
+            raise EventLogInUse(
+                f"{self.events.path} is being written by another run"
+            ) from exc
         try:
-            if any(
-                record.get("run_id") == run_id
-                for record in (read_jsonl(self.events.path)
-                               if self.events.path.exists() else [])
-            ):
-                raise RunIdInUse(f"run {run_id!r} already exists in {self.events.path}")
-            return self._run(
-                task, observations=observations, evidence=evidence,
-                json_mode=json_mode, limits=limits, cancelled=cancelled,
-                readers=readers, observer=observer, run_id=run_id,
-            )
+            yield
         finally:
             lock.release()
 
