@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Roadmap v1.3 inspection and resilience completion:
+
+- Added `atlas run --event-log PATH` and read-only
+  `atlas inspect RUN_ID --event-log PATH [--json]` with validated
+  `atlas-inspect.v1` export and a concise source, uncertainty and stop report.
+- Added deterministic property-style state-transition coverage, malformed-event
+  mutation cases, parallel-run isolation tests and an end-to-end CLI
+  run-to-inspect regression.
+
 Roadmap v1.3 tool adapter contract:
 
 - `ToolDefinition` now declares route allowlists, bounded JSON input/output

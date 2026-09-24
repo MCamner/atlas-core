@@ -787,6 +787,22 @@ the smaller of the tool timeout and remaining run deadline. Nested calls are
 refused in that mode because copied accounting is not shared accounting. This
 is process isolation, not a filesystem/network privilege sandbox.
 
+### Run inspection and export
+
+`atlas run --event-log PATH` appends the run's `atlas-event.v1` records to an
+explicit JSONL destination. `atlas inspect RUN_ID --event-log PATH` selects one
+run, validates its schema, identity, contiguous sequence and terminal-event
+placement, then renders a short report. `--json` emits the published
+`schemas/atlas-inspect.v1.json` contract with
+the route, iteration count, observed source IDs, unresolved evidence gaps,
+unfinished calls, stop reason, call summary and the selected events.
+
+Inspection never repairs history. A missing run, malformed JSON, non-object
+record, wrong schema, discontinuous sequence, duplicate start/stop or a stop
+before the final event returns exit code 1 with a diagnostic on stderr. A run
+without `run_stopped` is reported as `interrupted`; an unfinished call remains
+`unknown`, never inferred as failed.
+
 ### Optional cooperative run budget (P0.3, partial)
 
 `AtlasController.run(..., limits=RunLimits(...))` shares one `RunBudget` with

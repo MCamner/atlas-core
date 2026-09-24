@@ -112,6 +112,19 @@ With JSON run log:
 atlas run "bygg målarkitektur för säker AI-assistent" --json
 ```
 
+Persist the append-only event log and inspect one run later:
+
+```bash
+atlas run "granska atlas-core" --repo-path . --event-log .atlas/events.jsonl --json
+atlas inspect <run-id> --event-log .atlas/events.jsonl
+atlas inspect <run-id> --event-log .atlas/events.jsonl --json
+```
+
+The text report names the observed sources, unresolved evidence gaps and stop
+reason. The JSON form is the machine-readable `atlas-inspect.v1` export and
+includes the validated events for that run. Inspection is read-only and fails
+on malformed or contradictory history instead of repairing it.
+
 With local memory:
 
 ```bash
@@ -156,6 +169,7 @@ them with `--repo-path` or `--repo` when the task depends on current code or CI.
 
 ```bash
 atlas run "<task>"
+atlas inspect <run-id> --event-log <events.jsonl> [--json]
 atlas routes
 atlas generate-skill ./generated-skills
 atlas version

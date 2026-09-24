@@ -260,7 +260,9 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - **Verifierad i PR #61 med grön CI; kontraktet gäller på `main` efter merge.** `ToolDefinition` bär route-, schema-, timeout-, sandbox- och retrykontrakt; gatewayen verkställer dem och varje försök delar run-budget och får egna event.
   - `isolated_process` ger hård POSIX-timeout och processavslut men påstår inte OS-isolering. `in_process` behåller nästlade anrop och har kooperativ timeout. Retry kräver uttrycklig idempotens; write/network är fortsatt blockerade i read-only-kärnan.
 - [ ] Kör unit-, schema-, kontrakts-, integration-, property-/fuzz- och regressionstester för state transitions, malformed events och flera parallella runs.
+  - **Implementerad och lokalt verifierad på `feat/v13-inspect-and-resilience`; rutan stängs efter mergad PR och CI.** Matrisen omfattar deterministiskt genererade state-transition-par, muterade eventkontrakt, 24 parallella isolerade runs och end-to-end-regression från CLI-run till inspect-export.
 - [ ] Lägg maskinläsbar `atlas inspect <run-id>`/export och en kort, mänskligt läsbar slutrapport med källor, osäkerheter och varför loopen stoppade.
+  - `atlas run --event-log PATH` skapar underlaget. `atlas inspect RUN_ID --event-log PATH [--json]` validerar vald historik fail-closed, rapporterar okända anropsutfall som osäkerhet och ger antingen kort text eller det publicerade `atlas-inspect.v1`-kontraktet.
 
 **v1.3 exit gate:** kan starta om en avbruten read-only run utan att duplicera actions; samma snapshot + fake provider ger samma beslut; schema-change och budgetöverskridande ger tydligt fel.
 

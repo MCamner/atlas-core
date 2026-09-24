@@ -10,6 +10,8 @@ from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
 from .finalizer import render_run_text
+from .eventlog import JsonlSink
+from .inspect_run import InspectError, inspect_run, render_inspection
 from .machine import STOP_REASONS, exit_codes
 from .process_guard import (
     WorkerDeadlineExceeded, WorkerOutputExceeded, run_bounded_process,
@@ -117,6 +119,11 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument('--repo-path', default=None, help='Optional local repo path to observe before running')
     run_p.add_argument('--mqobsidian-path', default=None, help='Optional mqobsidian vault path')
     run_p.add_argument('--mq-project', default=None, help='Project name for mqobsidian context')
+    run_p.add_argument('--event-log', default=None, help='Append run events to this JSONL file')
+    inspect_p = sub.add_parser('inspect', help='Inspect one run from an event log')
+    inspect_p.add_argument('run_id', help='Run ID to inspect')
+    inspect_p.add_argument('--event-log', required=True, help='JSONL event log to read')
+    inspect_p.add_argument('--json', action='store_true', help='Export the inspection as JSON')
     skill_p = sub.add_parser('generate-skill', help='Generate a ChatGPT Skill package')
     skill_p.add_argument('output_dir', help='Parent directory for the generated skill')
     skill_p.add_argument('--force', action='store_true', help='Overwrite generated skill files')
@@ -133,6 +140,17 @@ def main(argv: list[str] | None = None) -> int:
         package = generate_chatgpt_skill(args.output_dir, force=args.force)
         print(str(package))
         return 0
+    if args.command == 'inspect':
+        try:
+            report = inspect_run(args.event_log, args.run_id)
+        except InspectError as exc:
+            print(f"atlas inspect: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(render_inspection(report), end='')
+        return 0
     if args.command == 'run':
         if bool(args.mqobsidian_path) != bool(args.mq_project):
             run_p.error('--mqobsidian-path and --mq-project must be used together')
@@ -148,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
             max_iterations=args.max_iterations,
             memory_dir=args.memory_dir,
             memory_adapter=memory_adapter,
+            events=JsonlSink(args.event_log) if args.event_log else None,
         )
         if args.unsafe_legacy_unbounded:
             observations: list[str] = []
