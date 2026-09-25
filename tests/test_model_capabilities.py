@@ -191,7 +191,7 @@ class TestNothingIsAllowedUnlessAHostSaidSo(unittest.TestCase):
         with self.assertRaises(TypeError):
             _adapter(capabilities="read_file")
 
-    def test_a_name_the_registry_could_not_hold_is_refused_at_declaration(self):
+    def test_a_name_the_registry_could_not_hold_is_refused_at_declaration(self) -> None:
         names: list[Any] = ["Read_File", "read file", "../read", "", 3]
         for bad in names:
             with self.subTest(name=bad):
@@ -341,7 +341,7 @@ class TestThereIsNoSecondPath(unittest.TestCase):
 
         self.assertEqual(budget.usage()["tool_calls"], 0)
 
-    def test_arguments_that_are_not_a_string_keyed_object_reach_no_handler(self):
+    def test_arguments_that_are_not_a_string_keyed_object_reach_no_handler(self) -> None:
         registry = _Registry()
         adapter = _adapter(capabilities=["read_file"])
 

@@ -8,11 +8,11 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
-from types import ModuleType
 import unittest
+from pathlib import Path
+from types import ModuleType
 
 from atlas_core.adapters.mq import MQAgentAdapter, MQMCPAdapter, MQToolContract
 from atlas_core.adapters.mqobsidian import MQObsidianMemoryAdapter
@@ -97,7 +97,9 @@ class TestMQRepositoryContracts(unittest.TestCase):
     def test_mqobsidian_mapping_matches_owned_schema(self) -> None:
         root = _repo("ATLAS_MQOBSIDIAN_REPO")
         try:
-            import jsonschema
+            # Optional, and shipped without type stubs: this check skips when
+            # it is not installed, and Core declares no dependency on it.
+            import jsonschema  # type: ignore[import-untyped]
         except ImportError as exc:
             raise unittest.SkipTest("install jsonschema to validate mqobsidian") from exc
 
