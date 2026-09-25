@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -71,17 +72,123 @@ class TestMQObsidianMemoryAdapter(unittest.TestCase):
                 {
                     "schema": "atlas-memory-candidate.v1",
                     "created_at": "2026-09-19T10:00:00+00:00",
+                    "task": "review",
+                    "route": "repo_review",
+                    "quality_score": 1.0,
                     "summary": "candidate",
+                    "verified": True,
+                    "public_safe": True,
                 }
             )
             self.assertIsNotNone(path)
-            self.assertIn("inbox/atlas-memory-candidates", path)
+            self.assertIn("memory/observations/atlas-core.observations.jsonl", path)
             self.assertTrue(Path(path).is_file())
+
+            stored = json.loads(Path(path).read_text(encoding="utf-8"))
+            self.assertEqual(stored["schema"], "memory-observation.v1")
+            self.assertEqual(stored["producer"], "atlas-core")
+            self.assertEqual(stored["repository"], "demo")
+            self.assertTrue(stored["id"].startswith("atlas-"))
+            self.assertIn("atlas-memory-candidate.v1:sha256:", stored["evidence"][0]["reference"])
 
             with self.assertRaises(ValueError):
                 adapter.write({"schema": "runtime-truth.v1", "summary": "no"})
 
-    def test_rejects_unsafe_project_name_and_sanitizes_candidate_name(self):
+    def test_rejects_incomplete_candidate_schema(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = MQObsidianMemoryAdapter(tmp, project="demo")
+            with self.assertRaisesRegex(ValueError, "missing required"):
+                adapter.write(
+                    {
+                        "schema": "atlas-memory-candidate.v1",
+                        "created_at": "2026-09-19T10:00:00+00:00",
+                        "summary": "candidate",
+                    }
+                )
+
+    def test_rejects_values_that_cannot_map_to_memory_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = MQObsidianMemoryAdapter(tmp, project="demo")
+            base = {
+                "schema": "atlas-memory-candidate.v1",
+                "created_at": "2026-09-19T10:00:00+00:00",
+                "task": "review",
+                "route": "repo_review",
+                "quality_score": 1.0,
+                "summary": "candidate",
+                "verified": True,
+                "public_safe": True,
+            }
+            for override in (
+                {"created_at": "not-a-date"},
+                {"created_at": "2026-09-19T10:00:00"},
+                {"quality_score": 1.1},
+                {"summary": ""},
+                {"route": ""},
+            ):
+                with self.subTest(override=override), self.assertRaises(ValueError):
+                    adapter.write({**base, **override})
+
+    def test_deduplicates_equivalent_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = MQObsidianMemoryAdapter(tmp, project="demo")
+            base = {
+                "schema": "atlas-memory-candidate.v1",
+                "task": "review",
+                "route": "repo_review",
+                "quality_score": 1.0,
+                "summary": "same candidate",
+                "verified": True,
+                "public_safe": True,
+            }
+            first = adapter.write({**base, "created_at": "2026-09-19T10:00:00+00:00"})
+            second = adapter.write({**base, "created_at": "2026-09-20T10:00:00+00:00"})
+
+            self.assertEqual(first, second)
+            self.assertEqual(len(Path(first).read_text(encoding="utf-8").splitlines()), 1)
+
+    def test_refuses_to_append_to_malformed_observation_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "memory" / "observations" / "atlas-core.observations.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text("not-json\n", encoding="utf-8")
+            adapter = MQObsidianMemoryAdapter(tmp, project="demo")
+
+            with self.assertRaisesRegex(ValueError, "invalid mqobsidian observation JSONL"):
+                adapter.write(
+                    {
+                        "schema": "atlas-memory-candidate.v1",
+                        "created_at": "2026-09-19T10:00:00+00:00",
+                        "task": "review",
+                        "route": "repo_review",
+                        "quality_score": 1.0,
+                        "summary": "candidate",
+                        "verified": True,
+                        "public_safe": True,
+                    }
+                )
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "not-json\n")
+
+    def test_read_deduplicates_content_and_refuses_escape_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            vault = Path(tmp)
+            agent = vault / "memory" / "learn" / "agent"
+            system = vault / "systems" / "demo"
+            agent.mkdir(parents=True)
+            system.mkdir(parents=True)
+            (agent / "demo.md").write_text("same", encoding="utf-8")
+            (system / "hot.md").write_text("same", encoding="utf-8")
+            (Path(outside) / "index.md").write_text("escaped", encoding="utf-8")
+            (system / "index.md").symlink_to(Path(outside) / "index.md")
+
+            observations = MQObsidianMemoryAdapter(vault, project="demo").read("task")
+
+            self.assertEqual(len(observations), 1)
+            self.assertIn("sha256:", observations[0])
+            self.assertNotIn("escaped", observations[0])
+
+    def test_rejects_unsafe_project_name_and_keeps_observation_in_vault(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
                 MQObsidianMemoryAdapter(tmp, project="..")
@@ -89,11 +196,17 @@ class TestMQObsidianMemoryAdapter(unittest.TestCase):
             path = adapter.write(
                 {
                     "schema": "atlas-memory-candidate.v1",
-                    "created_at": "../../outside",
+                    "created_at": "2026-09-19T10:00:00+00:00",
+                    "task": "review",
+                    "route": "repo_review",
+                    "quality_score": 1.0,
+                    "summary": "candidate",
+                    "verified": True,
+                    "public_safe": True,
                 }
             )
-            self.assertEqual(Path(path).parent.name, "atlas-memory-candidates")
-            self.assertNotIn("..", Path(path).name)
+            self.assertEqual(Path(path).name, "atlas-core.observations.jsonl")
+            self.assertNotIn("..", str(Path(path).relative_to(tmp)))
 
     def test_controller_reads_memory_and_writes_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:

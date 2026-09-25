@@ -286,11 +286,16 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ### MQ (adaptrar, inte Core-importer)
 
-- [ ] `mq-agent`: adapter för tillåtna read-only operations och eventuell orchestration handoff; undvik två konkurrerande ägare av samma loop/state.
-- [ ] `mq-mcp`: adapter för explicit utvalda tools; respektera receiver-gates och befintliga evidence/memory-kontrakt. Ingen direkt write-around från Core.
-- [ ] `mqobsidian`: mappa memory candidates till befintligt inbox-/scoringflöde; historiskt minne är inte aktuell repo-/runtime-sanning. Deduplicering, provenance och fail-closed vid felaktigt schema.
-- [ ] Local Ollama / extern modell: provider-adaptrar med samma tester; inget provider-specifikt villkor i kärnan.
-- [ ] Håll integrationstester i separata adapters/integrations och kör standalone Core CI utan MQ, Ollama, API-nycklar eller lokala paths.
+- [x] `mq-agent`: adapter för tillåtna read-only operations och eventuell orchestration handoff; undvik två konkurrerande ägare av samma loop/state.
+  - **Verifierad lokalt i adapterkontraktet.** `MQAgentAdapter` accepterar endast en explicit allowlist av `MQToolContract` med auktoritativ `safety_class: read-only`, serialiserar resultat som märkta observationer och får varken Core-state eller evaluatoransvar. Skrivande och dubblerade kontrakt nekas före transportanrop; regressionerna finns i `tests/test_mq_adapters.py`.
+- [x] `mq-mcp`: adapter för explicit utvalda tools; respektera receiver-gates och befintliga evidence/memory-kontrakt. Ingen direkt write-around från Core.
+  - **Verifierad lokalt i adapterkontraktet.** `MQMCPAdapter` projicerar bara explicit valda read-only-kontrakt till `ToolGateway`, där route, JSON-schema, timeout och delad run-budget fortsätter gälla. Okänd, write-capable, subprocess och dangerous säkerhetsklass avvisas vid konstruktion; receiver-gaten kör före transport och ett avslag ger noll transportanrop.
+- [x] `mqobsidian`: mappa memory candidates till befintligt inbox-/scoringflöde; historiskt minne är inte aktuell repo-/runtime-sanning. Deduplicering, provenance och fail-closed vid felaktigt schema.
+  - **Verifierad lokalt mot mqobsidians kanoniska kontrakt.** Adaptern mappar fullständiga `atlas-memory-candidate.v1` till `memory-observation.v1` i `memory/observations/atlas-core.observations.jsonl`, vilket är scoringflödets ingång. Stabilt innehållshashat id ger deduplicering; producent, repo och källreferens bevaras. Tomma/ogiltiga målformat, korrupt befintlig JSONL och path escapes vägras. Läsningar märks fortsatt som historiskt minne, dedupliceras per innehåll och följer inte symlänkar ut ur vaulten.
+- [x] Local Ollama / extern modell: provider-adaptrar med samma tester; inget provider-specifikt villkor i kärnan.
+  - **Redan verifierad under P1.2, återanvänd utan en andra providerhierarki.** `LiveModelAdapter` väljer mellan deklarativa `ProviderSpec` för `ollama` och `openai_compatible`; kärnans `ModelAdapter`-kontrakt och controllergren är gemensamma. Fake-transporter täcker båda request-/responseformerna och `tests/test_live_smoke.py` är explicit opt-in. Saknad provider eller nyckel lämnar Core på den deterministiska vägen, medan ett faktiskt providerfel stoppar fail-closed.
+- [x] Håll integrationstester i separata adapters/integrations och kör standalone Core CI utan MQ, Ollama, API-nycklar eller lokala paths.
+  - **Verifierad lokalt mot tre separata repo-kontrakt.** `integrations/mq/test_mq_repository_contracts.py` jämför Atlas mot mq-mcp:s publicerade tool classes, mq-agentens säkerhetsnormalisering och mqobsidians ägda `memory-observation.v1`-schema. Med explicit konfigurerade repo-paths passerar tre tester och fyra subtests; utan dem skippar exakt tre tester. Obligatorisk Core-CI fortsätter därför utan MQ-importer, tjänster, modell, nycklar eller maskinspecifika standardpaths.
 
 **v1.4 exit gate:** UI → Core → read-only repo observation → evidensgranskad resultatrad → UI fungerar; koppla ur MQ/Ollama och bekräfta att Core fortfarande fungerar.
 

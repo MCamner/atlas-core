@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Roadmap v1.4 MQ adapter boundaries:
+
+- Added dependency-free `MQMCPAdapter` and `MQAgentAdapter` boundaries. Both
+  require explicit host-supplied contracts with authoritative `read-only`
+  safety class; unknown or write-like operations fail closed. mq-mcp tools run
+  through the existing route/schema/timeout/budget gateway, while mq-agent is
+  limited to returning labelled observations and never owns Core run state.
+- Completed the mqobsidian candidate mapping: validated
+  `atlas-memory-candidate.v1` records become deduplicated,
+  provenance-bearing `memory-observation.v1` entries in the canonical
+  `memory/observations/atlas-core.observations.jsonl` scoring input. Reads
+  deduplicate identical content and refuse symlink escapes; malformed existing
+  observation JSONL blocks appends.
+- Added a separate opt-in cross-repository contract test for mq-agent, mq-mcp
+  and mqobsidian. It validates the published safety-class and memory schemas
+  when checkout paths are supplied and skips cleanly in standalone Core CI.
+- Closed the duplicate v1.4 provider item against the existing P1.2 evidence:
+  Ollama and OpenAI-compatible providers share the same adapter contract, fake
+  transport suite and opt-in live smoke boundary.
+
 Roadmap v1.4 `--repo-path` as evidence:
 
 - `atlas run --repo-path DIR` (bounded) reads the repository as
