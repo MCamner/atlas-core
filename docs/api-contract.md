@@ -659,11 +659,48 @@ source of current runtime truth.
 
 ## Write Boundary
 
-Atlas Core does not provide repository or service mutation tools. Write-like
-tasks stop with `need_user_approval` and `approval_required`. An external
-adapter capable of mutation must obtain explicit approval immediately before
-performing that mutation; the core's keyword detection is advisory and does not
-replace adapter-side authorization.
+A loop run (`atlas run`) mutates nothing. Write-like tasks stop with
+`need_user_approval` and `approval_required`, and the core's keyword detection
+is advisory. An external adapter capable of mutation must obtain explicit
+approval immediately before performing that mutation.
+
+Core's one write is `atlas propose` (v1.5). It is a separate command, and no
+loop run reaches it:
+
+```text
+atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
+              [--test-timeout S] [--event-log PATH] [--no-input] [--json]
+```
+
+1. `DIR` must be at a clean commit (the base).
+2. The patch is refused if it is empty, over 256 KiB, or touches an absolute
+   path, a `..` component, anything under `.git`, a symlink or a submodule.
+   `git apply` also refuses a path through a symlink already in the tree.
+3. In a `--shared` clone, the patch is applied and committed. The test
+   command is split into arguments and run there without a shell, and the
+   diff is computed. `DIR` is not touched.
+4. If the tests pass, a person at a terminal reads the whole diff and the test
+   result and types the first 12 characters of the operation digest. Anything
+   else refuses. With no terminal (`--no-input` or the patch on stdin),
+   nothing is asked and nothing is written.
+5. On that yes, `create_branch` runs once through `invoke_write`: it fetches
+   the one commit, checks that its parent is the base and that its diff has
+   the approved digest, and creates the ref with
+   `git update-ref refs/heads/atlas/NAME <commit> <zero>`. Git refuses that
+   if the branch appeared meanwhile.
+
+It never moves HEAD, changes the worktree, pushes or merges, and it can only
+name a branch under `atlas/`.
+
+| Outcome | Exit |
+| --- | --- |
+| `branch_created` | 0 |
+| refused input, dirty or moved repository, or a branch that exists or appeared meanwhile | 1 |
+| `tests_failed` (no person is asked) | 2 |
+| `approval_required` (nobody to ask) or `refused` (wrong answer) | 3 |
+
+`--event-log` records the approval steps (`approval_recorded`) and the write
+call. It is an audit log, not a run log: it has no `run_started`.
 
 ### A live model provider (P1.2, partial)
 

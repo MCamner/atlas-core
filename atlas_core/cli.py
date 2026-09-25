@@ -24,6 +24,9 @@ from .process_guard import (
     WorkerDeadlineExceeded, WorkerOutputExceeded, run_bounded_process,
 )
 from .state import AtlasRunState
+from .approval import ApprovalRejected
+from .eventlog import EventLog
+from .patch_proposal import OUTCOMES, ProposalRefused, propose
 
 # Exit codes are derived from the same table the controller enforces.
 EXIT_CODES: dict[str, int] = exit_codes()
@@ -217,6 +220,45 @@ def _host_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _propose(args: argparse.Namespace) -> int:
+    """Exit 0 branch created, 1 refused input, 2 tests failed, 3 not approved."""
+    import getpass, shlex
+
+    try:
+        test_argv = shlex.split(args.test)
+        patch = sys.stdin.buffer.read() if args.patch == '-' else Path(args.patch).read_bytes()
+    except (OSError, ValueError) as exc:
+        print(f"atlas propose: {exc}", file=sys.stderr)
+        return 1
+    # A person answers at a terminal, or nobody does. The patch on stdin
+    # leaves no terminal to answer from.
+    interactive = not args.no_input and args.patch != '-' and sys.stdin.isatty()
+
+    def ask(text: str) -> str:
+        print(text, file=sys.stderr)
+        print("Type the first 12 characters of the operation to create the branch; "
+              "anything else refuses.", file=sys.stderr)
+        return input("approve> ")
+
+    log = None
+    if args.event_log:
+        log = EventLog(new_run_id(), JsonlSink(args.event_log))
+    try:
+        result = propose(
+            args.repo, patch, args.branch, test_argv,
+            ask=ask if interactive else None, granted_by=getpass.getuser(),
+            log=log, test_timeout=args.test_timeout,
+        )
+    except (ProposalRefused, ApprovalRejected) as exc:
+        print(f"atlas propose: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"{result['outcome']}: {result['branch']} -> {result['commit']}")
+    return OUTCOMES[result['outcome']]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='atlas', description='Atlas Core loop engine')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -257,6 +299,16 @@ def main(argv: list[str] | None = None) -> int:
     skill_p = sub.add_parser('generate-skill', help='Generate a ChatGPT Skill package')
     skill_p.add_argument('output_dir', help='Parent directory for the generated skill')
     skill_p.add_argument('--force', action='store_true', help='Overwrite generated skill files')
+    propose_p = sub.add_parser(
+        'propose', help='Propose a patch as a new atlas/* branch; writes only on approval')
+    propose_p.add_argument('--repo', required=True, help='Local git repository at a clean commit')
+    propose_p.add_argument('--patch', required=True, help='Unified diff file, or - for stdin (never approvable)')
+    propose_p.add_argument('--branch', required=True, help='New branch, atlas/<name>')
+    propose_p.add_argument('--test', required=True, help='Test command, split into arguments and run without a shell')
+    propose_p.add_argument('--test-timeout', type=float, default=300.0, help='Seconds before the tests are stopped')
+    propose_p.add_argument('--event-log', default=None, help='Append approval and write events to this JSONL file')
+    propose_p.add_argument('--no-input', action='store_true', help='Never ask; stop at approval_required')
+    propose_p.add_argument('--json', action='store_true', help='Print the outcome as JSON')
     sub.add_parser('routes', help='List available routes')
     sub.add_parser('version', help='Show version')
     args = parser.parse_args(argv)
@@ -275,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command in ('status', 'cancel', 'events'):
         return _host_command(args)
+    if args.command == 'propose':
+        return _propose(args)
     if args.command == 'inspect':
         try:
             report = inspect_run(args.event_log, args.run_id)

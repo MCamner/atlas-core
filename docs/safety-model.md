@@ -154,7 +154,10 @@ read-only mounts/network policy. Windows currently fails closed for this API.
   events log requested, granted, refused, consumed and rejected, each with its
   reason. A write tool is never retried. Approval-like model prose still
   confers nothing: the model never holds a token, and no path from model text
-  reaches `invoke_write`. The CLI does not register a write tool yet.
+  reaches `invoke_write`. The one CLI path that registers a write tool is
+  `atlas propose` (see `docs/api-contract.md`, *Write Boundary*). It creates
+  a new `atlas/*` branch by compare-and-swap after a person at a terminal
+  types the operation's code, and nothing else.
 - **Text is not evidence.** README/tool-output prompt injection cannot itself
   register a tool or grant permission, but Core does not guarantee that an
   arbitrary external model ignores malicious text.

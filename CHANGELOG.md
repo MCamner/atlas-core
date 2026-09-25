@@ -21,8 +21,16 @@ Roadmap v1.5 write capability with approval:
   monotonic clock, and the wall clock only dates the audit.
 - New event kind `approval_recorded` (`requested`, `granted`, `refused`,
   `consumed` and `rejected`, with a reason). It never carries the token.
-- No CLI path registers a write tool yet. The first write use case is the next
-  v1.5 item.
+- `atlas propose` is the first write use case. It applies a patch and runs the
+  tests in a `--shared` clone, shows the diff and the test result, and asks a
+  person at a terminal to type the operation's code. On that yes it creates
+  `refs/heads/atlas/<name>` with `git update-ref <ref> <commit> <zero>`, which
+  git refuses if the branch appeared meanwhile.
+  - It never moves HEAD, touches the worktree, pushes or merges.
+  - Patches that reach outside the repository, into `.git`, through a
+    symlink, or that create a symlink or submodule are refused.
+  - Test commands run without a shell.
+  - Failing tests and a missing terminal both write nothing.
 
 Roadmap v1.4 MQ adapter boundaries:
 
