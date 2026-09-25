@@ -159,6 +159,7 @@ def collect_observation(
     *,
     max_lines: int = DEFAULT_MAX_LINES,
     confidentiality: str | None = None,
+    max_bytes: int | None = None,
 ) -> Observation:
     """Read one file under the snapshot and record it with its provenance.
 
@@ -172,9 +173,14 @@ def collect_observation(
     below the excerpt bound still marks the source. A caller that states a
     class is not overruled: someone who knows the source knows more than a
     pattern does.
+
+    The read goes through `read_within`: the name must stay inside the root
+    and the open refuses a final component that has become a link. With
+    `max_bytes`, a larger source raises `SourceTooLarge` instead of being read
+    in full — the digest covers the whole source, so the only safe bound is a
+    refusal.
     """
-    path = Path(snapshot.root) / relative_path
-    content = path.read_text(encoding="utf-8", errors="replace")
+    content = read_within(snapshot.root, relative_path, max_bytes=max_bytes)
     excerpt, line_start, line_end = _excerpt(content, max_lines)
     total_lines = len(content.splitlines())
     if confidentiality is None:

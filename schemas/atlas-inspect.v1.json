@@ -35,6 +35,20 @@
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
     },
+    "source_details": {
+      "description": "Optional. Where each source is and the digest of the bytes the run last graded, from observation_recorded. A supersession replaces the digest; events keeps every reading. `unknown` where an older log did not record a field.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "path", "content_sha256"],
+        "properties": {
+          "source_id": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "content_sha256": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "uncertainties": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },

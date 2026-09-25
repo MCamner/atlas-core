@@ -41,6 +41,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from .budget import RunBudget
 from .observation import Observation
 from .snapshot import Snapshot
 
@@ -94,13 +95,19 @@ class Observer(Protocol):
     capability in P0 or P1, and adding one here would put it exactly where
     nothing is watching.
 
-    Implementations must respect the run's budget and deadline. The loop checks
-    both before and after the call, which bounds *when* a round may start and
-    when its result is accepted; it cannot preempt a synchronous host, and this
+    The loop hands over the run's own `RunBudget`, the same object a model
+    adapter receives. It is a handle to this run, not part of what was asked,
+    which is why it travels beside the request instead of inside it: the
+    request is what the event log digests. An implementation reserves a tool
+    call per read and checks the budget between reads, so a read that no quota
+    or deadline covers cannot happen through this door. The loop also checks
+    before and after the call; it cannot preempt a synchronous host, and this
     module does not pretend otherwise. See `docs/safety-model.md`.
     """
 
-    def observe(self, request: ObservationRequest) -> list[Observation]: ...
+    def observe(
+        self, request: ObservationRequest, *, budget: RunBudget
+    ) -> list[Observation]: ...
 
 
 @dataclass(frozen=True)

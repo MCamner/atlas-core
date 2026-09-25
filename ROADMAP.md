@@ -288,6 +288,8 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **v1.4 exit gate:** UI → Core → read-only repo observation → evidensgranskad resultatrad → UI fungerar; koppla ur MQ/Ollama och bekräfta att Core fortfarande fungerar.
 
+- **Core-steget "read-only repo observation → evidensgranskad" är implementerat och lokalt verifierat på `feat/v14-repo-path-evidence`; noteringen uppdateras efter mergad PR och CI.** `--repo-path` läses som `Observation.v1` via `FilesystemRepoObserver`, inne i körningen och på dess budget. Källorna når evaluatorn, driftkontrollen, `observation_recorded` och `atlas inspect` (`source_details` med sökväg och SHA-256). Gräns: den regelbaserade executorn gör inga påståenden, så en körning utan modell får `citation_checks: []`. Citatgranskning mot repot kräver en producent som skriver findings, och det testas med en stubbad modell.
+
 ## P2 — v1.5 Skrivflöden, insikter och operativ kvalitet
 
 - [ ] Separat write-capability med explicit mänskligt godkännande av exakt diff/kommando/ref; tidsbegränsat approval-token, återvalidering av HEAD/snapshot, minst privilegium och audit event.

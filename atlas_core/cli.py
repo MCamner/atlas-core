@@ -1,16 +1,19 @@
 from __future__ import annotations
 import argparse, json, sys
+from pathlib import Path
 from typing import Any, Callable, Literal
 from .budget import RunBudget, RunLimits
 from . import __version__
 from .controller import AtlasController
 from .router import list_routes
-from .adapters.filesystem_repo import FilesystemRepoAdapter
+from .adapters.filesystem_repo import FilesystemRepoAdapter, FilesystemRepoObserver
 from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
 from .finalizer import render_run_text
 from .eventlog import JsonlSink, ResumeRefused
+from .evidence_base import EvidenceBase
+from .snapshot import take_snapshot
 from .inspect_run import InspectError, inspect_run, render_inspection
 from .host_api import (
     EventLogInUse, FollowEnded, RunIdInUse, log_holds_a_run, seal_lost_run, cancel_requested, dump_jsonl, follow_events,
@@ -228,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument('--json', action='store_true', help='Print full run state as JSON')
     run_p.add_argument('--repo', default=None, help='Optional GitHub repo in owner/name form to observe before running')
     run_p.add_argument('--repo-ref', default=None, help='Optional branch/ref for --repo')
-    run_p.add_argument('--repo-path', default=None, help='Optional local repo path to observe before running')
+    run_p.add_argument('--repo-path', default=None, help='Local repo read as evidence (Observation.v1) inside the run')
     run_p.add_argument('--mqobsidian-path', default=None, help='Optional mqobsidian vault path')
     run_p.add_argument('--mq-project', default=None, help='Project name for mqobsidian context')
     run_p.add_argument('--event-log', default=None, help='Append run events to this JSONL file')
@@ -296,6 +299,11 @@ def main(argv: list[str] | None = None) -> int:
         # Memory and the historical unbounded behaviour demand explicit opt-in.
         if not args.unsafe_legacy_unbounded and (args.memory_dir or args.mqobsidian_path):
             run_p.error('memory output requires --unsafe-legacy-unbounded')
+        # Before the worker hop: a usage error inside the worker would reach
+        # the parent as an unreadable result instead of as a usage error.
+        if (args.repo_path and not args.unsafe_legacy_unbounded
+                and not Path(args.repo_path).expanduser().is_dir()):
+            run_p.error(f'--repo-path is not a directory: {args.repo_path}')
         if argv is None and not args.unsafe_legacy_unbounded:
             return _run_hard_cli(args)
         memory_adapter = None
@@ -323,11 +331,13 @@ def main(argv: list[str] | None = None) -> int:
             ))
         else:
             readers: list[Callable[[str, RunBudget], list[str]]] = []
+            evidence: EvidenceBase | None = None
+            observer: FilesystemRepoObserver | None = None
             if args.repo_path:
-                local_adapter = FilesystemRepoAdapter(args.repo_path)
-                def read_local(task: str, budget: RunBudget) -> list[str]:
-                    return local_adapter.observe(task, budget=budget)
-                readers.append(read_local)
+                # Evidence, not prose: an empty base bound to one snapshot, and
+                # the observer reads into it inside the run, on the run's budget.
+                evidence = EvidenceBase(take_snapshot(args.repo_path))
+                observer = FilesystemRepoObserver(args.repo_path)
             if args.repo:
                 github_adapter = GitHubRepoAdapter(args.repo, ref=args.repo_ref)
                 def read_github(task: str, budget: RunBudget) -> list[str]:
@@ -339,7 +349,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_bytes=args.max_output_bytes,
             )
             run = _start(lambda: controller.run(
-                args.task, readers=readers, limits=limits, json_mode=True,
+                args.task, readers=readers, evidence=evidence, observer=observer,
+                read_first=observer is not None, limits=limits, json_mode=True,
                 run_id=args.run_id, cancelled=cancelled,
                 one_run_per_log=bool(args.event_log),
             ))

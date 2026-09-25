@@ -30,13 +30,14 @@ def _run_worker(
     observations: list[str] | None, evidence: EvidenceBase | None,
     readers: list[Callable[[str, RunBudget], list[str]]] | None,
     limits: RunLimits, observer: Observer | None = None,
+    read_first: bool = False,
 ) -> None:
     # Start an independent POSIX session before any model or source reads.
     os.setsid()
     try:
         run = controller.run(
             task, observations=observations, evidence=evidence, readers=readers,
-            observer=observer, json_mode=True, limits=limits,
+            observer=observer, read_first=read_first, json_mode=True, limits=limits,
         )
         run.setdefault('metadata', {})['isolation'] = 'spawned_process'
         payload: dict[str, Any] = {'kind': 'run', 'run': run}
@@ -95,6 +96,7 @@ def run_isolated(
     evidence: EvidenceBase | None = None,
     readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
     observer: Observer | None = None,
+    read_first: bool = False,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a controller with a parent-enforced hard POSIX deadline.
@@ -113,7 +115,8 @@ def run_isolated(
     receive, send = ctx.Pipe(duplex=False)
     process = ctx.Process(
         target=_run_worker,
-        args=(send, controller, task, observations, evidence, readers, limits, observer),
+        args=(send, controller, task, observations, evidence, readers, limits, observer,
+              read_first),
         daemon=False,
     )
     deadline = time.monotonic() + limits.wall_seconds

@@ -241,8 +241,9 @@ def seal_lost_run(
                 return str(record["payload"]["stop_reason"]), False
         log = EventLog(run_id, sink, previous=records)
         if not records:
-            # What the worker's own run_started would have held: the hard
-            # CLI never passes prose observations or an evidence base.
+            # What the parent knows. The hard CLI passes no prose
+            # observations; with --repo-path the worker's snapshot was taken
+            # in the worker, so the parent records none rather than a guess.
             log.append(
                 "run_started",
                 task_sha256=digest(task),

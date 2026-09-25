@@ -34,6 +34,7 @@ from .snapshot import DriftReport, detect_drift
 from .observation import Observation
 from .observer import (
     ObservationRefused,
+    ObservationRequest,
     Observer,
     merge_observations,
     request_from,
@@ -140,6 +141,24 @@ def _failure_signature(evaluation: AtlasEvaluation) -> tuple[Any, ...]:
     )
 
 
+
+def _round_material(round_result: Any) -> set[tuple[str, str]]:
+    """The (source_id, digest) pairs one round adopted."""
+    return {
+        (item.source_id, item.content_sha256) for item in round_result.added
+    } | {(item.source_id, item.new_sha256) for item in round_result.superseded}
+
+
+def _logged_round_material(payload: Mapping[str, Any]) -> set[tuple[str, str]]:
+    """The same pairs, read back from an `observation_recorded` payload."""
+    return {
+        (str(item.get("source_id")), str(item.get("sha256")))
+        for item in payload.get("added", [])
+    } | {
+        (str(item.get("source_id")), str(item.get("new_sha256")))
+        for item in payload.get("superseded", [])
+    }
+
 class AtlasController:
     def __init__(
         self,
@@ -179,6 +198,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        read_first: bool = False,
     ) -> str | dict[str, Any]:
         """Resume one interrupted read-only run from its durable event log.
 
@@ -204,6 +224,7 @@ class AtlasController:
                 cancelled=cancelled,
                 readers=readers,
                 observer=observer,
+                read_first=read_first,
             )
 
     def _resume_locked(
@@ -218,6 +239,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None,
         observer: Observer | None,
+        read_first: bool,
     ) -> str | dict[str, Any]:
         assert isinstance(self.events, JsonlSink)
         records = [
@@ -271,6 +293,7 @@ class AtlasController:
             cancelled=cancelled,
             readers=readers,
             observer=observer,
+            read_first=read_first,
             _resume_records=records,
             _resume_token=_RESUME_TOKEN,
         )
@@ -287,6 +310,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        read_first: bool = ...,
         run_id: str | None = ...,
         one_run_per_log: bool = ...,
     ) -> str: ...
@@ -303,6 +327,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        read_first: bool = ...,
         run_id: str | None = ...,
         one_run_per_log: bool = ...,
     ) -> dict[str, Any]: ...
@@ -319,6 +344,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        read_first: bool = ...,
         run_id: str | None = ...,
         one_run_per_log: bool = ...,
     ) -> str | dict[str, Any]: ...
@@ -334,6 +360,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        read_first: bool = False,
         run_id: str | None = None,
         one_run_per_log: bool = False,
         _resume_records: list[dict[str, Any]] | None = None,
@@ -358,7 +385,7 @@ class AtlasController:
             return self._run(
                 task, observations=observations, evidence=evidence,
                 json_mode=json_mode, limits=limits, cancelled=cancelled,
-                readers=readers, observer=observer, run_id=run_id,
+                readers=readers, observer=observer, read_first=read_first, run_id=run_id,
                 _resume_records=_resume_records, _resume_token=_resume_token,
             )
         run_id = run_id or new_run_id()
@@ -384,7 +411,7 @@ class AtlasController:
                 return self._run(
                     task, observations=observations, evidence=evidence,
                     json_mode=json_mode, limits=limits, cancelled=cancelled,
-                    readers=readers, observer=observer, run_id=run_id,
+                    readers=readers, observer=observer, read_first=read_first, run_id=run_id,
                 )
             finally:
                 lock.release()
@@ -415,6 +442,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        read_first: bool = False,
         run_id: str | None = None,
         _resume_records: list[dict[str, Any]] | None = None,
         _resume_token: object | None = None,
@@ -482,6 +510,13 @@ class AtlasController:
                 snapshot_id=_evidence_identity(evidence)[0],
             )
         budget = RunBudget(limits, cancelled=cancelled) if limits is not None else None
+        #: What each observation round of the interrupted run adopted, in order.
+        #: Empty for a fresh run.
+        recorded_rounds = [
+            _logged_round_material(record["payload"])
+            for record in _resume_records or ()
+            if record.get("kind") == "observation_recorded"
+        ]
         gateway = (
             ToolGateway(budget=budget, tools=self.tools, log=log)
             if budget is not None and self.tools
@@ -633,6 +668,14 @@ class AtlasController:
                 question=review.question if review is not None else "",
             )
             state.enter("observing")
+            return observe_round(request, patterns)
+
+        def observe_round(request: ObservationRequest, patterns: list[str]) -> str:
+            """One round of reading: ask the host, merge, log. See `read_again`
+            for the failure rules; the first read before iteration one takes
+            the same round, so it cannot bypass them."""
+            base = state.evidence_base
+            assert base is not None and budget is not None  # guarded at the call
             # Started before the host is asked, for the same reason a model
             # call is: an interruption during the read must not read as a call
             # that never began. Without this, the one path where bytes change
@@ -659,7 +702,7 @@ class AtlasController:
 
             try:
                 budget.check()
-                incoming = observer.observe(request)  # type: ignore[union-attr]
+                incoming = observer.observe(request, budget=budget)  # type: ignore[union-attr]
                 merged, round_result = merge_observations(
                     base.snapshot, base.observations, list(incoming)
                 )
@@ -684,8 +727,6 @@ class AtlasController:
                     "message": str(exc)[:MAX_FAILURE_MESSAGE],
                 }
                 return "stopped"
-            finish_read("ok")
-
             already_resolved = {
                 pattern
                 for previous in state.metadata.get("observation_rounds", [])
@@ -694,6 +735,50 @@ class AtlasController:
             newly_resolved = [
                 pattern for pattern in patterns if pattern not in already_resolved
             ]
+            fresh: list[Observation] = list(round_result.added) + [
+                observation
+                for observation in merged
+                if observation.source_id
+                in {item.source_id for item in round_result.superseded}
+            ]
+
+            # A resumed run replays from the start and reads again. The bytes
+            # the interrupted run recorded for this round are what it graded;
+            # a replay that reads different ones is not the same run, so it
+            # stops `blocked` — the ground moved — before anything is adopted.
+            committed = len(state.metadata.get("observation_rounds", []))
+            if committed < len(recorded_rounds):
+                expected = recorded_rounds[committed]
+                got = _round_material(round_result)
+                if got != expected:
+                    finish_read("ok")
+                    state.metadata["resume_evidence_changed"] = {
+                        "round": committed,
+                        "source_ids": sorted(
+                            {sid for sid, _ in expected ^ got}
+                        ),
+                    }
+                    state.stop("blocked")
+                    return "stopped"
+
+            # Charged before anything is adopted. A round the budget cannot
+            # pay for is not accepted: no evidence, no log entry, no context.
+            contexts = [
+                f"{observation.path}:\n{observation.excerpt}" for observation in fresh
+            ]
+            try:
+                for context in contexts:
+                    budget.charge_output(context)
+            except RunCancelled:
+                finish_read("failed", "RunCancelled")
+                state.stop("cancelled")
+                return "stopped"
+            except BudgetExceeded as exc:
+                finish_read("denied", type(exc).__name__)
+                state.metadata["budget_exhausted"] = str(exc)
+                state.stop("budget_exhausted")
+                return "stopped"
+            finish_read("ok")
 
             record = round_result.to_dict()
             record["iteration"] = state.iteration
@@ -714,13 +799,20 @@ class AtlasController:
                     iteration=state.iteration,
                     patterns=list(patterns),
                     requested=round_result.requested,
+                    # The path too, so `inspect` can say where a source is and
+                    # not only its id. Masked with the rest of the payload.
                     added=[
-                        {"source_id": item.source_id, "sha256": item.content_sha256}
+                        {
+                            "source_id": item.source_id,
+                            "path": item.path,
+                            "sha256": item.content_sha256,
+                        }
                         for item in round_result.added
                     ],
                     superseded=[
                         {
                             "source_id": item.source_id,
+                            "path": item.path,
                             "previous_sha256": item.previous_sha256,
                             "new_sha256": item.new_sha256,
                         }
@@ -743,28 +835,11 @@ class AtlasController:
                 return "nothing"
 
             state.evidence_base = base.with_observations(merged)
-            fresh: list[Observation] = list(round_result.added) + [
-                observation
-                for observation in merged
-                if observation.source_id
-                in {item.source_id for item in round_result.superseded}
-            ]
-            try:
-                for observation in fresh:
-                    # The prose channel is how a producer learns what is now
-                    # available; the evidence base is what gets checked. Both
-                    # are needed, and they stay separate: this text is context,
-                    # and nothing turns it back into an observation.
-                    context = f"{observation.path}:\n{observation.excerpt}"
-                    budget.charge_output(context)
-                    state.observations.append(context)
-            except RunCancelled:
-                state.stop("cancelled")
-                return "stopped"
-            except BudgetExceeded as exc:
-                state.metadata["budget_exhausted"] = str(exc)
-                state.stop("budget_exhausted")
-                return "stopped"
+            # The prose channel is how a producer learns what is now available;
+            # the evidence base is what gets checked. Both are needed, and they
+            # stay separate: this text is context, and nothing turns it back
+            # into an observation.
+            state.observations.extend(contexts)
             return "new"
 
         #: One material signature per graded pass, in order. See
@@ -830,6 +905,31 @@ class AtlasController:
             if budget is not None:
                 state.metadata["budget_usage"] = budget.usage()
             return stopped()
+        if (
+            read_first
+            and observer is not None
+            and state.evidence_base is not None
+            and state.evidence_base.is_empty()
+        ):
+            # The first read, when the host asks for it. Without `read_first` a
+            # run starts from what it was handed and reads when an evaluation
+            # names a gap (P1.1). With it, the observer is asked before
+            # iteration one, so the first answer is graded against sources.
+            # It asks what the plan will ask: the plan is derived from the task
+            # and the snapshot, so it is known before the loop builds it.
+            first_plan = build_plan(
+                task, select_route(task), state.evidence_base.snapshot.snapshot_id
+            )
+            first_patterns = list(first_plan.review.patterns) if first_plan.review else []
+            first_request = request_from(
+                state.evidence_base.snapshot, [], [], [], 0,
+                patterns=first_patterns,
+                question=first_plan.review.question if first_plan.review else "",
+            )
+            if observe_round(first_request, first_patterns) == "stopped":
+                assert budget is not None  # an observer requires RunLimits
+                state.metadata["budget_usage"] = budget.usage()
+                return stopped()
         while state.iteration < state.max_iterations:
             if expired():
                 break

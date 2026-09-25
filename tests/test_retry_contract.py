@@ -81,7 +81,7 @@ class _Host:
         self.snapshot = snapshot
         self.calls = 0
 
-    def observe(self, request: Any) -> list[Observation]:
+    def observe(self, request: Any, *, budget: object = None) -> list[Observation]:
         self.calls += 1
         names = sorted(
             path.name

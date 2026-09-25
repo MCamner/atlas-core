@@ -201,7 +201,7 @@ class TestTheWholeLoop(_Repo):
         read: list[Observation] = []
 
         class _Host:
-            def observe(self, request: ObservationRequest) -> list[Observation]:
+            def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
                 host_requests.append(request)
                 # A host resolves the plan's patterns itself. Core named what
                 # it needed; finding the files is the host's half.
