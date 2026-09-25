@@ -255,6 +255,7 @@ CONTRACTS: dict[str, Contract] = {
                 "stop_reason": "derived",
                 "stop_class": "derived",
                 "sources": "derived",
+                "source_details": "derived",
                 "uncertainties": "derived",
                 "unfinished_calls": "derived",
                 "calls": "derived",

@@ -214,8 +214,10 @@ after `---` is the loop's own accounting: which route it picked, how many
 iterations it used against the bound, and whether evaluation let it stop.
 
 Note the route: the task says `atlas`, so the router picks `prompt_improvement`,
-not `repo_review`. The `--repo-path` observations still reach the output —
-every route renders what it was given under `Sources inspected`.
+not `repo_review`. The `--repo-path` sources still reach the output —
+every route renders what it was given under `Sources inspected` — and they are
+evidence: each is an `Observation.v1` bound to one snapshot, and `atlas inspect`
+lists it with its path and SHA-256.
 
 ```text
 $ atlas run "granska atlas-core och hitta nästa bästa förbättring" --repo-path .

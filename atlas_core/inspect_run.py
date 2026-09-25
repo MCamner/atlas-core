@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .eventlog import EventLog, ResumeRefused, call_states, read_jsonl
+from .observation import UNKNOWN
 
 INSPECT_SCHEMA = "atlas-inspect.v1"
 
@@ -108,6 +109,8 @@ def _validate_history(records: list[dict[str, Any]], run_id: str) -> EventLog:
                         item.get("source_id"),
                         where=f"{kind}.{field}.source_id",
                     )
+                    if "path" in item:
+                        _nonempty_text(item["path"], where=f"{kind}.{field}.path")
             for item in _payload_list(payload, "unchanged", kind=kind):
                 _nonempty_text(item, where=f"{kind}.unchanged item")
 
@@ -154,14 +157,30 @@ def inspect_run(path: str | Path, run_id: str) -> dict[str, Any]:
         record for record in records if record["kind"] == "observation_recorded"
     ]
     sources: list[object] = []
+    # Where each source is and which bytes the run last graded, by id. A
+    # supersession replaces the digest, since the newer reading is what the
+    # run went on with; the log keeps both. A log written before paths were
+    # recorded says `unknown` rather than leaving the entry out.
+    details: dict[str, dict[str, str]] = {}
     for record in observations:
         payload = record["payload"]
         for item in payload.get("added", []):
             if isinstance(item, Mapping):
                 sources.append(item.get("source_id", ""))
+                details[str(item["source_id"])] = {
+                    "source_id": str(item["source_id"]),
+                    "path": str(item.get("path") or UNKNOWN),
+                    "content_sha256": str(item.get("sha256") or UNKNOWN),
+                }
         for item in payload.get("superseded", []):
             if isinstance(item, Mapping):
                 sources.append(item.get("source_id", ""))
+                previous = details.get(str(item["source_id"]), {})
+                details[str(item["source_id"])] = {
+                    "source_id": str(item["source_id"]),
+                    "path": str(item.get("path") or previous.get("path") or UNKNOWN),
+                    "content_sha256": str(item.get("new_sha256") or UNKNOWN),
+                }
         sources.extend(payload.get("unchanged", []))
 
     states = call_states(log)
@@ -185,6 +204,7 @@ def inspect_run(path: str | Path, run_id: str) -> dict[str, Any]:
         "stop_reason": stopped.get("stop_reason"),
         "stop_class": stopped.get("stop_class"),
         "sources": _unique_strings(sources),
+        "source_details": list(details.values()),
         "uncertainties": _unique_strings(uncertainties),
         "unfinished_calls": unfinished,
         "calls": {
@@ -215,6 +235,10 @@ def render_inspection(report: Mapping[str, Any]) -> str:
             f"Route: {report.get('route') or 'unknown'}",
             f"Iterations: {report.get('iterations', 0)}",
             f"Sources: {sources}",
+            *(
+                f"  {item['path']}  sha256:{item['content_sha256']}"
+                for item in report.get("source_details", [])
+            ),
             f"Uncertainties: {uncertainties}",
             f"Stopped: {stopped}",
         ]

@@ -80,7 +80,7 @@ class _Host:
         self.requests: list[ObservationRequest] = []
         self.returned: list[list[Observation]] = []
 
-    def observe(self, request: ObservationRequest) -> list[Observation]:
+    def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
         self.requests.append(request)
         fresh = (
             list(self.stale)
@@ -273,7 +273,7 @@ class TestNothingNewIsNotARetry(_Base):
             def __init__(self) -> None:
                 self.calls = 0
 
-            def observe(self, request: ObservationRequest) -> list[Observation]:
+            def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
                 self.calls += 1
                 return []
 
@@ -315,7 +315,7 @@ class TestNothingNewIsNotARetry(_Base):
 class TestFailClosed(_Base):
     def test_a_host_that_raises_ends_the_run_as_a_runtime_failure(self):
         class _Boom:
-            def observe(self, request: ObservationRequest) -> list[Observation]:
+            def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
                 raise TimeoutError("source unreachable")
 
         (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
@@ -335,7 +335,7 @@ class TestFailClosed(_Base):
         foreign = take_snapshot(other)
 
         class _Foreign:
-            def observe(self, request: ObservationRequest) -> list[Observation]:
+            def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
                 return [collect_observation(foreign, "README.md")]
 
         (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
@@ -349,7 +349,7 @@ class TestFailClosed(_Base):
     def test_a_failed_round_produces_no_finding_and_no_grade(self):
         """Fail closed: a runtime failure is not a verdict about an answer."""
         class _Boom:
-            def observe(self, request: ObservationRequest) -> list[Observation]:
+            def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
                 raise OSError("disk went away")
 
         (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
@@ -362,7 +362,7 @@ class TestFailClosed(_Base):
     def test_an_exhausted_budget_during_a_round_is_not_a_tool_error(self):
         """A limit is a control stop; the machinery did not fail."""
         class _Greedy:
-            def observe(self, request: ObservationRequest) -> list[Observation]:
+            def observe(self, request: ObservationRequest, *, budget: object = None) -> list[Observation]:
                 raise BudgetExceeded("wall_seconds")
 
         (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")

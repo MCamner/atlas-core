@@ -34,6 +34,7 @@ from .snapshot import DriftReport, detect_drift
 from .observation import Observation
 from .observer import (
     ObservationRefused,
+    ObservationRequest,
     Observer,
     merge_observations,
     request_from,
@@ -179,6 +180,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        read_first: bool = False,
     ) -> str | dict[str, Any]:
         """Resume one interrupted read-only run from its durable event log.
 
@@ -204,6 +206,7 @@ class AtlasController:
                 cancelled=cancelled,
                 readers=readers,
                 observer=observer,
+                read_first=read_first,
             )
 
     def _resume_locked(
@@ -218,6 +221,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None,
         observer: Observer | None,
+        read_first: bool,
     ) -> str | dict[str, Any]:
         assert isinstance(self.events, JsonlSink)
         records = [
@@ -271,6 +275,7 @@ class AtlasController:
             cancelled=cancelled,
             readers=readers,
             observer=observer,
+            read_first=read_first,
             _resume_records=records,
             _resume_token=_RESUME_TOKEN,
         )
@@ -287,6 +292,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        read_first: bool = ...,
         run_id: str | None = ...,
         one_run_per_log: bool = ...,
     ) -> str: ...
@@ -303,6 +309,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        read_first: bool = ...,
         run_id: str | None = ...,
         one_run_per_log: bool = ...,
     ) -> dict[str, Any]: ...
@@ -319,6 +326,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = ...,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = ...,
         observer: Observer | None = ...,
+        read_first: bool = ...,
         run_id: str | None = ...,
         one_run_per_log: bool = ...,
     ) -> str | dict[str, Any]: ...
@@ -334,6 +342,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        read_first: bool = False,
         run_id: str | None = None,
         one_run_per_log: bool = False,
         _resume_records: list[dict[str, Any]] | None = None,
@@ -358,7 +367,7 @@ class AtlasController:
             return self._run(
                 task, observations=observations, evidence=evidence,
                 json_mode=json_mode, limits=limits, cancelled=cancelled,
-                readers=readers, observer=observer, run_id=run_id,
+                readers=readers, observer=observer, read_first=read_first, run_id=run_id,
                 _resume_records=_resume_records, _resume_token=_resume_token,
             )
         run_id = run_id or new_run_id()
@@ -384,7 +393,7 @@ class AtlasController:
                 return self._run(
                     task, observations=observations, evidence=evidence,
                     json_mode=json_mode, limits=limits, cancelled=cancelled,
-                    readers=readers, observer=observer, run_id=run_id,
+                    readers=readers, observer=observer, read_first=read_first, run_id=run_id,
                 )
             finally:
                 lock.release()
@@ -415,6 +424,7 @@ class AtlasController:
         cancelled: Callable[[], bool] | None = None,
         readers: list[Callable[[str, RunBudget], list[str]]] | None = None,
         observer: Observer | None = None,
+        read_first: bool = False,
         run_id: str | None = None,
         _resume_records: list[dict[str, Any]] | None = None,
         _resume_token: object | None = None,
@@ -633,6 +643,14 @@ class AtlasController:
                 question=review.question if review is not None else "",
             )
             state.enter("observing")
+            return observe_round(request, patterns)
+
+        def observe_round(request: ObservationRequest, patterns: list[str]) -> str:
+            """One round of reading: ask the host, merge, log. See `read_again`
+            for the failure rules; the first read before iteration one takes
+            the same round, so it cannot bypass them."""
+            base = state.evidence_base
+            assert base is not None and budget is not None  # guarded at the call
             # Started before the host is asked, for the same reason a model
             # call is: an interruption during the read must not read as a call
             # that never began. Without this, the one path where bytes change
@@ -659,7 +677,7 @@ class AtlasController:
 
             try:
                 budget.check()
-                incoming = observer.observe(request)  # type: ignore[union-attr]
+                incoming = observer.observe(request, budget=budget)  # type: ignore[union-attr]
                 merged, round_result = merge_observations(
                     base.snapshot, base.observations, list(incoming)
                 )
@@ -714,13 +732,20 @@ class AtlasController:
                     iteration=state.iteration,
                     patterns=list(patterns),
                     requested=round_result.requested,
+                    # The path too, so `inspect` can say where a source is and
+                    # not only its id. Masked with the rest of the payload.
                     added=[
-                        {"source_id": item.source_id, "sha256": item.content_sha256}
+                        {
+                            "source_id": item.source_id,
+                            "path": item.path,
+                            "sha256": item.content_sha256,
+                        }
                         for item in round_result.added
                     ],
                     superseded=[
                         {
                             "source_id": item.source_id,
+                            "path": item.path,
                             "previous_sha256": item.previous_sha256,
                             "new_sha256": item.new_sha256,
                         }
@@ -830,6 +855,31 @@ class AtlasController:
             if budget is not None:
                 state.metadata["budget_usage"] = budget.usage()
             return stopped()
+        if (
+            read_first
+            and observer is not None
+            and state.evidence_base is not None
+            and state.evidence_base.is_empty()
+        ):
+            # The first read, when the host asks for it. Without `read_first` a
+            # run starts from what it was handed and reads when an evaluation
+            # names a gap (P1.1). With it, the observer is asked before
+            # iteration one, so the first answer is graded against sources.
+            # It asks what the plan will ask: the plan is derived from the task
+            # and the snapshot, so it is known before the loop builds it.
+            first_plan = build_plan(
+                task, select_route(task), state.evidence_base.snapshot.snapshot_id
+            )
+            first_patterns = list(first_plan.review.patterns) if first_plan.review else []
+            first_request = request_from(
+                state.evidence_base.snapshot, [], [], [], 0,
+                patterns=first_patterns,
+                question=first_plan.review.question if first_plan.review else "",
+            )
+            if observe_round(first_request, first_patterns) == "stopped":
+                assert budget is not None  # an observer requires RunLimits
+                state.metadata["budget_usage"] = budget.usage()
+                return stopped()
         while state.iteration < state.max_iterations:
             if expired():
                 break

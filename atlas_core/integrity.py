@@ -66,7 +66,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .containment import PathRefused, read_within, resolve_within
+from .containment import PathRefused, SourceTooLarge, read_within, resolve_within
 from .observation import UNKNOWN, Observation
 from .redaction import REDACTED, VERBATIM_KEYS, redact_document, redact_text
 from .snapshot import Snapshot, collect_observation, verify_observation
@@ -149,6 +149,7 @@ def redacted_manifest(
 __all__ = [
     "REDACTED",
     "PathRefused",
+    "SourceTooLarge",
     "collect_observation_safely",
     "read_within",
     "redact_text",

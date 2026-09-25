@@ -364,6 +364,46 @@ result is accepted only if the budget still allows it, and a synchronous host
 cannot be preempted. `run_isolated` wraps the whole run, observer included, in
 the parent-enforced hard deadline; the observer must be picklable to go there.
 
+The observer receives the run's own budget: `observe(request, *, budget)`, the
+same `RunBudget` a model adapter gets. It travels beside the request rather
+than inside it, because the request is what `call_started.input_sha256`
+digests and the budget is a handle to the run, not input. An implementation
+reserves a tool call per read and checks the budget between reads.
+
+**The first read.** `run(..., evidence=EvidenceBase(snapshot), observer=...,
+read_first=True)` asks the observer before iteration one, with the review
+plan's patterns (none for an un-narrowed task), so the first answer is graded
+against sources. The round follows the four rules above and is logged as an
+`observe` call and an `observation_recorded` event at iteration 0. Without
+`read_first` a run starts from what it was handed and reads when an
+evaluation names a gap.
+
+**`--repo-path` is evidence.** In a bounded CLI run, `--repo-path DIR` hands the
+run an empty evidence base bound to `take_snapshot(DIR)` and a
+`FilesystemRepoObserver` with `read_first`. The observer resolves the plan's
+patterns (shallow globs; `**`, `..` and absolute patterns are ignored), re-reads
+paths the run asks for, and on a first request that names nothing reads the
+fixed surface the prose adapter used. Each read goes through
+`collect_observation_safely` — a contained name and an `O_NOFOLLOW` open — and
+is bounded at 256 KiB per source and 8 sources per round; patterns take turns
+so a broad one cannot crowd out the rest. A source that is refused, too large,
+missing, unreadable or not a file is not read and so is not evidence, and costs
+no tool call when that is known before the read. A budget or deadline that runs
+out mid-round ends the run under rule 4; the round's reads are discarded.
+`--unsafe-legacy-unbounded` and `--repo` keep the prose channel.
+
+A task that narrows to a review topic is now graded as a review: its sources
+are evidence, so the plan's criteria apply. The rule-based executor asserts no
+findings, so without a model producer such a run ends `no_progress` with
+`no_on_topic_finding` where it used to pass on prose. That is the gate doing
+its job, not a failed read.
+
+Known limits: the byte limit applies where a source is collected. The drift
+gate's re-verification and the citation reader re-read a source without one,
+so a file that grows after it was observed is read in full once to find out it
+changed. A re-read round re-reads every source the run holds, one tool call
+each, because the drift gate needs all of them to verify again.
+
 New material reaches the producer through the prose `observations` channel and
 the evidence base separately. The two stay apart: the text is context and
 nothing turns it back into an observation, while the base is what
@@ -796,6 +836,11 @@ placement, then renders a short report. `--json` emits the published
 `schemas/atlas-inspect.v1.json` contract with
 the route, iteration count, observed source IDs, unresolved evidence gaps,
 unfinished calls, stop reason, call summary and the selected events.
+`source_details` (optional in the schema, so a consumer of `sources` is
+unaffected) gives each source's `path` and the `content_sha256` of the bytes the
+run last graded; a supersession replaces the digest and `events` keeps every
+reading. A log written before `observation_recorded` carried paths reports
+`unknown`.
 
 Inspection never repairs history. A missing run, malformed JSON, non-object
 record, wrong schema, forged event/call identity, discontinuous sequence, duplicate

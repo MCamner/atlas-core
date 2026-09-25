@@ -31,6 +31,7 @@ from pathlib import Path
 from atlas_core.integrity import (
     REDACTED,
     PathRefused,
+    SourceTooLarge,
     collect_observation_safely,
     read_within,
     redact_text,
@@ -497,6 +498,37 @@ class TestTheOpenRefusesALateSwap(_Dir):
 
         with self.assertRaises(PathRefused):
             read_within(self.root, "alias.md")
+
+    @unittest.skipUnless(HAS_SYMLINKS, "symlinks unavailable")
+    def test_safe_collection_is_refused_at_the_open_too(self):
+        """`collect_observation_safely` checked the name and then opened the
+        path again with `read_text`, which follows a link swapped in between."""
+        self._swap_during_resolve()
+
+        with self.assertRaises(PathRefused):
+            collect_observation_safely(take_snapshot(self.root), "README.md")
+
+    def test_a_source_over_the_byte_limit_is_refused_without_reading_it_all(self):
+        (self.root / "stor.txt").write_text("x" * 4096, encoding="utf-8")
+
+        with self.assertRaises(SourceTooLarge):
+            read_within(self.root, "stor.txt", max_bytes=1024)
+        with self.assertRaises(SourceTooLarge):
+            collect_observation_safely(take_snapshot(self.root), "stor.txt", max_bytes=1024)
+
+    def test_a_bounded_collection_verifies_fresh_through_the_unbounded_reread(self):
+        """Both read branches return the same text, so the digest holds."""
+        (self.root / "crlf.txt").write_bytes(b"rad ett\r\nrad tv\xc3\xa5\r\n")
+        observation = collect_observation_safely(
+            take_snapshot(self.root), "crlf.txt", max_bytes=1024
+        )
+
+        self.assertEqual(verify_observation(observation, self.root).result, "fresh")
+
+    def test_a_source_at_the_byte_limit_still_reads(self):
+        (self.root / "exakt.txt").write_text("x" * 1024, encoding="utf-8")
+
+        self.assertEqual(read_within(self.root, "exakt.txt", max_bytes=1024), "x" * 1024)
 
     def test_an_ordinary_file_still_reads(self):
         """Negative control: the refusal is not unconditional."""

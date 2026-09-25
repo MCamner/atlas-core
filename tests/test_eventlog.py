@@ -622,7 +622,7 @@ class TestTheObserverCallIsAlsoACall(_ObserveBase):
         sink = _Recording()
 
         class Exploding:
-            def observe(self, request: Any) -> Any:
+            def observe(self, request: Any, *, budget: object = None) -> Any:
                 raise RuntimeError("host is down")
 
         run = self._run_with_log(sink, Exploding())
@@ -842,7 +842,7 @@ class TestTheDigestCoversTheWholeInput(_ObserveBase):
         host = self.host
 
         class Capturing:
-            def observe(self, request: Any) -> Any:
+            def observe(self, request: Any, *, budget: object = None) -> Any:
                 requests.append(request)
                 return host.observe(request)
 

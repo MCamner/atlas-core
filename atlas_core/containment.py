@@ -32,6 +32,15 @@ class PathRefused(Exception):
     """
 
 
+class SourceTooLarge(Exception):
+    """A source is larger than the caller's byte limit.
+
+    Raised after reading at most one byte past the limit, never after reading
+    the whole file: the limit exists because a repository can be hostile, and
+    a limit enforced after the read has already paid for it.
+    """
+
+
 def resolve_within(root: str | Path, relative_path: str) -> Path:
     """Resolve `relative_path` under `root`, refusing anything that escapes.
 
@@ -58,7 +67,9 @@ def resolve_within(root: str | Path, relative_path: str) -> Path:
     return target
 
 
-def read_within(root: str | Path, relative_path: str) -> str:
+def read_within(
+    root: str | Path, relative_path: str, *, max_bytes: int | None = None
+) -> str:
     """Read a file under `root`, refusing an escape *at the open*.
 
     `resolve_within` settles where a name points. Between that answer and an
@@ -70,7 +81,8 @@ def read_within(root: str | Path, relative_path: str) -> str:
 
     Raises `PathRefused` for a name that escapes or a final component that has
     become a link, and `OSError` for an ordinary read failure — a caller needs
-    to tell "refused" from "gone".
+    to tell "refused" from "gone". With `max_bytes`, a larger source raises
+    `SourceTooLarge` after at most `max_bytes + 1` bytes were read.
 
     This narrows the window; it does not close it. See the module docstring.
     """
@@ -83,5 +95,17 @@ def read_within(root: str | Path, relative_path: str) -> str:
                 f"{relative_path!r} became a symbolic link before it could be read"
             ) from None
         raise
-    with os.fdopen(descriptor, encoding="utf-8", errors="replace") as handle:
-        return handle.read()
+    if max_bytes is None:
+        with os.fdopen(descriptor, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    if max_bytes < 0:
+        os.close(descriptor)
+        raise ValueError("max_bytes must not be negative")
+    with os.fdopen(descriptor, "rb") as raw:
+        data = raw.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise SourceTooLarge(f"{relative_path!r} is larger than {max_bytes} bytes")
+    # The same universal-newline text the unbounded branch returns, so a
+    # digest taken through one branch verifies through the other.
+    text = data.decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")

@@ -109,7 +109,7 @@ class _Host:
         self.root = root
         self.snapshot = snapshot
 
-    def observe(self, request: Any) -> list[Observation]:
+    def observe(self, request: Any, *, budget: object = None) -> list[Observation]:
         names = sorted(
             p.name
             for p in self.root.iterdir()

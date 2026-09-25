@@ -186,7 +186,7 @@ class _Host:
         self.root = root
         self.snapshot = snapshot
 
-    def observe(self, request: Any) -> list[Observation]:
+    def observe(self, request: Any, *, budget: object = None) -> list[Observation]:
         from fnmatch import fnmatch
 
         names = sorted(

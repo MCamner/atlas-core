@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+Roadmap v1.4 `--repo-path` as evidence:
+
+- `atlas run --repo-path DIR` (bounded) reads the repository as
+  `Observation.v1` through a new `FilesystemRepoObserver`, inside the run and
+  on its budget, instead of as prose. The sources reach the evaluator, the
+  drift gate, `observation_recorded` and `atlas inspect`. A task that narrows
+  to a review topic is therefore graded as a review: without a model
+  producer it ends `no_progress` (`no_on_topic_finding`) where it used to pass
+  on prose.
+- `AtlasController.run(..., read_first=True)` (and `run_isolated`) asks the
+  observer before iteration one.
+- **Breaking for observer implementations:** the loop now calls
+  `observe(request, *, budget)` with the run's `RunBudget`, so a read can
+  reserve a tool call and check the deadline. An observer written as
+  `observe(self, request)` fails with `TypeError`, which the run reports as
+  `tool_error`; add the keyword-only `budget` parameter.
+- `atlas-inspect.v1` gains an optional `source_details` list (`source_id`,
+  `path`, `content_sha256`); `sources` is unchanged. `observation_recorded`
+  items carry `path`.
+- Fixed: `collect_observation_safely` checked the name and then opened the
+  path with `read_text`, which follows a link swapped in between. Collection
+  now reads through `read_within` (`O_NOFOLLOW`). `read_within` and
+  `collect_observation` take `max_bytes` and refuse a larger source with
+  `SourceTooLarge` after reading at most one byte past the limit.
+
 Roadmap v1.4 host run API (Core side):
 
 - Added `atlas create`, `atlas run --run-id ID`, `atlas status`, `atlas cancel`
