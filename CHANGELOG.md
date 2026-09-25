@@ -49,6 +49,17 @@ Roadmap v1.5 write capability with approval:
   - If the ref is missing, the checks that depend on it are listed as
     `skipped`, and the run counts as unverified.
   - New event kind `write_verified`.
+- `atlas metrics` reads event logs into `atlas-metrics.v1`. Per run it counts
+  latency, iterations, budget usage including tokens, call outcomes and tool
+  errors, claims `verified` and `contradicted` with a verification rate,
+  approvals and user refusals, and writes rolled back. `tool_errors` counts
+  tool calls only.
+  - It is built from an allowlist: no task text, paths, user names, error
+    messages or digests. A run id not in the UUID form `atlas create` issues
+    is shown as a digest.
+  - Cost is not reported, because Core has no price data.
+  - To feed it, `run_stopped` now carries `usage` and `decision_recorded`
+    carries `citation_verdicts` (counts only).
 
 Roadmap v1.4 MQ adapter boundaries:
 
