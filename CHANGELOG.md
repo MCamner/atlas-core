@@ -40,6 +40,15 @@ Roadmap v1.5 write capability with approval:
   - The result lists each side effect as reversible or not. The test
     command's own effects are marked as not tracked.
   - New event kind `write_verified`.
+- Feedback loop: `atlas feedback record` turns a person's `confirmed` or
+  `rejected` verdict on a finished run into an `atlas-learning-candidate.v1`.
+  The candidate carries provenance from the run's log: the log's SHA-256, the
+  `run_stopped` event, the task digest, the route and the sources.
+  - `atlas feedback promote` gates one candidate against its schema and the
+    log as it is now, then appends it as an `atlas-learning.v1`. It refuses a
+    changed log, mismatched provenance, an unknown or duplicate id, or a
+    second promotion.
+  - Nothing is automatic, and nothing rewrites an event log or a stored line.
 - `atlas metrics` reads event logs into `atlas-metrics.v1`. Per run it counts
   latency, iterations, budget usage including tokens, call outcomes and tool
   errors, claims `verified` and `contradicted` with a verification rate,

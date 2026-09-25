@@ -930,6 +930,35 @@ digests never appear, and a value outside a vocabulary is dropped rather than
 copied. Cost is not reported, because Core has no price data; tokens are what
 it knows.
 
+### Feedback loop (v1.5)
+
+A person's verdict on a run becomes a candidate, not a fact. Each step is a
+separate command, and none of them runs automatically:
+
+```text
+atlas feedback record RUN_ID --event-log LOG --outcome confirmed|rejected \
+                      --lesson TEXT --store DIR
+atlas feedback promote CANDIDATE_ID --event-log LOG --store DIR
+```
+
+1. **Record.** Only a finished run can be recorded. `record` appends an
+   `atlas-learning-candidate.v1` to `DIR/candidates.jsonl`. It carries the
+   person's lesson (masked), their user name, and provenance read from the
+   log: the log file's SHA-256, the `run_stopped` event, the stop reason, the
+   task digest, the route, and every source read (path and SHA-256).
+2. **Candidate.** Nothing reads `candidates.jsonl` as knowledge.
+3. **Promote.** `promote` gates one candidate and appends it, unchanged, as an
+   `atlas-learning.v1` to `DIR/learnings.jsonl`. The gate checks the schema
+   and vocabulary, then the provenance against the log as it is now. A log
+   whose bytes changed is refused, because a run's log is closed at
+   `run_stopped`. So is a stop reason, task, route or source list that does
+   not match. A candidate is promoted at most once, and an id recorded twice
+   is refused. Exit codes: 0 promoted, 2 refused, 1 unreadable input.
+
+Nothing in this flow writes to an event log or edits a line of the store. The
+older `build_memory_candidate` marks itself `verified` from a quality score.
+It is not part of this loop, and nothing promotes from it.
+
 ### Run inspection and export
 
 `atlas run --event-log PATH` appends the run's `atlas-event.v1` records to an

@@ -28,6 +28,7 @@ from .approval import ApprovalRejected
 from .eventlog import EventLog
 from .patch_proposal import OUTCOMES, ProposalRefused, propose
 from .telemetry import metrics
+from . import feedback
 
 # Exit codes are derived from the same table the controller enforces.
 EXIT_CODES: dict[str, int] = exit_codes()
@@ -313,6 +314,18 @@ def main(argv: list[str] | None = None) -> int:
     metrics_p = sub.add_parser('metrics', help='Per-run telemetry read from event logs (atlas-metrics.v1)')
     metrics_p.add_argument('--event-log', required=True, action='append', help='JSONL event log; repeat for several')
     metrics_p.add_argument('--json', action='store_true', help='Print atlas-metrics.v1 JSON')
+    feedback_p = sub.add_parser('feedback', help="Record a person's verdict on a run; promote it only on request")
+    feedback_sub = feedback_p.add_subparsers(dest='feedback_command', required=True)
+    record_p = feedback_sub.add_parser('record', help='Append a learning candidate for a finished run')
+    record_p.add_argument('run_id', help='Run ID')
+    record_p.add_argument('--event-log', required=True, help="The run's JSONL event log")
+    record_p.add_argument('--outcome', required=True, choices=feedback.OUTCOMES)
+    record_p.add_argument('--lesson', required=True, help='What should be learned, in your words')
+    record_p.add_argument('--store', required=True, help='Directory holding candidates.jsonl and learnings.jsonl')
+    promote_p = feedback_sub.add_parser('promote', help='Gate one candidate and append it as a learning')
+    promote_p.add_argument('candidate_id', help='Candidate ID from `atlas feedback record`')
+    promote_p.add_argument('--event-log', required=True, help="The run's JSONL event log")
+    promote_p.add_argument('--store', required=True, help='Directory holding candidates.jsonl and learnings.jsonl')
     sub.add_parser('routes', help='List available routes')
     sub.add_parser('version', help='Show version')
     args = parser.parse_args(argv)
@@ -333,6 +346,26 @@ def main(argv: list[str] | None = None) -> int:
         return _host_command(args)
     if args.command == 'propose':
         return _propose(args)
+    if args.command == 'feedback':
+        import getpass
+
+        try:
+            if args.feedback_command == 'record':
+                document = feedback.record_outcome(
+                    args.store, args.event_log, args.run_id, outcome=args.outcome,
+                    lesson=args.lesson, recorded_by=getpass.getuser())
+            else:
+                document = feedback.promote(
+                    args.store, args.candidate_id, args.event_log,
+                    promoted_by=getpass.getuser())
+        except feedback.PromotionRefused as exc:
+            print(f"atlas feedback promote: refused: {exc}", file=sys.stderr)
+            return 2
+        except (OSError, ValueError) as exc:
+            print(f"atlas feedback {args.feedback_command}: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(document, ensure_ascii=False, indent=2))
+        return 0
     if args.command == 'metrics':
         try:
             report = metrics(args.event_log)
