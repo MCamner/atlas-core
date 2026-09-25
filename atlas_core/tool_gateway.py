@@ -361,7 +361,17 @@ class ToolGateway:
         """
         self.budget.check()
         tool = self._tools.get(name)
-        call = self._start_call(tool, name, arguments, 1)
+        # One copy, taken first, is what gets logged, described, approved and
+        # run. The caller's objects can change after this without changing
+        # the write or the record of it.
+        snapshot: Any = None
+        well_formed = isinstance(arguments, dict) and all(isinstance(k, str) for k in arguments)
+        if well_formed:
+            try:
+                snapshot = json.loads(json.dumps(arguments, allow_nan=False))
+            except (TypeError, ValueError):
+                snapshot = None
+        call = self._start_call(tool, name, snapshot if snapshot is not None else arguments, 1)
 
         def deny(reason: str) -> None:
             self._finish(call, "denied", reason)
@@ -378,16 +388,13 @@ class ToolGateway:
         if "*" not in tool.allowed_routes and self._route not in tool.allowed_routes:
             deny("tool not allowed for route")
             raise ToolDenied("tool not allowed for route")
-        if not isinstance(arguments, dict) or not all(isinstance(k, str) for k in arguments):
+        if not well_formed:
             deny("TypeError")
             raise TypeError("tool arguments must be a string-keyed object")
-        # One copy, taken now, is what gets described, approved and run. The
-        # caller's objects can change after this without changing the write.
-        try:
-            arguments = json.loads(json.dumps(arguments, allow_nan=False))
-        except (TypeError, ValueError) as exc:
+        if snapshot is None:
             deny("TypeError")
-            raise TypeError("write arguments must be JSON") from exc
+            raise TypeError("write arguments must be JSON")
+        arguments = snapshot
         try:
             _validate_schema(arguments, tool.input_schema)
         except ToolSchemaError as exc:
