@@ -25,12 +25,15 @@ promotes from it.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping
+import re
+from typing import Any, Iterator, Mapping
 
 from .eventlog import read_jsonl
 from .redaction import redact_text
@@ -39,6 +42,181 @@ CANDIDATE_SCHEMA = "atlas-learning-candidate.v1"
 LEARNING_SCHEMA = "atlas-learning.v1"
 OUTCOMES: tuple[str, ...] = ("confirmed", "rejected")
 MAX_LESSON = 2000
+
+
+#: `schemas/atlas-learning-candidate.v1.json`, carried here because the schema
+#: files are not installed with the package. A test holds the two equal.
+CANDIDATE_JSON_SCHEMA: dict[str, Any] = json.loads(r"""
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-learning-candidate.v1.json",
+  "title": "Atlas Learning Candidate",
+  "description": "A person's verdict on a finished run and what they think should be learned from it. A candidate is not knowledge: nothing reads it as such until `atlas feedback promote` passes it through the schema and provenance gate and a named person promotes it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "candidate_id",
+    "run_id",
+    "outcome",
+    "lesson",
+    "provenance",
+    "recorded_by",
+    "recorded_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-learning-candidate.v1"
+    },
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Derived from run, outcome, lesson and provenance."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "enum": [
+        "confirmed",
+        "rejected"
+      ]
+    },
+    "lesson": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "The person's words, masked like every other text Core keeps."
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_log_sha256",
+        "run_stopped_event_id",
+        "stop_reason",
+        "task_sha256",
+        "route",
+        "sources"
+      ],
+      "description": "Read from the run's event log when the outcome was recorded. The gate compares every field with the log again before promotion.",
+      "properties": {
+        "event_log_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The whole log file. A run's log is closed at `run_stopped`, so a different digest means the evidence changed."
+        },
+        "run_stopped_event_id": {
+          "type": "string"
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_id",
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "source_id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "recorded_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recorded_at": {
+      "type": "string"
+    }
+  }
+}
+""")
+
+_TYPES: dict[str, Any] = {
+    "object": lambda v: isinstance(v, dict),
+    "array": lambda v: isinstance(v, list),
+    "string": lambda v: isinstance(v, str),
+    "null": lambda v: v is None,
+}
+
+
+def schema_errors(value: Any, schema: Mapping[str, Any], path: str = "$") -> list[str]:
+    """Every way `value` departs from `schema`, for the keywords the candidate
+    schema uses. A keyword this does not know is an error, not a pass."""
+    known = {"$schema", "$id", "title", "description", "type", "const", "enum",
+             "pattern", "minLength", "maxLength", "required", "properties",
+             "additionalProperties", "items"}
+    unknown = set(schema) - known
+    if unknown:
+        return [f"{path}: schema uses unsupported keywords {sorted(unknown)}"]
+    errors: list[str] = []
+    if "type" in schema:
+        allowed = [schema["type"]] if isinstance(schema["type"], str) else schema["type"]
+        if not any(_TYPES[name](value) for name in allowed):
+            return [f"{path}: not {allowed}"]
+    if "const" in schema and value != schema["const"]:
+        errors.append(f"{path}: not {schema['const']!r}")
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{path}: not one of {schema['enum']}")
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errors.append(f"{path}: shorter than {schema['minLength']}")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append(f"{path}: longer than {schema['maxLength']}")
+        if "pattern" in schema and not re.search(schema["pattern"], value):
+            errors.append(f"{path}: does not match {schema['pattern']}")
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        for key in schema.get("required", []):
+            if key not in value:
+                errors.append(f"{path}.{key}: missing")
+        if schema.get("additionalProperties") is False:
+            errors.extend(f"{path}.{key}: not allowed" for key in sorted(set(value) - set(properties)))
+        for key, item in value.items():
+            if key in properties:
+                errors.extend(schema_errors(item, properties[key], f"{path}.{key}"))
+    if isinstance(value, list) and "items" in schema:
+        for index, item in enumerate(value):
+            errors.extend(schema_errors(item, schema["items"], f"{path}[{index}]"))
+    return errors
+
+
+def _candidate_id(body: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:32]
 
 
 class PromotionRefused(ValueError):
@@ -116,9 +294,7 @@ def record_outcome(
     }
     candidate = {
         "schema": CANDIDATE_SCHEMA,
-        "candidate_id": hashlib.sha256(
-            json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        ).hexdigest()[:32],
+        "candidate_id": _candidate_id(body),
         **body,
         "recorded_by": recorded_by,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -129,20 +305,22 @@ def record_outcome(
 
 def gate(candidate: Mapping[str, Any], event_log: str | Path) -> list[str]:
     """Why `candidate` may not be promoted; empty when it may."""
-    problems: list[str] = []
-    strings = ("candidate_id", "run_id", "outcome", "lesson", "recorded_by", "recorded_at")
-    if candidate.get("schema") != CANDIDATE_SCHEMA:
-        problems.append("schema")
-    for key in strings:
-        if not isinstance(candidate.get(key), str) or not candidate[key].strip():
-            problems.append(f"{key} missing")
-    if candidate.get("outcome") not in OUTCOMES:
-        problems.append("outcome not in vocabulary")
-    provenance = candidate.get("provenance")
-    if not isinstance(provenance, Mapping):
-        return problems + ["provenance missing"]
+    # 1. The whole document against the published schema.
+    problems = schema_errors(dict(candidate), CANDIDATE_JSON_SCHEMA)
     if problems:
         return problems
+    for key in ("run_id", "lesson", "recorded_by"):
+        if not str(candidate[key]).strip():
+            problems.append(f"$.{key}: blank")
+    # 2. The id is derived from the content, so content edited under an old
+    #    id is a different candidate wearing its name.
+    body = {key: candidate[key] for key in ("run_id", "outcome", "lesson", "provenance")}
+    if _candidate_id(body) != candidate["candidate_id"]:
+        problems.append("candidate_id does not match its content")
+    if problems:
+        return problems
+    provenance = candidate["provenance"]
+    # 3. The provenance against the log as it is now.
     try:
         current = _provenance(event_log, str(candidate["run_id"]))
     except (OSError, ValueError) as exc:
@@ -162,6 +340,25 @@ def promote(
     if not promoted_by.strip():
         raise PromotionRefused(["a promotion names who made it"])
     root = Path(store)
+    # Check-then-append is one step: two promotions of one candidate must not
+    # both find it unpromoted. The second waits, then sees the first's line.
+    with _store_lock(root):
+        return _promote(root, candidate_id, event_log, promoted_by)
+
+
+@contextmanager
+def _store_lock(root: Path) -> Iterator[None]:
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / ".promote.lock").open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _promote(root: Path, candidate_id: str, event_log: str | Path,
+             promoted_by: str) -> dict[str, Any]:
     found = [c for c in _read(root / "candidates.jsonl") if c.get("candidate_id") == candidate_id]
     if not found:
         raise PromotionRefused([f"no candidate {candidate_id!r}"])
@@ -188,7 +385,9 @@ __all__ = [
     "LEARNING_SCHEMA",
     "OUTCOMES",
     "PromotionRefused",
+    "CANDIDATE_JSON_SCHEMA",
     "gate",
+    "schema_errors",
     "promote",
     "record_outcome",
 ]

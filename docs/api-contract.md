@@ -966,12 +966,20 @@ atlas feedback promote CANDIDATE_ID --event-log LOG --store DIR
    task digest, the route, and every source read (path and SHA-256).
 2. **Candidate.** Nothing reads `candidates.jsonl` as knowledge.
 3. **Promote.** `promote` gates one candidate and appends it, unchanged, as an
-   `atlas-learning.v1` to `DIR/learnings.jsonl`. The gate checks the schema
-   and vocabulary, then the provenance against the log as it is now. A log
-   whose bytes changed is refused, because a run's log is closed at
-   `run_stopped`. So is a stop reason, task, route or source list that does
-   not match. A candidate is promoted at most once, and an id recorded twice
-   is refused. Exit codes: 0 promoted, 2 refused, 1 unreadable input.
+   `atlas-learning.v1` to `DIR/learnings.jsonl`. The gate runs in order:
+   - the whole document against `atlas-learning-candidate.v1`. The schema is
+     carried in `atlas_core.feedback`, and a test holds it equal to the
+     published file.
+   - the id recomputed from run, outcome, lesson and provenance, so content
+     edited under an old id is refused
+   - the provenance against the log as it is now. A log whose bytes changed
+     is refused, because a run's log is closed at `run_stopped`. So is a stop
+     reason, task, route or source list that does not match.
+
+   Checking and appending happen under one lock on the store, so however many
+   promotions of a candidate run at once, one appends. A candidate is
+   promoted at most once, and an id recorded twice is refused. Exit codes: 0
+   promoted, 2 refused, 1 unreadable input.
 
 Nothing in this flow writes to an event log or edits a line of the store. The
 older `build_memory_candidate` marks itself `verified` from a quality score.

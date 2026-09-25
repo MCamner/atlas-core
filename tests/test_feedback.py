@@ -70,6 +70,10 @@ class TestTheLoop(_Feedback):
         self.assertEqual(candidate["outcome"], "rejected")
         self.assertEqual(gate(candidate, self.log), [])
 
+    def test_the_embedded_schema_is_the_published_one(self) -> None:
+        from atlas_core.feedback import CANDIDATE_JSON_SCHEMA
+        self.assertEqual(CANDIDATE_JSON_SCHEMA, load("atlas-learning-candidate.v1.json"))
+
     def test_documents_match_their_schemas(self) -> None:
         candidate = self.record()
         learning = promote(self.store, candidate["candidate_id"], self.log, promoted_by="m")
@@ -99,7 +103,10 @@ class TestTheGateRefuses(_Feedback):
         self.assertIn("event log changed since the outcome was recorded", caught.exception.reasons)
         self.assertFalse((self.store / "learnings.jsonl").exists())
 
-    def forge(self, **changes: Any) -> dict[str, Any]:
+    def forge(self, changes: dict[str, Any], *, keep_id: bool = False) -> dict[str, Any]:
+        """Edit a recorded candidate. By default the forger also recomputes the
+        id, so the check that refuses it is the one under test."""
+        from atlas_core.feedback import _candidate_id
         candidate = self.record()
         forged = json.loads(json.dumps(candidate))
         for dotted, value in changes.items():
@@ -108,7 +115,16 @@ class TestTheGateRefuses(_Feedback):
             for key in path:
                 target = target[key]
             target[last] = value
-        forged["candidate_id"] = "f" * 32
+        if not keep_id and "candidate_id" not in changes:
+            try:
+                forged["candidate_id"] = _candidate_id(
+                    {k: forged[k] for k in ("run_id", "outcome", "lesson", "provenance")})
+            except (KeyError, TypeError):
+                forged["candidate_id"] = "f" * 32
+        if forged["candidate_id"] == candidate["candidate_id"] or "candidate_id" in changes:
+            # Edited in place: the store holds only the forged line.
+            (self.store / "candidates.jsonl").write_text(json.dumps(forged) + "\n")
+            return forged
         with (self.store / "candidates.jsonl").open("a") as store:
             store.write(json.dumps(forged) + "\n")
         return forged
@@ -123,7 +139,7 @@ class TestTheGateRefuses(_Feedback):
         for dotted, value in cases.items():
             with self.subTest(field=dotted):
                 self.setUp()
-                forged = self.forge(**{dotted: value})
+                forged = self.forge({dotted: value})
                 with self.assertRaises(PromotionRefused) as caught:
                     promote(self.store, forged["candidate_id"], self.log, promoted_by="m")
                 self.assertIn(f"{dotted} does not match the event log", caught.exception.reasons)
@@ -133,9 +149,51 @@ class TestTheGateRefuses(_Feedback):
                               ("outcome", "probably"), ("lesson", "  "), ("provenance", None)):
             with self.subTest(field=dotted):
                 self.setUp()
-                forged = self.forge(**{dotted: value})
+                forged = self.forge({dotted: value})
                 with self.assertRaises(PromotionRefused):
                     promote(self.store, forged["candidate_id"], self.log, promoted_by="m")
+
+    def test_content_edited_under_the_same_id(self) -> None:
+        forged = self.forge({"lesson": "promote this instead"}, keep_id=True)
+        with self.assertRaises(PromotionRefused) as caught:
+            promote(self.store, forged["candidate_id"], self.log, promoted_by="m")
+        self.assertEqual(caught.exception.reasons, ["candidate_id does not match its content"])
+
+    def test_the_full_schema_is_enforced(self) -> None:
+        for dotted, value in (("candidate_id", "short"), ("recorded_at", 5),
+                              ("provenance.event_log_sha256", "not-hex"),
+                              ("provenance.sources", [{"path": "x"}]),
+                              ("provenance.extra", "x"), ("lesson", "x" * 2001)):
+            with self.subTest(field=dotted):
+                self.setUp()
+                forged = self.forge({dotted: value})
+                with self.assertRaises(PromotionRefused) as caught:
+                    promote(self.store, forged["candidate_id"], self.log, promoted_by="m")
+                self.assertTrue(all(reason.startswith("$") for reason in caught.exception.reasons),
+                                caught.exception.reasons)
+
+    def test_concurrent_promotions_append_once(self) -> None:
+        import threading
+
+        candidate = self.record()
+        barrier = threading.Barrier(8)
+        outcomes: list[str] = []
+
+        def attempt() -> None:
+            barrier.wait()
+            try:
+                promote(self.store, candidate["candidate_id"], self.log, promoted_by="m")
+                outcomes.append("promoted")
+            except PromotionRefused:
+                outcomes.append("refused")
+
+        threads = [threading.Thread(target=attempt) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(sorted(outcomes), ["promoted"] + ["refused"] * 7)
+        self.assertEqual(len(self.lines("learnings.jsonl")), 1)
 
     def test_unknown_and_duplicate_candidates(self) -> None:
         candidate = self.record()
