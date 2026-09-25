@@ -114,7 +114,18 @@ def _run_worker(args: argparse.Namespace) -> int:
             # The parent must know the id to seal the run if it loses the worker.
             args.run_id = new_run_id()
             extra = ['--run-id', args.run_id]
-    command = [sys.executable, '-m', 'atlas_core.worker_cli', *sys.argv[1:], *extra, '--json']
+    # Preserve the public argv exactly, but worker-only flags must stay on the
+    # option side of an explicit `--`. Otherwise a task such as
+    # `atlas run -- --unsafe-legacy-unbounded` makes the worker parse our
+    # appended --run-id/--json as extra positional arguments.
+    public_argv = list(sys.argv[1:])
+    worker_only = [*extra, '--json']
+    if '--' in public_argv:
+        separator = public_argv.index('--')
+        public_argv[separator:separator] = worker_only
+    else:
+        public_argv.extend(worker_only)
+    command = [sys.executable, '-m', 'atlas_core.worker_cli', *public_argv]
     # JSON repeats some source text in several fields. Limit the transport
     # independently of the controller's tighter observation/output quota.
     stdout_cap = min(16 * 1024 * 1024, max(262144, limits.output_bytes * 8 + 65536))

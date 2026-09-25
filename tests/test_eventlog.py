@@ -807,7 +807,7 @@ class TestTheDigestCoversTheWholeInput(_ObserveBase):
         self.assertEqual(len(digests), 2, "the run did not call the model twice")
         self.assertNotEqual(digests[0], digests[1])
 
-    def test_the_model_digest_is_of_what_the_adapter_was_handed(self):
+    def test_the_model_digest_is_of_what_the_adapter_was_handed(self) -> None:
         sink = _Recording()
         seen: list[dict[str, Any]] = []
         output = self._stale_output()
@@ -833,7 +833,7 @@ class TestTheDigestCoversTheWholeInput(_ObserveBase):
             self._model_starts(sink)[0]["payload"]["input_sha256"], expected
         )
 
-    def test_reads_with_no_paths_but_different_requests_differ(self):
+    def test_reads_with_no_paths_but_different_requests_differ(self) -> None:
         """The first-read case the review named: `paths` is empty, and the
         request is the patterns and the question."""
         (self.root / "README.md").write_text(REWRITTEN, encoding="utf-8")
