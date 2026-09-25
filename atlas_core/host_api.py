@@ -60,8 +60,12 @@ may already have read it.
 """
 from __future__ import annotations
 
-import fcntl
 import json
+
+try:
+    import fcntl
+except ImportError:  # Non-POSIX: host API imports, lock-backed operations refuse.
+    fcntl = None  # type: ignore[assignment]
 import os
 import re
 import time
@@ -70,7 +74,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .eventlog import SCHEMA as EVENT_SCHEMA
-from .eventlog import EventLog, JsonlSink, ResumeRefused, RunLock, digest, read_jsonl
+from .eventlog import EventLog, JsonlSink, LockUnavailable, ResumeRefused, RunLock, digest, read_jsonl
 from .inspect_run import inspect_run
 from .machine import STOP_REASONS, stop_class_of
 
@@ -148,6 +152,8 @@ def cancel_path(log_path: str | Path, run_id: str) -> Path:
 
 def is_locked(log_path: str | Path, run_id: str) -> bool:
     """Whether a process holds the run's lock. Never creates the lock file."""
+    if fcntl is None:
+        raise LockUnavailable("run lock inspection requires POSIX fcntl")
     path = lock_path(log_path, run_id)
     try:
         handle = path.open("r", encoding="utf-8")

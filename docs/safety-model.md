@@ -18,7 +18,9 @@ terminal status. There is a separate 16 MiB maximum on the serialized worker
 protocol, even if the operator requests a larger output budget. Windows
 currently **fails closed** for this public bounded CLI because terminating a
 whole Windows process tree requires a Job Object; no misleading hard-timeout
-guarantee is made there.
+guarantee is made there. Atlas modules themselves still import without POSIX
+`fcntl`; operations that need the run/status advisory lock refuse with
+`LockUnavailable` instead of making unrelated CLI commands unavailable.
 
 Inside that worker, `atlas run` passes repository readers into the controller's
 observing state **before** repository I/O. A single `RunBudget` counts local

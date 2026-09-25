@@ -54,7 +54,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import fcntl
+
+try:
+    import fcntl
+except ImportError:  # Non-POSIX: module import stays available; locks fail closed.
+    fcntl = None  # type: ignore[assignment]
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,6 +117,10 @@ class AppendOnlyViolation(RuntimeError):
 
 class ResumeRefused(RuntimeError):
     """A persisted run cannot be resumed without guessing or duplicating work."""
+
+
+class LockUnavailable(ResumeRefused):
+    """The platform cannot provide the advisory lock this operation requires."""
 
 
 def _canonical(value: object) -> object:
@@ -423,6 +431,8 @@ class RunLock:
         self._handle: Any = None
 
     def acquire(self) -> "RunLock":
+        if fcntl is None:
+            raise LockUnavailable("run locking requires POSIX fcntl")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         handle = self.path.open("a+", encoding="utf-8")
         try:
@@ -436,6 +446,7 @@ class RunLock:
     def release(self) -> None:
         if self._handle is None:
             return
+        assert fcntl is not None
         fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
         self._handle.close()
         self._handle = None
@@ -512,6 +523,7 @@ __all__ = [
     "EventLog",
     "EventSink",
     "JsonlSink",
+    "LockUnavailable",
     "ResumeRefused",
     "RunLock",
     "TornLogTail",
