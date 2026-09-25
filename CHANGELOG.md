@@ -40,6 +40,15 @@ Roadmap v1.5 write capability with approval:
   - The result lists each side effect as reversible or not. The test
     command's own effects are marked as not tracked.
   - New event kind `write_verified`.
+- `atlas metrics` reads event logs into `atlas-metrics.v1`. Per run it counts
+  latency, iterations, budget usage including tokens, call outcomes and tool
+  errors, claims `verified` and `contradicted` with a verification rate,
+  approvals and user refusals, and writes rolled back.
+  - It is built from an allowlist: no task text, paths, user names, error
+    messages or digests.
+  - Cost is not reported, because Core has no price data.
+  - To feed it, `run_stopped` now carries `usage` and `decision_recorded`
+    carries `citation_verdicts` (counts only).
 
 Roadmap v1.4 MQ adapter boundaries:
 

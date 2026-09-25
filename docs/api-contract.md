@@ -899,6 +899,37 @@ the smaller of the tool timeout and remaining run deadline. Nested calls are
 refused in that mode because copied accounting is not shared accounting. This
 is process isolation, not a filesystem/network privilege sandbox.
 
+### Telemetry (v1.5)
+
+`atlas metrics --event-log PATH [--event-log PATH ...] [--json]` reads event
+logs into `atlas-metrics.v1` (`schemas/atlas-metrics.v1.json`). The log is the
+only source, so a metric cannot say something the log does not.
+
+Per run, it reports:
+
+- latency, from the first event to `run_stopped`
+- iterations
+- `usage` (model calls, tool calls, tokens, output bytes), from
+  `run_stopped.usage`
+- call outcomes per kind, including calls that never finished; `tool_errors`
+  counts the `failed` and `denied` ones
+- claims checked, `verified`, `contradicted` (the producer's false positives)
+  and `insufficient_evidence`, from `decision_recorded.citation_verdicts`,
+  with a verification rate
+- approvals requested, granted, refused, consumed and rejected; the refused
+  ones are `user_refusals`
+- writes verified and rolled back
+
+A log without `run_started`, such as the approval log of `atlas propose`, is
+counted as `audit`. Logs written before v1.5 have no `usage` or verdict
+counts, so those fields are null or zero.
+
+The document is built from an allowlist: numbers, closed vocabularies and run
+ids. Task text, paths, repositories, refs, user names, error messages and
+digests never appear, and a value outside a vocabulary is dropped rather than
+copied. Cost is not reported, because Core has no price data; tokens are what
+it knows.
+
 ### Run inspection and export
 
 `atlas run --event-log PATH` appends the run's `atlas-event.v1` records to an

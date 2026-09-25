@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator, Literal, Mapping, cast, overload
 import json
@@ -856,6 +858,13 @@ class AtlasController:
                     stop_reason=state.stop_reason,
                     stop_class=stop_class_of(state.stop_reason),
                     status=state.status,
+                    # What the run spent, for telemetry. Null on an unbudgeted
+                    # run, which counts nothing.
+                    usage=(
+                        {key: value for key, value in budget.usage().items()
+                         if key != "deadline_monotonic"}
+                        if budget is not None else None
+                    ),
                 )
             return finalize(state, json_mode=json_mode)
 
@@ -1123,6 +1132,11 @@ class AtlasController:
                         else None
                     ),
                     requires_user_approval=evaluation.requires_user_approval,
+                    # Counts only, per verdict: how many of the producer's
+                    # claims held, never the claims themselves.
+                    citation_verdicts=dict(sorted(Counter(
+                        str(check.get("verdict")) for check in evaluation.citation_checks
+                    ).items())),
                 )
             # Recorded next to the evaluation it belongs with, so "unchanged
             # feedback" and "unchanged material" are read off the same pass.

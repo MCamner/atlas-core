@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-metrics.v1.json",
+  "title": "Atlas Metrics",
+  "description": "Telemetry read from event logs by `atlas metrics`. Built from an allowlist: numbers, closed vocabularies and run ids only — never task text, paths, repositories, refs, user names, error messages or digests. Cost is not reported: Core has no price data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "runs",
+    "totals"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-metrics.v1"
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_id",
+          "kind",
+          "finished",
+          "stop_reason",
+          "stop_class",
+          "latency_seconds",
+          "iterations",
+          "events",
+          "usage",
+          "calls",
+          "tool_errors",
+          "claims",
+          "approvals",
+          "user_refusals",
+          "writes"
+        ],
+        "properties": {
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "run",
+              "audit"
+            ],
+            "description": "`audit` is a log with no `run_started`, such as the approval log of `atlas propose`."
+          },
+          "finished": {
+            "type": "boolean"
+          },
+          "stop_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stop_class": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "evaluation",
+              "runtime",
+              "control",
+              null
+            ]
+          },
+          "latency_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "First event to `run_stopped`. Null while unfinished."
+          },
+          "iterations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "events": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "usage": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "What the budget spent, from `run_stopped.usage`. Null for an unbudgeted run or a log written before v1.5.",
+            "properties": {
+              "model_calls": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "tool_calls": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "output_bytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
+          },
+          "calls": {
+            "type": "object",
+            "description": "Outcomes per call kind.",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ok",
+                "denied",
+                "failed",
+                "unfinished"
+              ],
+              "properties": {
+                "ok": {
+                  "type": "integer"
+                },
+                "denied": {
+                  "type": "integer"
+                },
+                "failed": {
+                  "type": "integer"
+                },
+                "unfinished": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "tool_errors": {
+            "type": "integer",
+            "description": "Calls that finished `failed` or `denied`, any kind."
+          },
+          "claims": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "checked",
+              "verified",
+              "contradicted",
+              "insufficient_evidence",
+              "verification_rate"
+            ],
+            "properties": {
+              "checked": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "verified": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "contradicted": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Claims the cited source refutes: the producer's false positives."
+              },
+              "insufficient_evidence": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "verification_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "verified / checked; null when nothing was checked."
+              }
+            }
+          },
+          "approvals": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requested",
+              "granted",
+              "refused",
+              "consumed",
+              "rejected"
+            ],
+            "properties": {
+              "requested": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "granted": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "refused": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "consumed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rejected": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "user_refusals": {
+            "type": "integer",
+            "description": "Approvals a person refused."
+          },
+          "writes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "verified",
+              "failed_verification",
+              "rolled_back"
+            ],
+            "properties": {
+              "verified": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed_verification": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rolled_back": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs",
+        "audit_logs",
+        "finished",
+        "median_latency_seconds",
+        "iterations",
+        "tokens",
+        "tool_errors",
+        "claims_checked",
+        "claims_contradicted",
+        "verification_rate",
+        "user_refusals",
+        "writes_rolled_back"
+      ],
+      "properties": {
+        "runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "audit_logs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finished": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "median_latency_seconds": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "iterations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "claims_checked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "claims_contradicted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verification_rate": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "user_refusals": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "writes_rolled_back": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

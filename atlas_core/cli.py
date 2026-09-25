@@ -27,6 +27,7 @@ from .state import AtlasRunState
 from .approval import ApprovalRejected
 from .eventlog import EventLog
 from .patch_proposal import OUTCOMES, ProposalRefused, propose
+from .telemetry import metrics
 
 # Exit codes are derived from the same table the controller enforces.
 EXIT_CODES: dict[str, int] = exit_codes()
@@ -309,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
     propose_p.add_argument('--event-log', default=None, help='Append approval and write events to this JSONL file')
     propose_p.add_argument('--no-input', action='store_true', help='Never ask; stop at approval_required')
     propose_p.add_argument('--json', action='store_true', help='Print the outcome as JSON')
+    metrics_p = sub.add_parser('metrics', help='Per-run telemetry read from event logs (atlas-metrics.v1)')
+    metrics_p.add_argument('--event-log', required=True, action='append', help='JSONL event log; repeat for several')
+    metrics_p.add_argument('--json', action='store_true', help='Print atlas-metrics.v1 JSON')
     sub.add_parser('routes', help='List available routes')
     sub.add_parser('version', help='Show version')
     args = parser.parse_args(argv)
@@ -329,6 +333,18 @@ def main(argv: list[str] | None = None) -> int:
         return _host_command(args)
     if args.command == 'propose':
         return _propose(args)
+    if args.command == 'metrics':
+        try:
+            report = metrics(args.event_log)
+        except OSError as exc:
+            print(f"atlas metrics: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            for key, value in report['totals'].items():
+                print(f"{key:24s} {value}")
+        return 0
     if args.command == 'inspect':
         try:
             report = inspect_run(args.event_log, args.run_id)
