@@ -27,7 +27,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .approval import ApprovalAuthority, Operation, clean_head
 from .budget import RunBudget, RunLimits
@@ -294,6 +294,7 @@ def discard(proposal: Proposal) -> None:
 #: What `propose` can end in, and the exit code each gives.
 OUTCOMES: dict[str, int] = {
     "branch_created": 0,
+    "verification_failed": 4,
     "tests_failed": 2,
     "approval_required": 3,
     "refused": 3,
@@ -364,10 +365,125 @@ def propose(
                                        tokens=0, output_bytes=4096)),
             tools={"create_branch": CREATE_BRANCH}, log=log, approvals=approvals,
         )
+        before = _repo_state(proposal.repo)
         gateway.invoke_write("create_branch", proposal.arguments(), token=token)
-        return {**summary, "outcome": "branch_created"}
+        checks, retest = verify_created(proposal, before, test_timeout=test_timeout)
+        verified = all(check["passed"] for check in checks)
+        rolled_back = None if verified else rollback(proposal)
+        post_action = {
+            "verified": verified,
+            "checks": checks,
+            "tests": {"exit_code": retest.exit_code, "timed_out": retest.timed_out,
+                      "seconds": retest.seconds} if retest else None,
+            "rollback": {
+                "command": ["git", "-C", proposal.repo, "update-ref", "-d",
+                            f"refs/heads/{proposal.branch}", proposal.commit],
+                "attempted": not verified,
+                "succeeded": rolled_back,
+            },
+            "side_effects": side_effects(proposal, rolled_back=bool(rolled_back)),
+        }
+        if log is not None:
+            log.append("write_verified", verified=verified,
+                       checks=[{k: c[k] for k in ("name", "passed", "skipped")} for c in checks],
+                       ref=f"refs/heads/{proposal.branch}", commit=proposal.commit,
+                       rolled_back=rolled_back)
+        outcome = "branch_created" if verified else "verification_failed"
+        return {**summary, "outcome": outcome, "post_action": post_action}
     finally:
         discard(proposal)
+
+
+def _repo_state(repo: str) -> dict[str, str]:
+    """Everything the write must leave alone, read just before it."""
+    return {
+        "refs": _git(repo, "for-each-ref", "--format=%(refname) %(objectname)")
+        .stdout.decode(),
+        "head": _git(repo, "rev-parse", "HEAD").stdout.decode().strip(),
+        "head_ref": _git(repo, "symbolic-ref", "-q", "HEAD", check=False).stdout.decode().strip(),
+        "status": _git(repo, "status", "--porcelain", "--untracked-files=all").stdout.decode(),
+    }
+
+
+def verify_created(
+    proposal: Proposal, before: Mapping[str, str], *, test_timeout: float = 300.0,
+) -> tuple[list[dict[str, Any]], TestRun | None]:
+    """Check the write against the approval, from the repository, afterwards.
+
+    Each check reads the repository again rather than trusting the handler's
+    report: the ref, its parent and diff, that no other ref and neither HEAD nor
+    the worktree moved, and the tests run once more on the branch itself.
+    """
+    repo, ref = proposal.repo, f"refs/heads/{proposal.branch}"
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, passed: bool, detail: str = "") -> None:
+        checks.append({"name": name, "passed": passed, "skipped": False, "detail": detail})
+
+    found = _git(repo, "rev-parse", "--verify", "--quiet", ref, check=False)
+    at = found.stdout.decode().strip()
+    check("ref_points_at_commit", at == proposal.commit, at)
+    if at != proposal.commit:
+        # Every other check reads the branch; without it they would check
+        # something else, so they are recorded as not run.
+        checks.extend(
+            {"name": name, "passed": False, "skipped": True,
+             "detail": "ref does not point at the commit"}
+            for name in ("parent_is_base", "diff_is_approved", "only_this_ref_changed",
+                         "head_and_worktree_untouched", "tests_pass_on_branch")
+        )
+        return checks, None
+    parent = _git(repo, "rev-parse", f"{at}^").stdout.decode().strip()
+    check("parent_is_base", parent == proposal.base, parent)
+    shown = hashlib.sha256(_diff(repo, proposal.base, at).encode("utf-8")).hexdigest()
+    check("diff_is_approved", shown == proposal.diff_sha256, shown)
+    after = _repo_state(repo)
+    expected = sorted(before["refs"].splitlines() + [f"{ref} {proposal.commit}"])
+    check("only_this_ref_changed", sorted(after["refs"].splitlines()) == expected)
+    check("head_and_worktree_untouched",
+          all(after[key] == before[key] for key in ("head", "head_ref", "status")))
+    workdir = tempfile.mkdtemp(prefix="atlas-proposal-")
+    try:
+        clone = str(Path(workdir) / "clone")
+        _git(workdir, "clone", "-q", "--shared", "--no-checkout", repo, clone)
+        _git(clone, "checkout", "-q", "--detach", at)
+        retest = _run_tests(proposal.tests.argv, clone, test_timeout)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    check("tests_pass_on_branch", retest.passed,
+          "timed out" if retest.timed_out else f"exit {retest.exit_code}")
+    return checks, retest
+
+
+def rollback(proposal: Proposal) -> bool:
+    """Delete the branch Core created — only if it still points where Core put it.
+
+    `update-ref -d <ref> <commit>` is the compare-and-swap in reverse: a branch
+    someone has since moved is theirs now, and is left alone.
+    """
+    ref = f"refs/heads/{proposal.branch}"
+    deleted = _git(proposal.repo, "update-ref", "-m", "atlas: roll back unverified proposal",
+                   "-d", ref, proposal.commit, check=False)
+    return deleted.returncode == 0
+
+
+def side_effects(proposal: Proposal, *, rolled_back: bool) -> list[dict[str, Any]]:
+    """What the write left behind, and whether it can be undone."""
+    ref = f"refs/heads/{proposal.branch}"
+    return [
+        {"what": f"created {ref} at {proposal.commit}", "reversible": True,
+         "undo": "rolled back" if rolled_back else f"git update-ref -d {ref} {proposal.commit}"},
+        {"what": "fetched the proposal's objects into the repository", "reversible": False,
+         "undo": "not exactly: the objects become unreachable once the branch is deleted, "
+                 "but Core cannot restore the object store to its earlier bytes, and an "
+                 "eventual git gc is broader and later than an undo"},
+        {"what": f"ran {' '.join(proposal.tests.argv)} twice, in throwaway clones",
+         "reversible": False,
+         "undo": "not tracked by Core: the command ran with the user's privileges, and "
+                 "anything it did outside its clone is its own"},
+        {"what": "contacted no remote; pushed and merged nothing", "reversible": True,
+         "undo": "nothing to undo"},
+    ]
 
 
 __all__ = [
@@ -383,6 +499,9 @@ __all__ = [
     "discard",
     "patch_paths",
     "prepare",
+    "rollback",
+    "side_effects",
+    "verify_created",
     "propose",
     "render",
     "validate_branch",

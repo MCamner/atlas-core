@@ -698,6 +698,33 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
    was checked, or the new branch appeared meanwhile, nothing is created.
    Both refs are validated before they enter the transaction, so a newline
    or space cannot add an instruction.
+6. After the write, Core reads the repository again instead of trusting the
+   handler's report. It runs up to six checks (`post_action.checks`):
+   - the ref points at the commit
+   - its parent is the base
+   - its diff has the approved digest
+   - no other ref changed
+   - HEAD, the symbolic HEAD and `git status` are as they were just before
+     the write
+   - the tests pass again in a fresh clone of the branch itself
+
+   If the ref is missing or points elsewhere, the other five checks depend on
+   it, so they are listed as `skipped` rather than run. If any check fails or
+   is skipped, Core deletes the branch with `git update-ref -d <ref> <commit>`,
+   the same compare-and-swap in reverse. A branch someone has since moved is
+   left alone.
+
+   `post_action.side_effects` marks each effect as reversible or not:
+   - the created ref: reversible, by that delete
+   - the fetched objects: **not** reversible. They become unreachable once
+     the ref is deleted, but Core cannot restore the object store to its
+     earlier bytes. An eventual `git gc` is broader and later, so it is not an
+     exact undo.
+   - the test command: not reversible. Core does not track what it did
+     outside its clone.
+   - no remote was contacted
+
+   `post_action.rollback.command` is the manual undo of the ref.
 
 It never moves HEAD, changes the worktree, pushes or merges, and it can only
 name a branch under `atlas/`.
@@ -708,9 +735,10 @@ name a branch under `atlas/`.
 | refused input, dirty or moved repository, or a branch that exists or appeared meanwhile | 1 |
 | `tests_failed` (no person is asked) | 2 |
 | `approval_required` (nobody to ask) or `refused` (wrong answer) | 3 |
+| `verification_failed` (written, then rolled back, or `rollback.succeeded: false`) | 4 |
 
-`--event-log` records the approval steps (`approval_recorded`) and the write
-call. It is an audit log, not a run log: it has no `run_started`.
+`--event-log` records the approval steps (`approval_recorded`), the write
+call and its verification (`write_verified`). It is an audit log, not a run log: it has no `run_started`.
 
 ### A live model provider (P1.2, partial)
 

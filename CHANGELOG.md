@@ -36,6 +36,19 @@ Roadmap v1.5 write capability with approval:
     symlink, or that create a symlink or submodule are refused.
   - Test commands run without a shell.
   - Failing tests and a missing terminal both write nothing.
+- Post-action verification for `atlas propose`: after the write, Core reads
+  the repository again. It checks that the ref points at the commit, that its
+  parent and diff are the approved ones, that no other ref, HEAD or worktree
+  moved, and that the tests pass on the branch in a fresh clone (up to six
+  checks).
+  - A failed check rolls the branch back with `update-ref -d <ref> <commit>`,
+    and exits 4. A branch someone has since moved is left alone.
+  - The result lists each side effect as reversible or not. Only the ref is
+    reversible. The fetched objects are not: `git gc` is not an exact undo.
+    The test command's own effects are not tracked.
+  - If the ref is missing, the checks that depend on it are listed as
+    `skipped`, and the run counts as unverified.
+  - New event kind `write_verified`.
 
 Roadmap v1.4 MQ adapter boundaries:
 

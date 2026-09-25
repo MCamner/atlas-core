@@ -75,6 +75,7 @@ EVENT_KINDS: tuple[str, ...] = (
     "observation_recorded",
     "decision_recorded",
     "approval_recorded",
+    "write_verified",
     "run_stopped",
 )
 
