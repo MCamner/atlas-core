@@ -12,7 +12,8 @@ asked, granted, refused and rejected, and writes verified or rolled back.
 
 What never is: task text, paths, repositories, refs, user names, error
 messages, digests, or any payload string that is not one of the closed
-vocabularies below. The output is built from an allowlist, not by removing
+vocabularies below. A run id is shown only in the UUID form `atlas create`
+issues; a host-chosen run id is shown as `sha256:` and 16 hex digits of it. The output is built from an allowlist, not by removing
 what looks sensitive, so a new payload field cannot leak into it.
 
 Cost is not reported. Core has no price data; tokens are what it knows.
@@ -20,6 +21,8 @@ Cost is not reported. Core has no price data; tokens are what it knows.
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 from statistics import median
@@ -29,6 +32,9 @@ from .eventlog import APPROVAL_DECISIONS, CALL_KINDS, CALL_OUTCOMES, read_jsonl
 from .machine import STOP_REASONS, StopClass
 
 SCHEMA = "atlas-metrics.v1"
+#: The form `atlas create` issues. Any other run id is host-chosen text, which
+#: can carry a name or a secret, so metrics show a digest of it instead.
+_ISSUED_RUN_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 USAGE_KEYS: tuple[str, ...] = ("model_calls", "tool_calls", "tokens", "output_bytes")
 VERDICTS: tuple[str, ...] = ("verified", "contradicted", "insufficient_evidence")
 STOP_CLASSES: tuple[str, ...] = tuple(item.value for item in StopClass)
@@ -45,6 +51,15 @@ def _seconds(start: str, end: str) -> float | None:
 
 def _enum(value: Any, allowed: Iterable[str]) -> str | None:
     return value if isinstance(value, str) and value in allowed else None
+
+
+def _run_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if _ISSUED_RUN_ID.fullmatch(text):
+        return text
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _count(value: Any) -> int | None:
@@ -101,7 +116,7 @@ def run_metrics(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     usage = stop.get("usage")
     iterations = [n for n in (_count(r.get("iteration")) for r in records) if n is not None]
     return {
-        "run_id": str(records[0].get("run_id")) if records else None,
+        "run_id": _run_id(records[0].get("run_id")) if records else None,
         "kind": "run" if started else "audit",
         "finished": stopped is not None,
         "stop_reason": _enum(stop.get("stop_reason"), STOP_REASONS),
@@ -117,8 +132,11 @@ def run_metrics(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             if isinstance(usage, Mapping) else None
         ),
         "calls": calls,
-        "tool_errors": sum(
-            counts["failed"] + counts["denied"] for counts in calls.values()
+        # Tool calls only: a failed model call or observation is counted in
+        # `calls`, under its own kind, not as a tool error.
+        "tool_errors": (
+            calls["tool_call"]["failed"] + calls["tool_call"]["denied"]
+            if "tool_call" in calls else 0
         ),
         "claims": {
             "checked": checked,

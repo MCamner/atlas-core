@@ -672,7 +672,8 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
               [--test-timeout S] [--event-log PATH] [--no-input] [--json]
 ```
 
-1. `DIR` must be at a clean commit (the base).
+1. `DIR` must be at a clean commit (the base) on a local branch (the base
+   ref). A detached HEAD is refused.
 2. The patch is refused if it is empty, over 256 KiB, or touches an absolute
    path, a `..` component, anything under `.git`, a symlink or a submodule.
    `git apply` also refuses a path through a symlink already in the tree.
@@ -684,12 +685,21 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
    else refuses. With no terminal (`--no-input` or the patch on stdin),
    nothing is asked and nothing is written.
 5. On that yes, `create_branch` runs once through `invoke_write`: it fetches
-   the one commit, checks that its parent is the base and that its diff has
-   the approved digest, and creates the ref with
-   `git update-ref refs/heads/atlas/NAME <commit> <zero>`. Git refuses that
-   if the branch appeared meanwhile.
+   the one commit and checks that its parent is the base and that its diff has
+   the approved digest. It then creates the ref in one
+   `git update-ref --stdin` transaction:
+
+   ```text
+   verify <base ref> <base>
+   create refs/heads/atlas/NAME <commit>
+   ```
+
+   Git applies both or neither. If the base branch moved after the approval
+   was checked, or the new branch appeared meanwhile, nothing is created.
+   Both refs are validated before they enter the transaction, so a newline
+   or space cannot add an instruction.
 6. After the write, Core reads the repository again instead of trusting the
-   handler's report, and checks six things (`post_action.checks`):
+   handler's report. It runs up to six checks (`post_action.checks`):
    - the ref points at the commit
    - its parent is the base
    - its diff has the approved digest
@@ -698,18 +708,23 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
      the write
    - the tests pass again in a fresh clone of the branch itself
 
-   If any check fails, Core deletes the branch with
-   `git update-ref -d <ref> <commit>`, the same compare-and-swap in reverse.
-   A branch someone has since moved is left alone.
+   If the ref is missing or points elsewhere, the other five checks depend on
+   it, so they are listed as `skipped` rather than run. If any check fails or
+   is skipped, Core deletes the branch with `git update-ref -d <ref> <commit>`,
+   the same compare-and-swap in reverse. A branch someone has since moved is
+   left alone.
 
    `post_action.side_effects` marks each effect as reversible or not:
-   - the created ref, reversible
-   - the fetched objects, reversible (`git gc` prunes them once unreachable)
-   - the test command, not reversible: Core does not track what it did
-     outside its clone
+   - the created ref: reversible, by that delete
+   - the fetched objects: **not** reversible. They become unreachable once
+     the ref is deleted, but Core cannot restore the object store to its
+     earlier bytes. An eventual `git gc` is broader and later, so it is not an
+     exact undo.
+   - the test command: not reversible. Core does not track what it did
+     outside its clone.
    - no remote was contacted
 
-   `post_action.rollback.command` is the manual undo.
+   `post_action.rollback.command` is the manual undo of the ref.
 
 It never moves HEAD, changes the worktree, pushes or merges, and it can only
 name a branch under `atlas/`.
@@ -911,8 +926,9 @@ Per run, it reports:
 - iterations
 - `usage` (model calls, tool calls, tokens, output bytes), from
   `run_stopped.usage`
-- call outcomes per kind, including calls that never finished; `tool_errors`
-  counts the `failed` and `denied` ones
+- call outcomes per kind, including calls that never finished;
+  `tool_errors` counts only tool calls (`tool_call`) that finished `failed`
+  or `denied`
 - claims checked, `verified`, `contradicted` (the producer's false positives)
   and `insufficient_evidence`, from `decision_recorded.citation_verdicts`,
   with a verification rate
@@ -925,7 +941,9 @@ counted as `audit`. Logs written before v1.5 have no `usage` or verdict
 counts, so those fields are null or zero.
 
 The document is built from an allowlist: numbers, closed vocabularies and run
-ids. Task text, paths, repositories, refs, user names, error messages and
+ids. A run id appears only in the UUID form `atlas create` issues. A
+host-chosen one is shown as `sha256:` plus 16 hex digits of it, because it is
+free text and could hold a name or a secret. Task text, paths, repositories, refs, user names, error messages and
 digests never appear, and a value outside a vocabulary is dropped rather than
 copied. Cost is not reported, because Core has no price data; tokens are what
 it knows.

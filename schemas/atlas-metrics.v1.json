@@ -41,7 +41,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "As issued by `atlas create` (a UUID). Any other run id is host-chosen text and appears as `sha256:` plus 16 hex digits of it, so a name or secret in it does not."
           },
           "kind": {
             "enum": [
@@ -156,7 +157,7 @@
           },
           "tool_errors": {
             "type": "integer",
-            "description": "Calls that finished `failed` or `denied`, any kind."
+            "description": "Tool calls (`call_kind: tool_call`) that finished `failed` or `denied`. Model calls and observations are counted in `calls` under their own kind."
           },
           "claims": {
             "type": "object",

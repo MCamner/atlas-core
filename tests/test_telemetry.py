@@ -110,7 +110,7 @@ class TestNothingSensitiveLeaves(evidence_tests._Repo):
         host = evidence_tests._Recording(self.root)
         self._run(host, _TwoClaims(host))
         audit = self.tmp / "audit.jsonl"
-        approvals = ApprovalAuthority(log=EventLog("audit-1", JsonlSink(audit)),
+        approvals = ApprovalAuthority(log=EventLog("audit-mattias.camner", JsonlSink(audit)),
                                       head_of=lambda _r: HEAD)
         op = Operation(kind="ref", tool="create_branch",
                        arguments={"token": evidence_tests.TOKEN}, repo=str(self.root),
@@ -164,6 +164,29 @@ class TestCounting(unittest.TestCase):
         self.assertEqual(run["latency_seconds"], 9.0)
         self.assertEqual(run["iterations"], 1)
         self.assertIsNone(run["usage"])
+
+    def test_tool_errors_are_tool_calls_only(self) -> None:
+        records = [
+            record("run_started", 0),
+            record("call_started", 1, {"call_kind": "model_call"}, "m"),
+            record("call_finished", 2, {"outcome": "failed"}, "m"),
+            record("call_started", 3, {"call_kind": "observe"}, "o"),
+            record("call_finished", 4, {"outcome": "denied"}, "o"),
+            record("run_stopped", 5, {"stop_reason": "tool_error"}),
+        ]
+        run = run_metrics(records)
+        self.assertEqual(run["tool_errors"], 0)
+        self.assertEqual(run["calls"]["model_call"]["failed"], 1)
+        self.assertEqual(run["calls"]["observe"]["denied"], 1)
+
+    def test_a_host_chosen_run_id_is_shown_as_a_digest(self) -> None:
+        issued = "5f0c8e8a-3b1d-4c55-9a6e-2f1f0d3c9b7a"
+        chosen = "mattias.camner-ghp_secret"
+        self.assertEqual(run_metrics([{**record("run_started", 0), "run_id": issued}])["run_id"],
+                         issued)
+        shown = run_metrics([{**record("run_started", 0), "run_id": chosen}])["run_id"]
+        self.assertRegex(shown, r"^sha256:[0-9a-f]{16}$")
+        self.assertNotIn("mattias", shown)
 
     def test_values_outside_the_vocabularies_are_not_counted(self) -> None:
         records = [
