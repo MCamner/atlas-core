@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-learning-candidate.v1.json",
+  "title": "Atlas Learning Candidate",
+  "description": "A person's verdict on a finished run and what they think should be learned from it. A candidate is not knowledge: nothing reads it as such until `atlas feedback promote` passes it through the schema and provenance gate and a named person promotes it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "candidate_id",
+    "run_id",
+    "outcome",
+    "lesson",
+    "provenance",
+    "recorded_by",
+    "recorded_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-learning-candidate.v1"
+    },
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Derived from run, outcome, lesson and provenance."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "enum": [
+        "confirmed",
+        "rejected"
+      ]
+    },
+    "lesson": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "The person's words, masked like every other text Core keeps."
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_log_sha256",
+        "run_stopped_event_id",
+        "stop_reason",
+        "task_sha256",
+        "route",
+        "sources"
+      ],
+      "description": "Read from the run's event log when the outcome was recorded. The gate compares every field with the log again before promotion.",
+      "properties": {
+        "event_log_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The whole log file. A run's log is closed at `run_stopped`, so a different digest means the evidence changed."
+        },
+        "run_stopped_event_id": {
+          "type": "string"
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_id",
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "source_id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "recorded_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recorded_at": {
+      "type": "string"
+    }
+  }
+}

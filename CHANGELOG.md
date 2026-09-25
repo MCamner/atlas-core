@@ -49,14 +49,26 @@ Roadmap v1.5 write capability with approval:
   - If the ref is missing, the checks that depend on it are listed as
     `skipped`, and the run counts as unverified.
   - New event kind `write_verified`.
+- Feedback loop: `atlas feedback record` turns a person's `confirmed` or
+  `rejected` verdict on a finished run into an `atlas-learning-candidate.v1`.
+  The candidate carries provenance from the run's log: the log's SHA-256, the
+  `run_stopped` event, the task digest, the route and the sources.
+  - `atlas feedback promote` gates one candidate, then appends it as an
+    `atlas-learning.v1`. The gate validates the full
+    `atlas-learning-candidate.v1` schema, recomputes the candidate id from its
+    content, and checks the provenance against the log as it is now.
+  - It refuses a changed log, mismatched provenance, content edited under an
+    old id, an unknown or duplicate id, or a second promotion. Checking and
+    appending share one store lock, so concurrent promotions append once.
+  - Nothing is automatic, and nothing rewrites an event log or a stored line.
 - `atlas metrics` reads event logs into `atlas-metrics.v1`. Per run it counts
   latency, iterations, budget usage including tokens, call outcomes and tool
   errors, claims `verified` and `contradicted` with a verification rate,
   approvals and user refusals, and writes rolled back. `tool_errors` counts
   tool calls only.
   - It is built from an allowlist: no task text, paths, user names, error
-    messages or digests. A run id not in the UUID form `atlas create` issues
-    is shown as a digest.
+    messages or digests from the log. A run id not in the UUID form
+    `atlas create` issues is shown as a digest that metrics computes.
   - Cost is not reported, because Core has no price data.
   - To feed it, `run_stopped` now carries `usage` and `decision_recorded`
     carries `citation_verdicts` (counts only).

@@ -11,10 +11,12 @@ own cited source (`contradicted` — the producer's false positives), approvals
 asked, granted, refused and rejected, and writes verified or rolled back.
 
 What never is: task text, paths, repositories, refs, user names, error
-messages, digests, or any payload string that is not one of the closed
-vocabularies below. A run id is shown only in the UUID form `atlas create`
-issues; a host-chosen run id is shown as `sha256:` and 16 hex digits of it. The output is built from an allowlist, not by removing
-what looks sensitive, so a new payload field cannot leak into it.
+messages, any digest from the log, or any payload string that is not one of
+the closed vocabularies below. A run id is shown only in the UUID form
+`atlas create` issues. A host-chosen run id is shown as `sha256:` and 16 hex
+digits of it, which is the one digest here and is computed by metrics. The
+output is built from an allowlist, not by removing what looks sensitive, so a
+new payload field cannot leak into it.
 
 Cost is not reported. Core has no price data; tokens are what it knows.
 """

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-learning.v1.json",
+  "title": "Atlas Learning",
+  "description": "A candidate a named person promoted after it passed the gate. Appended to `learnings.jsonl`; the candidate inside is the one recorded, unchanged. A candidate is promoted at most once.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "candidate",
+    "promoted_by",
+    "promoted_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "atlas-learning.v1"
+    },
+    "candidate": {
+      "type": "object",
+      "description": "An atlas-learning-candidate.v1 document."
+    },
+    "promoted_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "promoted_at": {
+      "type": "string"
+    }
+  }
+}
