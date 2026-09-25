@@ -172,6 +172,21 @@ class TestZeroMutations(unittest.TestCase):
         clock.now += 60
         self.assert_refused(gate, repo, token, "expired")
 
+    def test_wall_time_past_expires_at_ends_a_grant_the_monotonic_clock_missed(self) -> None:
+        # A suspended machine: real time passed, the monotonic clock did not.
+        wall = [2_000_000.0]
+        gate, approvals, repo, log, clock = setup(wall_clock=lambda: wall[0])
+        token = approvals.grant(approvals.request(operation(repo)),
+                                granted_by="mattias", ttl_seconds=60)
+        granted = [e for e in log.events() if e.kind == "approval_recorded"][-1]
+        wall[0] += 60
+        self.assertEqual(clock.now, 1_000_000.0)
+        self.assert_refused(gate, repo, token, "expired")
+        # The audit said it would end then, and it did.
+        from datetime import datetime
+        self.assertEqual(datetime.fromisoformat(granted.payload["expires_at"]).timestamp(),
+                         wall[0])
+
     def test_expired(self) -> None:
         gate, approvals, repo, log, clock = setup()
         token = approvals.grant(approvals.request(operation(repo)),
@@ -328,6 +343,29 @@ class TestSerialisedAuthority(unittest.TestCase):
         ids = self.race(*[lambda: approvals.request(operation(repo))] * 8)
         self.assertEqual(len(set(ids)), 8)
         self.assertEqual(len(decisions(log)), 8)
+
+
+class TestAuditSnapshot(unittest.TestCase):
+    def test_the_logged_input_is_the_copy_that_was_approved_and_run(self) -> None:
+        from atlas_core.eventlog import digest
+
+        gate, approvals, repo, log, _ = setup()
+        token = approvals.grant(approvals.request(operation(repo)),
+                                granted_by="mattias", ttl_seconds=60)
+        args = dict(ARGS)
+        original = digest(dict(args))
+        real_start = gate._start_call
+
+        def edit_then_start(*a: Any, **k: Any) -> Any:
+            # Another thread edits the caller's dict just as the call is logged.
+            args["diff"] = "edited while logging"
+            return real_start(*a, **k)
+
+        gate._start_call = edit_then_start  # type: ignore[method-assign]
+        gate.invoke_write("apply_patch", args, token=token)
+        started = [e for e in log.events() if e.kind == "call_started"][-1]
+        self.assertEqual(started.payload["input_sha256"], original)
+        self.assertEqual(repo.writes, [ARGS])
 
 
 class TestModelPath(unittest.TestCase):

@@ -123,8 +123,12 @@ class _Pending:
     token_sha256: str | None = None
     granted_by: str | None = None
     granted_at: float | None = None
-    #: On the monotonic clock: a wall clock set back would extend a grant.
+    #: Expiry on both clocks, and a grant ends when either passes. The
+    #: monotonic one cannot be extended by setting the wall clock back; the
+    #: wall one counts time a suspended machine's monotonic clock may not, and
+    #: is the `expires_at` the audit shows.
     expires_monotonic: float | None = None
+    expires_wall: float | None = None
     decision: str = "requested"
 
 
@@ -200,10 +204,11 @@ class ApprovalAuthority:
             item.granted_by = granted_by
             item.granted_at = self._wall_clock()
             item.expires_monotonic = self._clock() + ttl_seconds
+            item.expires_wall = item.granted_at + ttl_seconds
             item.decision = "granted"
             self._record(
                 "granted", approval_id, item, granted_by=granted_by,
-                expires_at=_iso(item.granted_at + ttl_seconds),
+                expires_at=_iso(item.expires_wall),
             )
             return token
 
@@ -237,9 +242,11 @@ class ApprovalAuthority:
         approval_id, item = found[0]
         if item.decision == "consumed":
             self._reject(approval_id, item, "already_used")
-        if item.decision != "granted" or item.expires_monotonic is None:
+        if (item.decision != "granted" or item.expires_monotonic is None
+                or item.expires_wall is None):
             self._reject(approval_id, item, "not_granted")
-        if self._clock() >= item.expires_monotonic:
+        if (self._clock() >= item.expires_monotonic
+                or self._wall_clock() >= item.expires_wall):
             self._reject(approval_id, item, "expired")
         # State before digest: a tool describes its operation against the HEAD
         # it sees now, so after a move the digests differ too, and the reason
