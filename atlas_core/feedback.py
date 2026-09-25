@@ -27,13 +27,17 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 from typing import Any, Iterator, Mapping
+
+try:
+    import fcntl
+except ImportError:  # No POSIX locks: promotion refuses instead of racing.
+    fcntl = None  # type: ignore[assignment]
 
 from .eventlog import read_jsonl
 from .redaction import redact_text
@@ -348,6 +352,9 @@ def promote(
 
 @contextmanager
 def _store_lock(root: Path) -> Iterator[None]:
+    if fcntl is None:
+        raise PromotionRefused(
+            ["safe cross-process promotion locking is unavailable on this platform"])
     root.mkdir(parents=True, exist_ok=True)
     with (root / ".promote.lock").open("a+") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)

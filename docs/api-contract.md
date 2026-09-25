@@ -941,11 +941,13 @@ counted as `audit`. Logs written before v1.5 have no `usage` or verdict
 counts, so those fields are null or zero.
 
 The document is built from an allowlist: numbers, closed vocabularies and run
-ids. A run id appears only in the UUID form `atlas create` issues. A
-host-chosen one is shown as `sha256:` plus 16 hex digits of it, because it is
-free text and could hold a name or a secret. Task text, paths, repositories, refs, user names, error messages and
-digests never appear, and a value outside a vocabulary is dropped rather than
-copied. Cost is not reported, because Core has no price data; tokens are what
+ids. Task text, paths, repositories, refs, user names and error messages
+never appear, and neither does any digest from the log (task, source,
+operation or evidence digests). A value outside a vocabulary is dropped rather
+than copied. A run id appears only in the UUID form `atlas create` issues. A
+host-chosen one is free text that could hold a name or a secret, so it is shown
+as `sha256:` plus 16 hex digits of it. That is the only digest in the
+document, and metrics computes it. Cost is not reported, because Core has no price data; tokens are what
 it knows.
 
 ### Feedback loop (v1.5)

@@ -67,8 +67,8 @@ Roadmap v1.5 write capability with approval:
   approvals and user refusals, and writes rolled back. `tool_errors` counts
   tool calls only.
   - It is built from an allowlist: no task text, paths, user names, error
-    messages or digests. A run id not in the UUID form `atlas create` issues
-    is shown as a digest.
+    messages or digests from the log. A run id not in the UUID form
+    `atlas create` issues is shown as a digest that metrics computes.
   - Cost is not reported, because Core has no price data.
   - To feed it, `run_stopped` now carries `usage` and `decision_recorded`
     carries `citation_verdicts` (counts only).

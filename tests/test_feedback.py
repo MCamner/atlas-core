@@ -195,6 +195,19 @@ class TestTheGateRefuses(_Feedback):
         self.assertEqual(sorted(outcomes), ["promoted"] + ["refused"] * 7)
         self.assertEqual(len(self.lines("learnings.jsonl")), 1)
 
+    def test_no_lock_backend_refuses_promotion(self) -> None:
+        from unittest import mock
+        import atlas_core.feedback as module
+
+        candidate = self.record()
+        with mock.patch.object(module, "fcntl", None):
+            with self.assertRaises(PromotionRefused) as caught:
+                promote(self.store, candidate["candidate_id"], self.log, promoted_by="m")
+            # Recording needs no lock and still works.
+            self.record(lesson="another")
+        self.assertIn("locking is unavailable", str(caught.exception))
+        self.assertFalse((self.store / "learnings.jsonl").exists())
+
     def test_unknown_and_duplicate_candidates(self) -> None:
         candidate = self.record()
         with self.assertRaises(PromotionRefused):

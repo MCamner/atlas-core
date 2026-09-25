@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "atlas-metrics.v1.json",
   "title": "Atlas Metrics",
-  "description": "Telemetry read from event logs by `atlas metrics`. Built from an allowlist: numbers, closed vocabularies and run ids only — never task text, paths, repositories, refs, user names, error messages or digests. Cost is not reported: Core has no price data.",
+  "description": "Telemetry read from event logs by `atlas metrics`. Built from an allowlist: numbers, closed vocabularies and run ids only — never task text, paths, repositories, refs, user names, error messages or any digest from the log. A host-chosen run id appears as a digest metrics computes. Cost is not reported: Core has no price data.",
   "type": "object",
   "additionalProperties": false,
   "required": [
