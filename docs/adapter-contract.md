@@ -57,6 +57,28 @@ Write-like tool use stays outside the model adapter contract. The controller sti
 The task pack is included only when its frontmatter `task` and `repo` exactly
 match the current query and configured project.
 
-Each observation is labelled as durable memory that must not be treated as current runtime truth. Writes accept only `atlas-memory-candidate.v1` records and place them under `inbox/atlas-memory-candidates/`.
+Each observation is labelled as durable memory that must not be treated as current runtime truth. Duplicate content is returned once and symlinks outside the configured vault are ignored.
+
+Writes validate the complete `atlas-memory-candidate.v1` shape, map it to
+mqobsidian's canonical `memory-observation.v1`, and append it to
+`memory/observations/atlas-core.observations.jsonl`. The stable observation id
+deduplicates equivalent candidates while preserving producer, repository,
+source-schema and content-hash provenance. Malformed existing JSONL fails
+closed instead of being repaired or skipped.
+
+## MQ read-only adapters
+
+`MQMCPAdapter` projects an explicit list of host-supplied `MQToolContract`
+objects into Atlas' `ToolGateway`. Only contracts whose authoritative
+`safety_class` is exactly `read-only` are accepted; unknown, subprocess,
+write-capable and dangerous tools fail during adapter construction. Input,
+output, route, timeout and run-budget enforcement remain owned by the gateway.
+An optional receiver gate runs before transport dispatch.
+
+`MQAgentAdapter` uses the same explicit read-only contracts, but treats
+mq-agent as an observation handoff. It returns JSON transport results as
+labelled data and never transfers Atlas run state or evaluation ownership to
+mq-agent. Both adapters depend only on the small `MQToolClient` protocol, so
+Core imports and tests require no MQ package, endpoint or credentials.
 
 Future adapters: ChatGPTSkillAdapter, OpenAIModelAdapter.

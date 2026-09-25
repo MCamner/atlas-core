@@ -11,6 +11,7 @@ from .live_model import (
     read_envelope,
 )
 from .model import ModelAdapter, ModelResult
+from .mq import MQAgentAdapter, MQMCPAdapter, MQToolClient, MQToolContract
 from .mqobsidian import MQObsidianMemoryAdapter
 
 __all__ = [
@@ -18,7 +19,11 @@ __all__ = [
     "LiveModelAdapter",
     "ModelAdapter",
     "ModelResult",
+    "MQAgentAdapter",
+    "MQMCPAdapter",
     "MQObsidianMemoryAdapter",
+    "MQToolClient",
+    "MQToolContract",
     "NotConfigured",
     "ProviderConfig",
     "build_model_adapter",
