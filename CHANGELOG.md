@@ -17,8 +17,11 @@ Roadmap v1.5 write capability with approval:
 - The approved operation is fixed: its arguments are copied at construction
   into a read-only structure all the way down, and its digest is computed
   once. `invoke_write` runs a copy of the arguments taken when the call began.
-  Request, grant, refuse and consume share one lock. Expiry uses the
-  monotonic clock, and the wall clock only dates the audit.
+  Request, grant, refuse and consume share one lock. A grant expires when
+  either the monotonic clock or the wall clock passes its TTL. The monotonic
+  clock stops a wall clock set back from extending it, and the wall clock
+  counts a suspend and matches the audited `expires_at`. `call_started`
+  logs the digest of the copy that is approved and run.
 - New event kind `approval_recorded` (`requested`, `granted`, `refused`,
   `consumed` and `rejected`, with a reason). It never carries the token.
 - No CLI path registers a write tool yet. The first write use case is the next

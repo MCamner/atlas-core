@@ -144,8 +144,14 @@ read-only mounts/network policy. Windows currently fails closed for this API.
   - **One answer per approval.** Request, grant, refuse and consume are
     serialised on one lock, so however many threads ask, one grant or refusal
     wins and the audit shows only that.
-  - **Expiry uses the monotonic clock.** A wall clock set back cannot extend a
-    grant. The wall clock only dates `granted_at` and `expires_at` in the audit.
+  - **Expiry is checked on two clocks, and the grant ends when either one
+    passes.** The monotonic clock cannot be extended by setting the wall clock
+    back. The wall clock counts the time a suspended machine's monotonic clock
+    may miss, and it is the `expires_at` the audit shows, so the audit and the
+    refusal agree.
+  - **The logged input is the approved input.** `invoke_write` copies the
+    arguments before `call_started`, so `input_sha256` is the digest of the
+    copy that is described, approved and run.
   - **`ref` names the operation; `head` is its precondition.** The default
     probe `clean_head` checks the checkout's HEAD and a clean worktree. It does
     not separately check where `ref` points. A write use case must make the
