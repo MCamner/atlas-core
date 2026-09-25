@@ -38,7 +38,7 @@ from .tool_gateway import ToolContext, ToolDefinition, ToolGateway
 #: A new branch lives under `atlas/`, so a proposal can never name `main`,
 #: a release branch, or anything a person already works on.
 BRANCH = re.compile(r"atlas/[a-z0-9][a-z0-9._-]{0,62}")
-ZERO = "0" * 40
+_OID = re.compile(r"[0-9a-f]{40}([0-9a-f]{24})?")
 #: Largest patch Core will apply and show. A person approves what they read.
 MAX_PATCH_BYTES = 256 * 1024
 #: How much of the test output is kept and shown.
@@ -69,6 +69,8 @@ class TestRun:
 class Proposal:
     repo: str
     base: str
+    #: The local branch HEAD was on, at `base`, when the proposal was made.
+    base_ref: str
     branch: str
     commit: str
     diff: str
@@ -86,8 +88,8 @@ class Proposal:
     def arguments(self) -> dict[str, Any]:
         return {
             "repo": self.repo, "branch": self.branch, "commit": self.commit,
-            "base": self.base, "diff_sha256": self.diff_sha256,
-            "source": self.workdir,
+            "base": self.base, "base_ref": self.base_ref,
+            "diff_sha256": self.diff_sha256, "source": self.workdir,
         }
 
 
@@ -186,6 +188,11 @@ def prepare(
         raise ProposalRefused(f"patch is larger than {MAX_PATCH_BYTES} bytes")
     root = str(Path(repo).expanduser().resolve())
     base = clean_head(root)
+    # The branch the base commit is on is part of what was approved: the write
+    # verifies it in the same transaction that creates the new branch.
+    base_ref = _git(root, "symbolic-ref", "-q", "HEAD", check=False).stdout.decode().strip()
+    if not base_ref.startswith("refs/heads/"):
+        raise ProposalRefused("HEAD is detached; a proposal needs a local branch as its base")
     if _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
             check=False).returncode == 0:
         raise ProposalRefused(f"branch {branch} already exists")
@@ -207,7 +214,7 @@ def prepare(
         shutil.rmtree(workdir, ignore_errors=True)
         raise
     return Proposal(
-        repo=root, base=base, branch=branch, commit=commit, diff=diff,
+        repo=root, base=base, base_ref=base_ref, branch=branch, commit=commit, diff=diff,
         diff_sha256=hashlib.sha256(diff.encode("utf-8")).hexdigest(),
         tests=tests, workdir=clone,
     )
@@ -223,12 +230,43 @@ def _create_branch(_ctx: ToolContext, args: dict[str, Any]) -> dict[str, str]:
     shown = hashlib.sha256(_diff(repo, args["base"], commit).encode("utf-8")).hexdigest()
     if shown != args["diff_sha256"]:
         raise ProposalRefused("fetched commit is not the diff that was approved")
-    _git(repo, "update-ref", "-m", "atlas: approved proposal", ref, commit, ZERO)
+    # One transaction: git applies both or neither. The approval was for a
+    # branch cut from `base` while `base_ref` stood there; if it moved after
+    # the approval was checked, the new branch is not created. (HEAD itself is
+    # checked by the approval; git refuses a second update of the same ref
+    # through the HEAD symref in one transaction.)
+    _check_ref(args["base_ref"])
+    transaction = (
+        f"verify {args['base_ref']} {args['base']}\n"
+        f"create {ref} {commit}\n"
+    )
+    created = subprocess.run(
+        ["git", "-C", repo, "update-ref", "-m", "atlas: approved proposal", "--stdin"],
+        input=transaction.encode("utf-8"), capture_output=True, timeout=60,
+    )
+    if created.returncode != 0:
+        raise ProposalRefused(
+            "the repository moved or the branch appeared before the write: "
+            + created.stderr.decode("utf-8", "replace").strip()[:300]
+        )
     return {"ref": ref, "commit": commit}
+
+
+def _check_ref(name: str) -> str:
+    # These go into an `update-ref --stdin` transaction: a newline or a space
+    # in one would be a second instruction.
+    if (not name.startswith("refs/heads/") or any(c.isspace() for c in name)
+            or subprocess.run(["git", "check-ref-format", name],
+                              capture_output=True).returncode != 0):
+        raise ProposalRefused(f"not a branch ref: {name!r}")
+    return name
 
 
 def describe_create_branch(args: dict[str, Any]) -> Operation:
     """What `create_branch` with these arguments does, for the approval."""
+    _check_ref(args["base_ref"])
+    if not _OID.fullmatch(args["commit"]):
+        raise ProposalRefused("commit must be a full object id")
     return Operation(
         kind="ref", tool="create_branch", arguments=args, repo=args["repo"],
         ref=f"refs/heads/{validate_branch(args['branch'])}", head=args["base"],
@@ -240,9 +278,10 @@ CREATE_BRANCH = ToolDefinition(
     timeout_seconds=60.0,
     input_schema={
         "type": "object", "additionalProperties": False,
-        "required": ["repo", "branch", "commit", "base", "diff_sha256", "source"],
+        "required": ["repo", "branch", "commit", "base", "base_ref", "diff_sha256", "source"],
         "properties": {name: {"type": "string"} for name in
-                       ("repo", "branch", "commit", "base", "diff_sha256", "source")},
+                       ("repo", "branch", "commit", "base", "base_ref", "diff_sha256",
+                        "source")},
     },
     output_schema={"type": "object", "required": ["ref", "commit"]},
 )

@@ -148,6 +148,49 @@ class TestNothingWritten(Repo):
         self.assertNotIn("refs/heads/atlas/fix-readme", refs(self.root))
         self.assert_no_clone_left()
 
+    def test_base_moved_after_the_approval_check_but_before_the_write(self) -> None:
+        from unittest import mock
+        import atlas_core.patch_proposal as module
+
+        real_run = module.subprocess.run
+
+        def move_main_then_run(argv: Any, *args: Any, **kwargs: Any) -> Any:
+            if "--stdin" in argv:
+                # Another process commits to main in the gap between consume()
+                # and the ref transaction.
+                (self.root / "README.md").write_text("other\n")
+                self.commit("moved")
+            return real_run(argv, *args, **kwargs)
+
+        with mock.patch.object(module.subprocess, "run", move_main_then_run):
+            with self.assertRaises(ProposalRefused) as caught:
+                self.propose()
+        self.assertIn("moved", str(caught.exception))
+        self.assertNotIn("refs/heads/atlas/fix-readme", refs(self.root))
+        finished = [e.payload["outcome"] for e in self.log.events() if e.kind == "call_finished"]
+        self.assertEqual(finished, ["failed"])
+        self.assertEqual(self.decisions(), ["requested", "granted", "consumed"])
+
+    def test_a_detached_head_cannot_be_a_base(self) -> None:
+        git(self.root, "checkout", "-q", "--detach")
+        with self.assertRaises(ProposalRefused) as caught:
+            self.propose()
+        self.assertIn("detached", str(caught.exception))
+        self.assert_no_clone_left()
+
+    def test_transaction_inputs_cannot_carry_a_second_instruction(self) -> None:
+        from atlas_core.patch_proposal import describe_create_branch
+        good = {"repo": str(self.root), "branch": "atlas/x", "commit": self.base,
+                "base": self.base, "base_ref": "refs/heads/main", "diff_sha256": "d",
+                "source": "s"}
+        describe_create_branch(good)
+        for key, value in (("base_ref", "refs/heads/main\ndelete refs/heads/main"),
+                           ("base_ref", "refs/heads/main x"), ("base_ref", "HEAD"),
+                           ("base_ref", "refs/tags/v1"), ("commit", "HEAD"),
+                           ("commit", self.base + "\ndelete refs/heads/main")):
+            with self.subTest(key=key, value=value), self.assertRaises(ProposalRefused):
+                describe_create_branch({**good, key: value})
+
     def test_a_branch_created_meanwhile_is_not_overwritten(self) -> None:
         def race_then_approve(text: str) -> str:
             git(self.root, "branch", "atlas/fix-readme", self.base)

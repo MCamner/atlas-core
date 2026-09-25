@@ -672,7 +672,8 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
               [--test-timeout S] [--event-log PATH] [--no-input] [--json]
 ```
 
-1. `DIR` must be at a clean commit (the base).
+1. `DIR` must be at a clean commit (the base) on a local branch (the base
+   ref). A detached HEAD is refused.
 2. The patch is refused if it is empty, over 256 KiB, or touches an absolute
    path, a `..` component, anything under `.git`, a symlink or a submodule.
    `git apply` also refuses a path through a symlink already in the tree.
@@ -684,10 +685,19 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
    else refuses. With no terminal (`--no-input` or the patch on stdin),
    nothing is asked and nothing is written.
 5. On that yes, `create_branch` runs once through `invoke_write`: it fetches
-   the one commit, checks that its parent is the base and that its diff has
-   the approved digest, and creates the ref with
-   `git update-ref refs/heads/atlas/NAME <commit> <zero>`. Git refuses that
-   if the branch appeared meanwhile.
+   the one commit and checks that its parent is the base and that its diff has
+   the approved digest. It then creates the ref in one
+   `git update-ref --stdin` transaction:
+
+   ```text
+   verify <base ref> <base>
+   create refs/heads/atlas/NAME <commit>
+   ```
+
+   Git applies both or neither. If the base branch moved after the approval
+   was checked, or the new branch appeared meanwhile, nothing is created.
+   Both refs are validated before they enter the transaction, so a newline
+   or space cannot add an instruction.
 
 It never moves HEAD, changes the worktree, pushes or merges, and it can only
 name a branch under `atlas/`.

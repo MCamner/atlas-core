@@ -27,8 +27,10 @@ Roadmap v1.5 write capability with approval:
 - `atlas propose` is the first write use case. It applies a patch and runs the
   tests in a `--shared` clone, shows the diff and the test result, and asks a
   person at a terminal to type the operation's code. On that yes it creates
-  `refs/heads/atlas/<name>` with `git update-ref <ref> <commit> <zero>`, which
-  git refuses if the branch appeared meanwhile.
+  `refs/heads/atlas/<name>` in one `update-ref --stdin` transaction:
+  `verify <base ref> <base>` and `create <ref> <commit>`. If the base branch
+  moved after the approval was checked, or the branch appeared meanwhile,
+  nothing is created. A detached HEAD cannot be a base.
   - It never moves HEAD, touches the worktree, pushes or merges.
   - Patches that reach outside the repository, into `.git`, through a
     symlink, or that create a symlink or submodule are refused.
