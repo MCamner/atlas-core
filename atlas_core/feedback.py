@@ -172,6 +172,9 @@ _TYPES: dict[str, Any] = {
     "object": lambda v: isinstance(v, dict),
     "array": lambda v: isinstance(v, list),
     "string": lambda v: isinstance(v, str),
+    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+    "boolean": lambda v: isinstance(v, bool),
     "null": lambda v: v is None,
 }
 
@@ -188,6 +191,8 @@ def schema_errors(value: Any, schema: Mapping[str, Any], path: str = "$") -> lis
     errors: list[str] = []
     if "type" in schema:
         allowed = [schema["type"]] if isinstance(schema["type"], str) else schema["type"]
+        if any(name not in _TYPES for name in allowed):
+            return [f"{path}: schema uses unsupported type {allowed}"]
         if not any(_TYPES[name](value) for name in allowed):
             return [f"{path}: not {allowed}"]
     if "const" in schema and value != schema["const"]:
@@ -254,11 +259,12 @@ def _provenance(event_log: str | Path, run_id: str) -> dict[str, Any]:
     if not started or not stopped:
         raise ValueError(f"run {run_id!r} has not finished in {event_log}; "
                          "only a finished run has an outcome to judge")
-    routes = [r["payload"].get("route") for r in records if r.get("kind") == "plan_selected"]
+    routes = [(r.get("payload") or {}).get("route") for r in records
+              if r.get("kind") == "plan_selected"]
     sources: dict[str, dict[str, str]] = {}
     for record in records:
         if record.get("kind") == "observation_recorded":
-            for added in record.get("payload", {}).get("added", []):
+            for added in (record.get("payload") or {}).get("added") or []:
                 sources[f"{added.get('source_id')}:{added.get('sha256')}"] = {
                     "source_id": str(added.get("source_id")),
                     "path": str(added.get("path")),
@@ -281,19 +287,21 @@ def record_outcome(
     """A person's verdict on a finished run, appended as a candidate."""
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome must be one of {OUTCOMES}")
-    if not lesson.strip():
+    # Masked like everything else Core keeps: a pasted credential in a note is
+    # still a credential. The limit applies to what is stored, and masking can
+    # lengthen text (`a@b.se` becomes `[REDACTED]`), so it is checked after.
+    masked = redact_text(lesson.strip())
+    if not masked.strip():
         raise ValueError("a candidate says what should be learned")
-    if len(lesson) > MAX_LESSON:
-        raise ValueError(f"lesson is longer than {MAX_LESSON} characters")
+    if len(masked) > MAX_LESSON:
+        raise ValueError(f"lesson is longer than {MAX_LESSON} characters once masked")
     if not recorded_by.strip():
         raise ValueError("an outcome names who recorded it")
     provenance = _provenance(event_log, run_id)
     body = {
         "run_id": run_id,
         "outcome": outcome,
-        # Masked like everything else Core keeps: a pasted credential in a
-        # note is still a credential.
-        "lesson": redact_text(lesson.strip()),
+        "lesson": masked,
         "provenance": provenance,
     }
     candidate = {

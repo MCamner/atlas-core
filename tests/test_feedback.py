@@ -226,6 +226,23 @@ class TestTheGateRefuses(_Feedback):
             record_outcome(self.store, unfinished, self.run_id, outcome="confirmed",
                            lesson="x", recorded_by="m")
 
+    def test_a_lesson_masking_makes_too_long_is_refused_at_record(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self.record(lesson="x" * 1993 + " a@b.se")  # 2000 before, 2004 after
+        self.assertIn("once masked", str(caught.exception))
+        self.assertFalse((self.store / "candidates.jsonl").exists())
+        # At the limit once masked, it is recorded and passes the gate.
+        candidate = self.record(lesson="x" * 1989 + " a@b.se")
+        self.assertEqual(len(candidate["lesson"]), 2000)
+        self.assertEqual(gate(candidate, self.log), [])
+
+    def test_the_validator_refuses_what_it_cannot_check(self) -> None:
+        from atlas_core.feedback import schema_errors
+        self.assertTrue(schema_errors(1, {"type": "decimal"}))
+        self.assertTrue(schema_errors(1, {"minimum": 0}))
+        self.assertEqual(schema_errors(1, {"type": "integer"}), [])
+        self.assertTrue(schema_errors(True, {"type": "integer"}))
+
     def test_bad_input(self) -> None:
         for overrides in ({"outcome": "maybe"}, {"lesson": " "}, {"lesson": "x" * 2001},
                           {"recorded_by": ""}):
