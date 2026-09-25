@@ -125,10 +125,42 @@ read-only mounts/network policy. Windows currently fails closed for this API.
   account/container with read-only mounts, restricted networking and explicit
   resource limits. Process termination does not undo side effects already
   committed before termination. Do not register unreviewed handlers as `read`.
-- **No write-approval token exists.** Mutation tools remain denied. Future
-  approval must bind to the exact diff, command, repository and ref, and be
-  invalidated when that evidence changes. Approval-like model prose does
-  not confer a capability.
+- **A write needs a person's approval of that exact write, and nothing in the
+  run path asks for one yet.** Since v1.5 `ToolGateway.invoke_write` runs a
+  `write` tool, and it alone does. `invoke`, `ToolContext.invoke` and the model
+  adapter's `invoke_tool` still deny every `write`. `invoke_write` needs an
+  `ApprovalAuthority` (`atlas_core.approval`) held by host code, and a token
+  that authority issued when a person granted one `Operation`. That operation
+  is the tool, its exact arguments, the repository, the ref and the clean
+  commit it was proposed against, and its digest is what gets approved. The
+  token is spent once and expires after at most an hour. It is refused if the
+  repository's commit moved or its worktree is dirty (`state_unpinned`), or if
+  the arguments differ. Each refusal comes before the handler, so it changes
+  nothing. The authority keeps only the token's digest.
+  - **What was approved stays fixed.** `Operation` copies its arguments at
+    construction into a read-only structure, all the way down, and computes
+    its digest once. `invoke_write` also copies the caller's arguments when the
+    call begins, and describes and runs that copy.
+  - **One answer per approval.** Request, grant, refuse and consume are
+    serialised on one lock, so however many threads ask, one grant or refusal
+    wins and the audit shows only that.
+  - **Expiry is checked on two clocks, and the grant ends when either one
+    passes.** The monotonic clock cannot be extended by setting the wall clock
+    back. The wall clock counts the time a suspended machine's monotonic clock
+    may miss, and it is the `expires_at` the audit shows, so the audit and the
+    refusal agree.
+  - **The logged input is the approved input.** `invoke_write` copies the
+    arguments before `call_started`, so `input_sha256` is the digest of the
+    copy that is described, approved and run.
+  - **`ref` names the operation; `head` is its precondition.** The default
+    probe `clean_head` checks the checkout's HEAD and a clean worktree. It does
+    not separately check where `ref` points. A write use case must make the
+    approved commit a precondition of the mutation itself, as close to
+    compare-and-swap as git allows, not a check followed by a blind write. `approval_recorded`
+  events log requested, granted, refused, consumed and rejected, each with its
+  reason. A write tool is never retried. Approval-like model prose still
+  confers nothing: the model never holds a token, and no path from model text
+  reaches `invoke_write`. The CLI does not register a write tool yet.
 - **Text is not evidence.** README/tool-output prompt injection cannot itself
   register a tool or grant permission, but Core does not guarantee that an
   arbitrary external model ignores malicious text.
