@@ -4,6 +4,46 @@ Atlas Core 1.x keeps its public Python types, JSON documents, stop semantics,
 and adapter boundaries stable. Incompatible changes require a new major
 version or a new schema identifier.
 
+## Stability, versioning and support
+
+The package version in `VERSION`, `pyproject.toml`, `MANIFEST.json` and
+`atlas_core.__version__` is one SemVer version; `tests/test_release_metadata.py`
+keeps those values synchronized. A patch release fixes behavior without
+changing a public contract. A minor release may add backward-compatible
+behavior or optional fields. A major release may change a public Python API,
+adapter contract, stop semantic or required wire shape. A change that is
+incompatible for one document gets a new schema identifier even when the
+package remains in the same major line. Package versions and schema versions
+are deliberately independent.
+
+Within a schema identifier, only optional additive properties are compatible.
+Do not remove a property, make one required, narrow its type or change its
+meaning in place. `atlas-run.v1` remains the runtime output; the explicit
+`atlas-run.v1` to `atlas-run.v2` migration is opt-in and reports losses and
+unknown fields rather than silently filling them. See
+[`schemas/`](../schemas/) and `atlas_core.contracts.COMPATIBILITY`.
+
+Public API and adapter removals require a deprecation notice in the changelog
+and documentation for at least one minor release, then removal only in a new
+major version. Security fixes may be released as patches; they must not quietly
+weaken a contract. Internal modules not exported from `atlas_core` are not
+covered by the compatibility promise.
+
+| Surface | Declared or observed support | Release qualification |
+| --- | --- | --- |
+| Python | `requires-python >=3.10`; CI currently runs 3.11 only | 3.10 is declared, not yet CI-certified; 3.11 is the tested baseline |
+| OS, core library | Python package has no OS-specific runtime dependency | Only Ubuntu `ubuntu-latest` is a required CI runner |
+| POSIX bounded CLI / `run_isolated` | Supported with parent-enforced deadline and process-group termination | Linux CI path; macOS is not a CI release target |
+| Windows bounded CLI / `run_isolated` | Unsupported; these paths fail closed | No hard process-tree termination guarantee |
+| Deterministic executor | No provider or credential required | Mandatory offline tests |
+| Ollama | Optional local provider | Live smoke is opt-in and has recorded results; it is not a reliability guarantee |
+| OpenAI-compatible provider | Optional endpoint and key | Fake transport is CI-tested; no live endpoint qualification is recorded |
+| MQ adapters / mqobsidian schema check | Optional, outside Core runtime dependencies | Contract tests require explicit local repo paths; otherwise they skip |
+
+The matrix distinguishes declared compatibility from tested support. A
+release must not promote an untested cell to supported based only on
+`requires-python` or a successful run on another OS/provider.
+
 ## The append-only event log
 
 `AtlasController(..., events=sink)` records what a run did, when it did it.
