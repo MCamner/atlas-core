@@ -29,7 +29,7 @@ from atlas_core.claim_check import ClaimKind, TypedClaim
 from atlas_core.evidence import FINDINGS_FENCE
 from atlas_core.evidence_base import EvidenceBase
 from atlas_core.observation import Observation
-from atlas_core.observer import ObservationRequest
+from atlas_core.observer import ObservationRequest, Observer
 from atlas_core.snapshot import collect_observation, take_snapshot
 
 PINNED_COMMIT = "e5c4064733c4fced62b71f47e7b16e9335168532"
@@ -166,6 +166,7 @@ CLAIMS = [
 
 def main() -> None:
     host = Host()
+    observer: Observer = host
     observations = {
         path: collect_observation(snapshot, path)
         for path, *_ in CLAIMS
@@ -192,7 +193,7 @@ def main() -> None:
         evidence=EvidenceBase(snapshot=snapshot),
         json_mode=True,
         limits=LIMITS,
-        observer=host,
+        observer=observer,
     )
 
     print("commit        :", snapshot.commit)
