@@ -188,7 +188,7 @@ def main() -> None:
             )
 
     run = AtlasController(max_iterations=3, model_adapter=Producer()).run(
-        TASK,
+        task=TASK,
         evidence=EvidenceBase(snapshot=snapshot),
         json_mode=True,
         limits=LIMITS,
