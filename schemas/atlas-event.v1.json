@@ -51,6 +51,7 @@
         "observation_recorded",
         "decision_recorded",
         "approval_recorded",
+        "write_verified",
         "run_stopped"
       ]
     },
@@ -64,7 +65,7 @@
     },
     "payload": {
       "type": "object",
-      "description": "Everything specific to the kind. A dict rather than one flat record with mostly-null columns, because a field that is null for six of seven kinds teaches a reader nothing. Masked by `redact_document` before it is written: this file persists whether or not anyone exports the run, and a source's bytes reach it the same way they reach the run document. `call_started` carries `call_kind`, `target` and `input_sha256` — the digest, never the input, so a replay can be compared against what was sent without the input being kept. `call_finished` carries `outcome` (`ok`, `denied` or `failed`) and `error`. An `observation_recorded` event for a source already recorded is a NEW event appended after the old one, never a replacement: a source that changed under a run is something the log shows rather than something it hides. `approval_recorded` carries `decision` (`requested`, `granted`, `refused`, `consumed` or `rejected`), `approval_id`, `operation_sha256`, `operation_kind`, `tool`, `repo`, `ref` and `head`, plus `granted_by`, `expires_at` or `reason` where they apply. It never carries the token."
+      "description": "Everything specific to the kind. A dict rather than one flat record with mostly-null columns, because a field that is null for six of seven kinds teaches a reader nothing. Masked by `redact_document` before it is written: this file persists whether or not anyone exports the run, and a source's bytes reach it the same way they reach the run document. `call_started` carries `call_kind`, `target` and `input_sha256` — the digest, never the input, so a replay can be compared against what was sent without the input being kept. `call_finished` carries `outcome` (`ok`, `denied` or `failed`) and `error`. An `observation_recorded` event for a source already recorded is a NEW event appended after the old one, never a replacement: a source that changed under a run is something the log shows rather than something it hides. `approval_recorded` carries `decision` (`requested`, `granted`, `refused`, `consumed` or `rejected`), `approval_id`, `operation_sha256`, `operation_kind`, `tool`, `repo`, `ref` and `head`, plus `granted_by`, `expires_at` or `reason` where they apply. It never carries the token. `write_verified` carries `verified`, each post-action check's `name` and `passed`, the `ref` and `commit` written, and `rolled_back` (null when no rollback was needed)."
     }
   }
 }

@@ -18,7 +18,9 @@ from typing import Any
 from atlas_core.approval import ApprovalRejected
 from atlas_core.cli import main
 from atlas_core.eventlog import EventLog
-from atlas_core.patch_proposal import ProposalRefused, prepare, propose, validate_branch
+from atlas_core.patch_proposal import (
+    Proposal, ProposalRefused, prepare, propose, validate_branch,
+)
 
 PASSES = [sys.executable, "-c",
           "import pathlib,sys; sys.exit(0 if 'fixed' in pathlib.Path('README.md').read_text() else 1)"]
@@ -115,6 +117,75 @@ class TestApprovedProposal(Repo):
             from atlas_core.patch_proposal import discard
             discard(proposal)
         self.assert_untouched()
+
+
+class TestPostAction(Repo):
+    def test_a_created_branch_is_verified_from_the_repository(self) -> None:
+        result = self.propose()
+        post = result["post_action"]
+        self.assertTrue(post["verified"])
+        self.assertEqual([c["name"] for c in post["checks"] if c["passed"]], [
+            "ref_points_at_commit", "parent_is_base", "diff_is_approved",
+            "only_this_ref_changed", "head_and_worktree_untouched", "tests_pass_on_branch"])
+        self.assertEqual(post["tests"]["exit_code"], 0)
+        self.assertFalse(post["rollback"]["attempted"])
+        self.assertEqual(post["rollback"]["command"][-3:],
+                         ["-d", "refs/heads/atlas/fix-readme", result["commit"]])
+        irreversible = [e["what"] for e in post["side_effects"] if not e["reversible"]]
+        self.assertEqual(len(irreversible), 1)
+        self.assertIn("ran ", irreversible[0])
+        verified = [e.payload for e in self.log.events() if e.kind == "write_verified"]
+        self.assertEqual(len(verified), 1)
+        self.assertTrue(verified[0]["verified"])
+        self.assertIsNone(verified[0]["rolled_back"])
+
+    def test_a_branch_that_fails_verification_is_rolled_back(self) -> None:
+        counter = Path(self.tmp.name) / "runs"
+        flaky = [sys.executable, "-c",
+                 "import pathlib,sys; p=pathlib.Path(sys.argv[1]); "
+                 "n=int(p.read_text()) if p.exists() else 0; p.write_text(str(n+1)); "
+                 "sys.exit(0 if n == 0 else 1)", str(counter)]
+        result = self.propose(test=flaky)
+        self.assertEqual(result["outcome"], "verification_failed")
+        post = result["post_action"]
+        failed = [c["name"] for c in post["checks"] if not c["passed"]]
+        self.assertEqual(failed, ["tests_pass_on_branch"])
+        self.assertEqual(post["rollback"], {**post["rollback"], "attempted": True, "succeeded": True})
+        self.assertNotIn("refs/heads/atlas/fix-readme", refs(self.root))
+        self.assert_untouched()
+        self.assertEqual(post["side_effects"][0]["undo"], "rolled back")
+        verified = [e.payload for e in self.log.events() if e.kind == "write_verified"]
+        self.assertEqual((verified[0]["verified"], verified[0]["rolled_back"]), (False, True))
+
+    def proposal_on_disk(self) -> Proposal:
+        from atlas_core.patch_proposal import discard
+        proposal = prepare(str(self.root), FIX, "atlas/fix-readme", PASSES)
+        git(self.root, "fetch", "-q", proposal.workdir, proposal.commit)
+        discard(proposal)
+        return proposal
+
+    def test_rollback_leaves_a_branch_someone_moved(self) -> None:
+        from atlas_core.patch_proposal import rollback
+        proposal = self.proposal_on_disk()
+        git(self.root, "update-ref", "refs/heads/atlas/fix-readme", self.base)
+        self.assertFalse(rollback(proposal))
+        self.assertEqual(git(self.root, "rev-parse", "atlas/fix-readme"), self.base)
+        git(self.root, "update-ref", "refs/heads/atlas/fix-readme", proposal.commit, self.base)
+        self.assertTrue(rollback(proposal))
+        self.assertNotIn("atlas/fix-readme", refs(self.root))
+
+    def test_verification_reads_the_repository_not_the_handlers_report(self) -> None:
+        from atlas_core.patch_proposal import _repo_state, verify_created
+        proposal = self.proposal_on_disk()
+        before = _repo_state(str(self.root))
+        checks, _ = verify_created(proposal, before)
+        self.assertEqual([c["passed"] for c in checks], [False])
+        git(self.root, "update-ref", "refs/heads/atlas/fix-readme", proposal.commit)
+        git(self.root, "branch", "unrelated")
+        (self.root / "stray").write_text("x")
+        checks, _ = verify_created(proposal, before)
+        failed = {c["name"] for c in checks if not c["passed"]}
+        self.assertEqual(failed, {"only_this_ref_changed", "head_and_worktree_untouched"})
 
 
 class TestNothingWritten(Repo):
