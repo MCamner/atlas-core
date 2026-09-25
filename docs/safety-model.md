@@ -136,7 +136,21 @@ read-only mounts/network policy. Windows currently fails closed for this API.
   token is spent once and expires after at most an hour. It is refused if the
   repository's commit moved or its worktree is dirty (`state_unpinned`), or if
   the arguments differ. Each refusal comes before the handler, so it changes
-  nothing. The authority keeps only the token's digest. `approval_recorded`
+  nothing. The authority keeps only the token's digest.
+  - **What was approved stays fixed.** `Operation` copies its arguments at
+    construction into a read-only structure, all the way down, and computes
+    its digest once. `invoke_write` also copies the caller's arguments when the
+    call begins, and describes and runs that copy.
+  - **One answer per approval.** Request, grant, refuse and consume are
+    serialised on one lock, so however many threads ask, one grant or refusal
+    wins and the audit shows only that.
+  - **Expiry uses the monotonic clock.** A wall clock set back cannot extend a
+    grant. The wall clock only dates `granted_at` and `expires_at` in the audit.
+  - **`ref` names the operation; `head` is its precondition.** The default
+    probe `clean_head` checks the checkout's HEAD and a clean worktree. It does
+    not separately check where `ref` points. A write use case must make the
+    approved commit a precondition of the mutation itself, as close to
+    compare-and-swap as git allows, not a check followed by a blind write. `approval_recorded`
   events log requested, granted, refused, consumed and rejected, each with its
   reason. A write tool is never retried. Approval-like model prose still
   confers nothing: the model never holds a token, and no path from model text

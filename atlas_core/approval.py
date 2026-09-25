@@ -19,16 +19,18 @@ a task, a README or model output stays data.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
+import json
 import re
 import secrets
 import threading
 import time
+from types import MappingProxyType
 from typing import Any, Callable, Mapping, NoReturn
 
-from .eventlog import APPROVAL_DECISIONS, EventLog, digest
+from .eventlog import APPROVAL_DECISIONS, EventLog
 from .snapshot import UNKNOWN, take_snapshot
 
 #: What a write can be. The same vocabulary as `atlas-approval.v1.binds_to.kind`.
@@ -61,6 +63,10 @@ class Operation:
     #: The clean commit the operation was proposed against. A dirty or unknown
     #: worktree has no commit that pins its bytes, so it cannot be approved.
     head: str
+    #: Computed once, from a copy taken at construction. A digest recomputed
+    #: from the caller's objects would follow them if they were edited after
+    #: the person said yes.
+    sha256: str = field(init=False)
 
     def __post_init__(self) -> None:
         if self.kind not in OPERATION_KINDS:
@@ -69,13 +75,33 @@ class Operation:
             raise ValueError("an operation names its tool, repository and ref")
         if not _COMMIT.fullmatch(self.head):
             raise ValueError("head must be a full commit id")
+        canonical = json.dumps(
+            {"kind": self.kind, "tool": self.tool, "arguments": thaw(self.arguments),
+             "repo": self.repo, "ref": self.ref, "head": self.head},
+            sort_keys=True, ensure_ascii=False, allow_nan=False,
+        )
+        object.__setattr__(self, "arguments", _freeze(json.loads(canonical)["arguments"]))
+        object.__setattr__(
+            self, "sha256", hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        )
 
-    @property
-    def sha256(self) -> str:
-        return digest({
-            "kind": self.kind, "tool": self.tool, "arguments": dict(self.arguments),
-            "repo": self.repo, "ref": self.ref, "head": self.head,
-        })
+
+def _freeze(value: Any) -> Any:
+    """A read-only copy, all the way down: what was approved cannot be edited."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def thaw(value: Any) -> Any:
+    """A plain JSON copy of (possibly frozen) arguments."""
+    if isinstance(value, Mapping):
+        return {key: thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [thaw(item) for item in value]
+    return value
 
 
 def clean_head(root: str) -> str:
@@ -97,7 +123,8 @@ class _Pending:
     token_sha256: str | None = None
     granted_by: str | None = None
     granted_at: float | None = None
-    expires_at: float | None = None
+    #: On the monotonic clock: a wall clock set back would extend a grant.
+    expires_monotonic: float | None = None
     decision: str = "requested"
 
 
@@ -109,14 +136,19 @@ class ApprovalAuthority:
         *,
         log: EventLog | None = None,
         head_of: Callable[[str], str] = clean_head,
-        clock: Callable[[], float] = time.time,
+        clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         self._log = log
         self._head_of = head_of
+        #: Decides expiry. `wall_clock` only dates the audit record.
         self._clock = clock
+        self._wall_clock = wall_clock
         self._pending: dict[str, _Pending] = {}
-        # Check-then-spend is one step, or two threads spend one token.
-        self._lock = threading.Lock()
+        # Every transition — request, grant, refuse, consume — holds this, so
+        # requested → granted/refused → consumed happens once per approval
+        # however many threads ask.
+        self._lock = threading.RLock()
 
     def _record(self, decision: str, approval_id: str, item: _Pending, **extra: Any) -> None:
         if self._log is None:
@@ -137,6 +169,10 @@ class ApprovalAuthority:
 
     def request(self, operation: Operation, *, iteration: int = 0) -> str:
         """Record that `operation` needs a person, and return its approval id."""
+        with self._lock:
+            return self._request(operation, iteration)
+
+    def _request(self, operation: Operation, iteration: int) -> str:
         approval_id = f"approval-{operation.sha256[:16]}-{len(self._pending)}"
         item = _Pending(operation=operation, iteration=iteration)
         self._pending[approval_id] = item
@@ -157,25 +193,27 @@ class ApprovalAuthority:
             raise ValueError("a grant names who gave it")
         if not 0 < ttl_seconds <= MAX_TTL_SECONDS:
             raise ValueError(f"ttl_seconds must be in (0, {MAX_TTL_SECONDS}]")
-        item = self._open(approval_id)
-        token = secrets.token_urlsafe(32)
-        item.token_sha256 = hashlib.sha256(token.encode("ascii")).hexdigest()
-        item.granted_by = granted_by
-        item.granted_at = self._clock()
-        item.expires_at = item.granted_at + ttl_seconds
-        item.decision = "granted"
-        self._record(
-            "granted", approval_id, item, granted_by=granted_by,
-            expires_at=_iso(item.expires_at),
-        )
-        return token
+        with self._lock:
+            item = self._open(approval_id)
+            token = secrets.token_urlsafe(32)
+            item.token_sha256 = hashlib.sha256(token.encode("ascii")).hexdigest()
+            item.granted_by = granted_by
+            item.granted_at = self._wall_clock()
+            item.expires_monotonic = self._clock() + ttl_seconds
+            item.decision = "granted"
+            self._record(
+                "granted", approval_id, item, granted_by=granted_by,
+                expires_at=_iso(item.granted_at + ttl_seconds),
+            )
+            return token
 
     def refuse(self, approval_id: str, *, refused_by: str) -> None:
-        item = self._open(approval_id)
-        item.decision = "refused"
-        item.granted_by = refused_by
-        item.granted_at = self._clock()
-        self._record("refused", approval_id, item, granted_by=refused_by)
+        with self._lock:
+            item = self._open(approval_id)
+            item.decision = "refused"
+            item.granted_by = refused_by
+            item.granted_at = self._wall_clock()
+            self._record("refused", approval_id, item, granted_by=refused_by)
 
     def consume(self, token: str, operation: Operation, *, iteration: int = 0) -> str:
         """Spend `token` on `operation`, or raise `ApprovalRejected`.
@@ -199,9 +237,9 @@ class ApprovalAuthority:
         approval_id, item = found[0]
         if item.decision == "consumed":
             self._reject(approval_id, item, "already_used")
-        if item.decision != "granted" or item.expires_at is None:
+        if item.decision != "granted" or item.expires_monotonic is None:
             self._reject(approval_id, item, "not_granted")
-        if self._clock() >= item.expires_at:
+        if self._clock() >= item.expires_monotonic:
             self._reject(approval_id, item, "expired")
         # State before digest: a tool describes its operation against the HEAD
         # it sees now, so after a move the digests differ too, and the reason
@@ -232,6 +270,10 @@ class ApprovalAuthority:
 
     def record(self, approval_id: str, *, run_id: str) -> dict[str, Any]:
         """The `atlas-approval.v1` document for one request."""
+        with self._lock:
+            return self._document(approval_id, run_id)
+
+    def _document(self, approval_id: str, run_id: str) -> dict[str, Any]:
         item = self._pending[approval_id]
         granted = {"requested": None, "refused": False}.get(item.decision, True)
         return {
@@ -265,4 +307,5 @@ __all__ = [
     "ApprovalRejected",
     "Operation",
     "clean_head",
+    "thaw",
 ]

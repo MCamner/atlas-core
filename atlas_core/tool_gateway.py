@@ -22,7 +22,7 @@ import signal
 import time
 from typing import Any, Callable, Mapping
 
-from .approval import ApprovalAuthority, Operation
+from .approval import ApprovalAuthority, Operation, thaw
 from .budget import RunBudget
 from .eventlog import EventLog
 
@@ -381,13 +381,20 @@ class ToolGateway:
         if not isinstance(arguments, dict) or not all(isinstance(k, str) for k in arguments):
             deny("TypeError")
             raise TypeError("tool arguments must be a string-keyed object")
+        # One copy, taken now, is what gets described, approved and run. The
+        # caller's objects can change after this without changing the write.
+        try:
+            arguments = json.loads(json.dumps(arguments, allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            deny("TypeError")
+            raise TypeError("write arguments must be JSON") from exc
         try:
             _validate_schema(arguments, tool.input_schema)
         except ToolSchemaError as exc:
             deny("ToolSchemaError")
             raise ToolSchemaError("tool input does not match input_schema") from exc
         try:
-            operation = tool.describe(dict(arguments))
+            operation = tool.describe(thaw(arguments))
             if operation.tool != name:
                 raise ValueError("operation names another tool")
             self._approvals.consume(token, operation, iteration=iteration)
@@ -400,7 +407,7 @@ class ToolGateway:
             deny(type(exc).__name__)
             raise
         try:
-            result = self._execute(tool, arguments)
+            result = self._execute(tool, thaw(arguments))
             self.budget.check()
             serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
             _validate_schema(result, tool.output_schema)

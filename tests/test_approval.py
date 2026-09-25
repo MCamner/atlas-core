@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import unittest
 from typing import Any
 
@@ -18,6 +19,7 @@ from atlas_core.approval import (
     ApprovalRejected,
     Operation,
     clean_head,
+    thaw,
 )
 from atlas_core.budget import RunBudget, RunLimits
 from atlas_core.eventlog import EventLog
@@ -113,8 +115,6 @@ class TestApprovedWrite(unittest.TestCase):
         self.assertEqual(len(repo.writes), 1)
 
     def test_concurrent_use_of_one_token_writes_once(self) -> None:
-        import threading
-
         gate, approvals, repo, _, _ = setup()
         token = approvals.grant(approvals.request(operation(repo)),
                                 granted_by="mattias", ttl_seconds=60)
@@ -163,6 +163,15 @@ class TestZeroMutations(unittest.TestCase):
         self.assert_refused(gate, repo, "no-token-was-issued", "unknown_token")
         self.assertEqual(decisions(log)[-1], ("rejected", "unknown_token"))
 
+    def test_a_wall_clock_set_back_does_not_extend_a_grant(self) -> None:
+        wall = [2_000_000.0]
+        gate, approvals, repo, log, clock = setup(wall_clock=lambda: wall[0])
+        token = approvals.grant(approvals.request(operation(repo)),
+                                granted_by="mattias", ttl_seconds=60)
+        wall[0] -= 3600
+        clock.now += 60
+        self.assert_refused(gate, repo, token, "expired")
+
     def test_expired(self) -> None:
         gate, approvals, repo, log, clock = setup()
         token = approvals.grant(approvals.request(operation(repo)),
@@ -202,6 +211,123 @@ class TestZeroMutations(unittest.TestCase):
     def test_unknown_token(self) -> None:
         gate, _, repo, _, _ = setup()
         self.assert_refused(gate, repo, "approved: true", "unknown_token")
+
+
+class TestApprovedBytesAreFixed(unittest.TestCase):
+    """What the person approved cannot be edited into something else."""
+
+    def test_editing_the_callers_dict_after_the_grant_does_not_move_the_approval(self) -> None:
+        gate, approvals, repo, _, _ = setup()
+        args = dict(ARGS)
+        token = approvals.grant(approvals.request(operation(repo, args)),
+                                granted_by="mattias", ttl_seconds=60)
+        args["diff"] = "a different diff"
+        with self.assertRaises(ApprovalRejected) as caught:
+            gate.invoke_write("apply_patch", args, token=token)
+        self.assertEqual(caught.exception.reason, "operation_mismatch")
+        self.assertEqual(repo.writes, [])
+
+    def test_nested_arguments_are_copied_and_read_only(self) -> None:
+        source: dict[str, Any] = {"files": [{"path": "A", "content": "x"}]}
+        approved = Operation(kind="diff", tool="t", arguments=source, repo="/r",
+                             ref="main", head=HEAD)
+        before = approved.sha256
+        source["files"][0]["content"] = "y"
+        source["files"].append({"path": "B", "content": "z"})
+        self.assertEqual(approved.sha256, before)
+        self.assertEqual(thaw(approved.arguments), {"files": [{"path": "A", "content": "x"}]})
+        with self.assertRaises(TypeError):
+            approved.arguments["files"][0]["content"] = "y"  # type: ignore[index]
+        with self.assertRaises(AttributeError):
+            approved.arguments["files"].append({})  # type: ignore[attr-defined]
+
+        approvals = ApprovalAuthority(head_of=lambda _r: HEAD)
+        token = approvals.grant(approvals.request(approved), granted_by="m", ttl_seconds=60)
+        edited = Operation(kind="diff", tool="t", arguments=source, repo="/r",
+                           ref="main", head=HEAD)
+        with self.assertRaises(ApprovalRejected) as caught:
+            approvals.consume(token, edited)
+        self.assertEqual(caught.exception.reason, "operation_mismatch")
+
+    def test_the_handler_gets_a_copy_taken_when_the_call_began(self) -> None:
+        seen: list[dict[str, Any]] = []
+
+        def write(_ctx: Any, args: dict[str, Any]) -> None:
+            seen.append(args)
+
+        args = {"files": [{"path": "A"}]}
+        tool = ToolDefinition(
+            "w", "write", write,
+            describe=lambda a: Operation(kind="diff", tool="w", arguments=a, repo="/r",
+                                         ref="main", head=HEAD),
+        )
+        approvals = ApprovalAuthority(head_of=lambda _r: HEAD)
+        gate = ToolGateway(budget=budget(), tools={"w": tool}, approvals=approvals)
+        token = approvals.grant(
+            approvals.request(tool.describe(args)),  # type: ignore[misc]
+            granted_by="m", ttl_seconds=60)
+        gate.invoke_write("w", args, token=token)
+        self.assertEqual(seen, [{"files": [{"path": "A"}]}])
+        self.assertIsNot(seen[0]["files"], args["files"])
+
+
+class TestSerialisedAuthority(unittest.TestCase):
+    def race(self, *calls: Any) -> list[Any]:
+        barrier = threading.Barrier(len(calls))
+        results: list[Any] = [None] * len(calls)
+
+        def run(index: int, call: Any) -> None:
+            barrier.wait()
+            try:
+                results[index] = call()
+            except Exception as exc:
+                results[index] = exc
+
+        threads = [threading.Thread(target=run, args=(i, c)) for i, c in enumerate(calls)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return results
+
+    def test_eight_grants_of_one_approval_issue_one_token(self) -> None:
+        for _ in range(20):
+            _, approvals, repo, log, _ = setup()
+            approval_id = approvals.request(operation(repo))
+            results = self.race(*[
+                lambda: approvals.grant(approval_id, granted_by="m", ttl_seconds=60)
+            ] * 8)
+            tokens = [r for r in results if isinstance(r, str)]
+            self.assertEqual(len(tokens), 1)
+            self.assertTrue(all(isinstance(r, ValueError) for r in results if r not in tokens))
+            self.assertEqual(decisions(log), [("requested", None), ("granted", None)])
+            approvals.consume(tokens[0], operation(repo))
+
+    def test_grant_against_refuse_has_one_answer(self) -> None:
+        for _ in range(20):
+            _, approvals, repo, log, _ = setup()
+            approval_id = approvals.request(operation(repo))
+            granted, refused = self.race(
+                lambda: approvals.grant(approval_id, granted_by="m", ttl_seconds=60),
+                lambda: approvals.refuse(approval_id, refused_by="m"),
+            )
+            answers = [d for d, _ in decisions(log)][1:]
+            self.assertEqual(len(answers), 1)
+            if answers == ["granted"]:
+                self.assertIsInstance(granted, str)
+                self.assertIsInstance(refused, ValueError)
+            else:
+                self.assertEqual(answers, ["refused"])
+                self.assertIsInstance(granted, ValueError)
+                self.assertIsNone(refused)
+            self.assertIs(approvals.record(approval_id, run_id="r")["granted"],
+                          answers == ["granted"])
+
+    def test_concurrent_requests_get_distinct_ids(self) -> None:
+        _, approvals, repo, log, _ = setup()
+        ids = self.race(*[lambda: approvals.request(operation(repo))] * 8)
+        self.assertEqual(len(set(ids)), 8)
+        self.assertEqual(len(decisions(log)), 8)
 
 
 class TestModelPath(unittest.TestCase):
