@@ -926,8 +926,9 @@ Per run, it reports:
 - iterations
 - `usage` (model calls, tool calls, tokens, output bytes), from
   `run_stopped.usage`
-- call outcomes per kind, including calls that never finished; `tool_errors`
-  counts the `failed` and `denied` ones
+- call outcomes per kind, including calls that never finished;
+  `tool_errors` counts only tool calls (`tool_call`) that finished `failed`
+  or `denied`
 - claims checked, `verified`, `contradicted` (the producer's false positives)
   and `insufficient_evidence`, from `decision_recorded.citation_verdicts`,
   with a verification rate
@@ -940,7 +941,9 @@ counted as `audit`. Logs written before v1.5 have no `usage` or verdict
 counts, so those fields are null or zero.
 
 The document is built from an allowlist: numbers, closed vocabularies and run
-ids. Task text, paths, repositories, refs, user names, error messages and
+ids. A run id appears only in the UUID form `atlas create` issues. A
+host-chosen one is shown as `sha256:` plus 16 hex digits of it, because it is
+free text and could hold a name or a secret. Task text, paths, repositories, refs, user names, error messages and
 digests never appear, and a value outside a vocabulary is dropped rather than
 copied. Cost is not reported, because Core has no price data; tokens are what
 it knows.
