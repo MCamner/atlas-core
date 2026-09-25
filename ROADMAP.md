@@ -310,10 +310,12 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - En `ApprovalAuthority` hålls av värdkoden och utfärdar en token som gäller en gång. Token är bunden till en exakt `Operation`, alltså verktyg, argument, repo, ref och ren commit. Argumenten fryses rekursivt och digesten räknas ut en gång.
   - Token går ut när någon av två klockor passerat, den monotona eller väggklockan, och aldrig senare än efter en timme. Före handlern omvalideras HEAD och rent worktree (`head_moved`/`state_unpinned`).
   - `request`, `grant`, `refuse` och `consume` delar ett lås. `approval_recorded` loggar varje steg med skäl, aldrig token.
-  - Negativa tester, som alla faller mot den tidigare koden:
-    - nekad, utgången och återanvänd token, samt 8 trådar med samma token → noll mutationer
+  - Negativa tester:
+    - nekad, utgången och återanvänd token → noll mutationer
+    - 8 trådar med samma token → exakt en skrivning
     - ändrade argument efter grant, även nästlade
     - väggklockan förbi `expires_at` efter suspend
+  - Testerna för ändrade argument, samtidiga grants och väggklockan föll mot koden före respektive fix. Testerna för `grant` mot `refuse` och för samtidiga `request` föll inte mot den tidigare koden, eftersom racet inte slog igenom i testkörningen. De skyddar mot regression men bevisade inte felet.
 - [x] Första write-use-case: skapa föreslagen patch på ny branch, kör lokala tester, visa diff, begär godkännande; aldrig auto-merge/auto-push mot `main` som default. Förhindra shell injection och godtyckliga filpaths.
   - **Verifierad i [#75](https://github.com/MCamner/atlas-core/pull/75), mergad som `6f7d51d`, och på `main`:** `test` `36180395159` och Pages `36180395385` gröna på exakt merge-SHA.
   - `atlas propose` bygger och testar patchen i en `--shared`-klon. Testkommandot körs som argv utan shell. En person vid en TTY läser diffen och skriver operationskoden.
