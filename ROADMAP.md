@@ -374,7 +374,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
     - en andra `promote` gav exit 2 (`already promoted`)
     - en lärdom ändrad under samma id gav exit 2 (`candidate_id does not match its content`)
     - loggens SHA-256 var oförändrad
-  - Gräns: `atlas`-CLI:t importerar `fcntl` via `eventlog.py`/`host_api.py` sedan v1.3 och startar därför inte på Windows. Det ligger utanför den här rutan.
+  - Efterföljande plattformsfix [#83](https://github.com/MCamner/atlas-core/pull/83), mergad som `b27fbae`, gör `fcntl` valfritt vid import. Kommandon som faktiskt behöver POSIX-run-lock vägrar med `LockUnavailable`; den hårt begränsade worker-vägen på Windows är fortfarande fail-closed tills den har en Job Object-implementation. `test` `36188864651` och Pages `36188864649` var gröna på exakt merge-SHA.
 - [x] `atlas-loop` kan konsumera API:t för *analys* av Instagram-experiment; publicering förblir separat, med egna rättigheter och mätdefinitioner.
   - **Verifierad i [atlas-loop#1](https://github.com/MCamner/atlas-loop/pull/1), mergad som `3313877`, och på atlas-loop `main`:** `test` `36185026446` och Pages `36185025139` gröna på exakt merge-SHA.
   - `scripts/core-analyze.mjs` konsumerar Cores CLI-API: `atlas create`, `run --repo-path --json` och `inspect --json`.
@@ -388,9 +388,9 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
     - `sk-should-not-leak` 0 gånger i utdata och i eventloggen
   - Gränser:
     - Cores CLI har ingen live-modell, så det atlas-loop får är ett spårbart körningsdokument, inte en modellanalys.
-    - En `--task` som börjar med `-` avslås, eftersom Cores begränsade CLI inte klarar `--` före uppgiften. Worker-argv hamnar då efter `--`, och körningen blir `tool_error`. Det är ett Core-fel utanför den här rutan.
+    - Core-felet bakom `atlas run -- TASK` stängdes efter v1.5 i [#82](https://github.com/MCamner/atlas-core/pull/82), mergad som `0e264cb`: worker-only `--run-id`/`--json` placeras nu före ett explicit `--`, så en uppgift som börjar med `-` förblir data genom worker-hoppet. `test` `36188659823` var grön på exakt merge-SHA. atlas-loop kan behålla sin konservativa klientvalidering oberoende av Core-fixen.
 
-**v1.5 exit gate:** nekad/utgången approval ger noll mutationer; ändrad HEAD invaliderar approval; verifierad patch går att granska och avbryta.
+**v1.5 exit gate — verifierad:** nekad/utgången approval ger noll mutationer i #73:s negativa tester; en flyttad bas-ref mellan approval och skrivning gör att #75:s atomiska `verify + create`-transaktion skapar noll branch; #76 läser tillbaka ref/parent/diff/HEAD/worktree/testresultat och använder CAS-rollback när verifieringen inte håller. Exit-gaten är en closure-gate, inte en separat checkbox.
 
 ## P2 — v2.0 Stabil produktionsgräns
 
