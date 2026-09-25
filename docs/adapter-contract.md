@@ -81,4 +81,17 @@ labelled data and never transfers Atlas run state or evaluation ownership to
 mq-agent. Both adapters depend only on the small `MQToolClient` protocol, so
 Core imports and tests require no MQ package, endpoint or credentials.
 
+Cross-repository compatibility is opt-in and kept outside the unit-test tree:
+
+```bash
+ATLAS_MQ_AGENT_REPO=/path/to/mq-agent \
+ATLAS_MQ_MCP_REPO=/path/to/mq-mcp \
+ATLAS_MQOBSIDIAN_REPO=/path/to/mqobsidian \
+python -m pytest -q integrations/mq/test_mq_repository_contracts.py
+```
+
+The checks read only published contracts from those repositories. With no
+paths configured they skip, so standalone Core CI requires none of the MQ
+repositories or their runtime dependencies.
+
 Future adapters: ChatGPTSkillAdapter, OpenAIModelAdapter.
