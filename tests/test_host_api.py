@@ -432,6 +432,20 @@ class TestPublicCliProcess(HostApiCase):
         self.assertEqual((run["run_id"], run["stop_reason"]), (run_id, "cancelled"))
         self.assertEqual(run_status(self.log, run_id)["state"], "finished")
 
+
+    def test_double_dash_task_survives_the_worker_hop(self) -> None:
+        # The task deliberately has the spelling of a dangerous Atlas flag.
+        # After `--` it is data. Parent-only --run-id/--json must be inserted
+        # before the separator when the guarded worker is launched.
+        result = subprocess.run(
+            [sys.executable, "-m", "atlas_core.cli", "run", "--json",
+             "--", "--unsafe-legacy-unbounded"],
+            capture_output=True, timeout=60,
+        )
+        run = json.loads(result.stdout)
+        self.assertNotEqual(run["stop_reason"], "tool_error", result.stderr)
+        self.assertIn(result.returncode, (0, 2, 3), result.stderr)
+
     def _public_run(self, *extra: str) -> subprocess.CompletedProcess[bytes]:
         return subprocess.run(
             [sys.executable, "-m", "atlas_core.cli", "run", TASK,
