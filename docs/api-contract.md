@@ -390,6 +390,18 @@ so a broad one cannot crowd out the rest. A source that is refused, too large,
 missing, unreadable or not a file is not read and so is not evidence, and costs
 no tool call when that is known before the read. A budget or deadline that runs
 out mid-round ends the run under rule 4; the round's reads are discarded.
+A round is adopted whole or not at all: its context is charged to
+`output_bytes` before the evidence base, `metadata.observation_rounds` or
+`observation_recorded` see it, so a round the budget cannot pay for leaves no
+trace but its `observe` call, finished `denied`.
+
+**Resume re-reads the same bytes.** `run_started` binds the empty base; the
+bytes arrive in the first round. A resume replays from the start and reads
+again, so each replayed round must adopt the same `(source_id, sha256)` pairs
+the interrupted run recorded for that round. A round that differs stops the run
+`blocked` with `metadata.resume_evidence_changed` (round, source ids) before
+anything is adopted: the ground moved, and a run graded against other bytes is
+not the same run. Rounds past the recorded history are read normally.
 `--unsafe-legacy-unbounded` and `--repo` keep the prose channel.
 
 A task that narrows to a review topic is now graded as a review: its sources

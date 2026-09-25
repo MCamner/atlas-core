@@ -281,6 +281,78 @@ class TestPublicCli(_Repo):
         self.assertIn("settings.env", [item["path"] for item in report["source_details"]])
 
 
+class TestARoundIsAcceptedWhole(_Repo):
+    def test_a_round_the_output_budget_cannot_pay_for_is_not_adopted(self) -> None:
+        code, run = self._cli("--max-output-bytes", "40")
+        self.assertEqual(code, 2)
+        self.assertEqual(run["stop_reason"], "budget_exhausted")
+        self.assertEqual(run["metadata"]["budget_exhausted"], "output_bytes")
+        # Read and paid for in tool calls, but not accepted: no evidence, no
+        # recorded round, no context.
+        self.assertEqual(run["evidence_manifest"]["observations"], [])
+        self.assertNotIn("observation_rounds", run["metadata"])
+        self.assertEqual(run["observations"], [])
+        self.assertEqual(self._events("observation_recorded"), [])
+        self.assertEqual(self._events("call_finished")[0]["payload"]["outcome"], "denied")
+        self.assertEqual(inspect_run(self.log, run["run_id"])["source_details"], [])
+
+
+class TestResumeRereadsTheSameBytes(_Repo):
+    """`run_started` binds the empty base; the bytes arrive in the first
+    round. A resume replays that round, so it has to read the same bytes."""
+
+    def _interrupted_after_the_first_read(self) -> str:
+        run = self._run(_Recording(self.root))
+        records = self.log.read_text().splitlines()
+        kinds = [json.loads(line)["kind"] for line in records]
+        keep = records[: kinds.index("observation_recorded") + 1]
+        self.log.write_text("\n".join(keep) + "\n", encoding="utf-8")
+        return str(run["run_id"])
+
+    def _resume(self, run_id: str) -> dict[str, Any]:
+        return AtlasController(max_iterations=2, events=JsonlSink(self.log)).resume(
+            TASK, run_id=run_id,
+            evidence=EvidenceBase(take_snapshot(self.root)),
+            observer=_Recording(self.root), read_first=True,
+            limits=LIMITS, json_mode=True,
+        )  # type: ignore[return-value]
+
+    def test_a_source_changed_since_the_interrupted_read_stops_the_resume(self) -> None:
+        run_id = self._interrupted_after_the_first_read()
+        (self.root / "settings.env").write_text("PASSWORD=annat\n", encoding="utf-8")
+
+        run = self._resume(run_id)
+
+        self.assertEqual(run["stop_reason"], "blocked")
+        changed = run["metadata"]["resume_evidence_changed"]
+        self.assertEqual(changed["round"], 0)
+        settings = [o for o in _Recording(self.root).observe(
+            _first_request(self.root), budget=_budget()) if o.path == "settings.env"]
+        self.assertIn(settings[0].source_id, changed["source_ids"])
+        # Nothing from the changed read was adopted.
+        self.assertEqual(run["evidence_manifest"]["observations"], [])
+        self.assertEqual(len(self._events("observation_recorded")), 1)
+
+    def test_unchanged_sources_resume_normally(self) -> None:
+        run_id = self._interrupted_after_the_first_read()
+
+        run = self._resume(run_id)
+
+        self.assertNotIn("resume_evidence_changed", run["metadata"])
+        self.assertNotEqual(run["stop_reason"], "blocked")
+        self.assertEqual(len(self._events("observation_recorded")), 2)
+
+
+def _first_request(root: Path) -> ObservationRequest:
+    from atlas_core.observer import request_from
+
+    return request_from(take_snapshot(root), [], [], [], 0, patterns=["*.env"])
+
+
+def _budget() -> RunBudget:
+    return RunBudget(LIMITS)
+
+
 class TestEvaluationUsesTheEvidence(_Repo):
     def test_a_claim_about_a_read_file_is_verified_against_its_bytes(self) -> None:
         host = _Recording(self.root)

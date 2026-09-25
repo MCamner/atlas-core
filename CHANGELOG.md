@@ -18,6 +18,10 @@ Roadmap v1.4 `--repo-path` as evidence:
   reserve a tool call and check the deadline. An observer written as
   `observe(self, request)` fails with `TypeError`, which the run reports as
   `tool_error`; add the keyword-only `budget` parameter.
+- An observation round is adopted whole: its context is charged before the
+  evidence base, metadata or log see it. A resumed run must re-read the same
+  `(source_id, sha256)` pairs per round as the interrupted run, or it stops
+  `blocked` with `metadata.resume_evidence_changed`.
 - `atlas-inspect.v1` gains an optional `source_details` list (`source_id`,
   `path`, `content_sha256`); `sources` is unchanged. `observation_recorded`
   items carry `path`.

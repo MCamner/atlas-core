@@ -141,6 +141,24 @@ def _failure_signature(evaluation: AtlasEvaluation) -> tuple[Any, ...]:
     )
 
 
+
+def _round_material(round_result: Any) -> set[tuple[str, str]]:
+    """The (source_id, digest) pairs one round adopted."""
+    return {
+        (item.source_id, item.content_sha256) for item in round_result.added
+    } | {(item.source_id, item.new_sha256) for item in round_result.superseded}
+
+
+def _logged_round_material(payload: Mapping[str, Any]) -> set[tuple[str, str]]:
+    """The same pairs, read back from an `observation_recorded` payload."""
+    return {
+        (str(item.get("source_id")), str(item.get("sha256")))
+        for item in payload.get("added", [])
+    } | {
+        (str(item.get("source_id")), str(item.get("new_sha256")))
+        for item in payload.get("superseded", [])
+    }
+
 class AtlasController:
     def __init__(
         self,
@@ -492,6 +510,13 @@ class AtlasController:
                 snapshot_id=_evidence_identity(evidence)[0],
             )
         budget = RunBudget(limits, cancelled=cancelled) if limits is not None else None
+        #: What each observation round of the interrupted run adopted, in order.
+        #: Empty for a fresh run.
+        recorded_rounds = [
+            _logged_round_material(record["payload"])
+            for record in _resume_records or ()
+            if record.get("kind") == "observation_recorded"
+        ]
         gateway = (
             ToolGateway(budget=budget, tools=self.tools, log=log)
             if budget is not None and self.tools
@@ -702,8 +727,6 @@ class AtlasController:
                     "message": str(exc)[:MAX_FAILURE_MESSAGE],
                 }
                 return "stopped"
-            finish_read("ok")
-
             already_resolved = {
                 pattern
                 for previous in state.metadata.get("observation_rounds", [])
@@ -712,6 +735,50 @@ class AtlasController:
             newly_resolved = [
                 pattern for pattern in patterns if pattern not in already_resolved
             ]
+            fresh: list[Observation] = list(round_result.added) + [
+                observation
+                for observation in merged
+                if observation.source_id
+                in {item.source_id for item in round_result.superseded}
+            ]
+
+            # A resumed run replays from the start and reads again. The bytes
+            # the interrupted run recorded for this round are what it graded;
+            # a replay that reads different ones is not the same run, so it
+            # stops `blocked` — the ground moved — before anything is adopted.
+            committed = len(state.metadata.get("observation_rounds", []))
+            if committed < len(recorded_rounds):
+                expected = recorded_rounds[committed]
+                got = _round_material(round_result)
+                if got != expected:
+                    finish_read("ok")
+                    state.metadata["resume_evidence_changed"] = {
+                        "round": committed,
+                        "source_ids": sorted(
+                            {sid for sid, _ in expected ^ got}
+                        ),
+                    }
+                    state.stop("blocked")
+                    return "stopped"
+
+            # Charged before anything is adopted. A round the budget cannot
+            # pay for is not accepted: no evidence, no log entry, no context.
+            contexts = [
+                f"{observation.path}:\n{observation.excerpt}" for observation in fresh
+            ]
+            try:
+                for context in contexts:
+                    budget.charge_output(context)
+            except RunCancelled:
+                finish_read("failed", "RunCancelled")
+                state.stop("cancelled")
+                return "stopped"
+            except BudgetExceeded as exc:
+                finish_read("denied", type(exc).__name__)
+                state.metadata["budget_exhausted"] = str(exc)
+                state.stop("budget_exhausted")
+                return "stopped"
+            finish_read("ok")
 
             record = round_result.to_dict()
             record["iteration"] = state.iteration
@@ -768,28 +835,11 @@ class AtlasController:
                 return "nothing"
 
             state.evidence_base = base.with_observations(merged)
-            fresh: list[Observation] = list(round_result.added) + [
-                observation
-                for observation in merged
-                if observation.source_id
-                in {item.source_id for item in round_result.superseded}
-            ]
-            try:
-                for observation in fresh:
-                    # The prose channel is how a producer learns what is now
-                    # available; the evidence base is what gets checked. Both
-                    # are needed, and they stay separate: this text is context,
-                    # and nothing turns it back into an observation.
-                    context = f"{observation.path}:\n{observation.excerpt}"
-                    budget.charge_output(context)
-                    state.observations.append(context)
-            except RunCancelled:
-                state.stop("cancelled")
-                return "stopped"
-            except BudgetExceeded as exc:
-                state.metadata["budget_exhausted"] = str(exc)
-                state.stop("budget_exhausted")
-                return "stopped"
+            # The prose channel is how a producer learns what is now available;
+            # the evidence base is what gets checked. Both are needed, and they
+            # stay separate: this text is context, and nothing turns it back
+            # into an observation.
+            state.observations.extend(contexts)
             return "new"
 
         #: One material signature per graded pass, in order. See
