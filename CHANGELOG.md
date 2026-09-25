@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Roadmap v1.5 write capability with approval:
+
+- `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
+  repository, ref and the clean commit it was proposed against). Its digest
+  is what a person approves. `ApprovalAuthority`, held by host code, records a
+  request, and a grant or refusal. A grant returns a single-use token that
+  expires after at most an hour, and the authority keeps only its digest.
+- `ToolGateway.invoke_write` is the only path that runs a `write` tool. It
+  refuses before the handler when the token is unknown, refused, expired or
+  already spent, when the commit moved or the worktree is dirty, or when the
+  arguments differ from the approved ones. `invoke` and the model path still
+  deny every write, and a write tool cannot be retried.
+- New event kind `approval_recorded` (`requested`, `granted`, `refused`,
+  `consumed` and `rejected`, with a reason). It never carries the token.
+- No CLI path registers a write tool yet. The first write use case is the next
+  v1.5 item.
+
 Roadmap v1.4 MQ adapter boundaries:
 
 - Added dependency-free `MQMCPAdapter` and `MQAgentAdapter` boundaries. Both

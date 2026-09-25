@@ -125,10 +125,22 @@ read-only mounts/network policy. Windows currently fails closed for this API.
   account/container with read-only mounts, restricted networking and explicit
   resource limits. Process termination does not undo side effects already
   committed before termination. Do not register unreviewed handlers as `read`.
-- **No write-approval token exists.** Mutation tools remain denied. Future
-  approval must bind to the exact diff, command, repository and ref, and be
-  invalidated when that evidence changes. Approval-like model prose does
-  not confer a capability.
+- **A write needs a person's approval of that exact write, and nothing in the
+  run path asks for one yet.** Since v1.5 `ToolGateway.invoke_write` runs a
+  `write` tool, and it alone does. `invoke`, `ToolContext.invoke` and the model
+  adapter's `invoke_tool` still deny every `write`. `invoke_write` needs an
+  `ApprovalAuthority` (`atlas_core.approval`) held by host code, and a token
+  that authority issued when a person granted one `Operation`. That operation
+  is the tool, its exact arguments, the repository, the ref and the clean
+  commit it was proposed against, and its digest is what gets approved. The
+  token is spent once and expires after at most an hour. It is refused if the
+  repository's commit moved or its worktree is dirty (`state_unpinned`), or if
+  the arguments differ. Each refusal comes before the handler, so it changes
+  nothing. The authority keeps only the token's digest. `approval_recorded`
+  events log requested, granted, refused, consumed and rejected, each with its
+  reason. A write tool is never retried. Approval-like model prose still
+  confers nothing: the model never holds a token, and no path from model text
+  reaches `invoke_write`. The CLI does not register a write tool yet.
 - **Text is not evidence.** README/tool-output prompt injection cannot itself
   register a tool or grant permission, but Core does not guarantee that an
   arbitrary external model ignores malicious text.

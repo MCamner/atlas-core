@@ -74,7 +74,14 @@ EVENT_KINDS: tuple[str, ...] = (
     "call_finished",
     "observation_recorded",
     "decision_recorded",
+    "approval_recorded",
     "run_stopped",
+)
+
+#: What an `approval_recorded` event can say: a person was asked, answered yes
+#: or no, and the yes was spent or refused at the moment of the write.
+APPROVAL_DECISIONS: tuple[str, ...] = (
+    "requested", "granted", "refused", "consumed", "rejected",
 )
 
 #: What a call can be. The same vocabulary as `atlas-action.v1.kind`, because a
@@ -170,6 +177,11 @@ class Event:
         if self.kind == "call_started":
             if self.payload.get("call_kind") not in CALL_KINDS:
                 raise ValueError(f"call_started declares a call_kind from {CALL_KINDS}")
+        if self.kind == "approval_recorded":
+            if self.payload.get("decision") not in APPROVAL_DECISIONS:
+                raise ValueError(
+                    f"approval_recorded declares a decision from {APPROVAL_DECISIONS}"
+                )
         if self.kind == "call_finished":
             if self.payload.get("outcome") not in CALL_OUTCOMES:
                 raise ValueError(
@@ -489,6 +501,7 @@ def unfinished_calls(events: Iterable[Event | Mapping[str, Any]]) -> list[str]:
 
 
 __all__ = [
+    "APPROVAL_DECISIONS",
     "AppendOnlyViolation",
     "CALL_KINDS",
     "CALL_OUTCOMES",

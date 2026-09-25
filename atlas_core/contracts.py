@@ -18,8 +18,8 @@ future change breaks without noticing. Bound to the schema files by test.
 checked mechanically rather than remembered.
 
 **What it refuses:** this module grants nothing. Naming `Approval.v1` does not
-create a way to approve a write, and naming `Action.v1` does not make the loop
-record actions. Both are contracts for information, and where the information
+create a way to approve a write (`atlas_core.approval` does, and only for host
+code), and naming `Action.v1` does not make the loop record actions. Both are contracts for information, and where the information
 does not exist yet, the documents say `not_recorded` — see
 `atlas_core.migrate`, and `docs/safety-model.md` on why an approval token is
 harder than an approval field.
@@ -215,9 +215,9 @@ CONTRACTS: dict[str, Contract] = {
                 "run_id": "core",
                 "iteration": "core",
                 # Core decides an approval is *required*, from the task. A host
-                # is the only thing that could ever grant one, which is why the
-                # grant fields are the host's even though nothing writes them
-                # yet.
+                # is the only thing that can grant one — through
+                # `ApprovalAuthority`, on a person's answer — which is why the
+                # grant fields are the host's.
                 "required": "core",
                 "reason": "core",
                 "granted": "host",

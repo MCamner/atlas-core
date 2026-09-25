@@ -4,6 +4,11 @@ Repository and model text are data: only host code registers definitions. The
 gateway enforces route, capability, JSON schemas, timeout, shared budget and
 retry policy before returning a result. ``isolated_process`` supplies a hard
 POSIX process timeout; it is process isolation, not an OS privilege sandbox.
+
+``invoke`` runs ``read`` tools only. A ``write`` tool runs through
+``invoke_write`` alone, which host code calls with an approval token for the
+exact operation; the model's path (``invoke``, ``ToolContext.invoke``) never
+reaches it.
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ import signal
 import time
 from typing import Any, Callable, Mapping
 
+from .approval import ApprovalAuthority, Operation
 from .budget import RunBudget
 from .eventlog import EventLog
 
@@ -96,6 +102,10 @@ class ToolDefinition:
     idempotent: bool | None = None
     max_attempts: int = 1
     retry_on: tuple[type[Exception], ...] = (OSError, TimeoutError)
+    #: For a ``write`` tool: the exact operation these arguments perform, built
+    #: by host code (repository, ref and the commit it applies to). What a
+    #: person approves is this, never the model's description of it.
+    describe: Callable[[dict[str, Any]], Operation] | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z][a-z0-9_]*", self.name):
@@ -120,6 +130,8 @@ class ToolDefinition:
             raise ValueError("max_attempts must be a positive integer")
         if self.max_attempts > 1 and self.idempotent is not True:
             raise ValueError("retries require idempotent=True")
+        if self.capability == "write" and self.max_attempts != 1:
+            raise ValueError("a write runs once per approval; it is never retried")
         if any(
             not isinstance(item, type) or not issubclass(item, Exception)
             for item in self.retry_on
@@ -188,6 +200,7 @@ class ToolGateway:
         budget: RunBudget,
         tools: Mapping[str, ToolDefinition],
         log: EventLog | None = None,
+        approvals: ApprovalAuthority | None = None,
     ):
         if not isinstance(budget, RunBudget):
             raise TypeError("tool gateway requires a shared RunBudget")
@@ -196,6 +209,7 @@ class ToolGateway:
         self.budget = budget
         self._tools = dict(tools)
         self._log = log
+        self._approvals = approvals
         self._route: str | None = None
 
     def set_route(self, route: str) -> None:
@@ -334,6 +348,70 @@ class ToolGateway:
             self._finish(call, "ok")
             return result
         raise AssertionError("positive max_attempts guarantees an attempt")
+
+    def invoke_write(
+        self, name: str, arguments: dict[str, Any], *, token: str, iteration: int = 0
+    ) -> Any:
+        """Run one ``write`` tool, once, if ``token`` approves exactly this call.
+
+        Every check that can refuse runs before the handler: registration,
+        capability, route, input schema, the tool's own description of the
+        operation, and the approval (validity, expiry, single use, operation
+        digest, repository state). A refusal leaves nothing changed.
+        """
+        self.budget.check()
+        tool = self._tools.get(name)
+        call = self._start_call(tool, name, arguments, 1)
+
+        def deny(reason: str) -> None:
+            self._finish(call, "denied", reason)
+
+        if tool is None:
+            deny("tool not registered")
+            raise ToolDenied("tool not registered")
+        if tool.capability != "write" or tool.describe is None:
+            deny("not a described write tool")
+            raise ToolDenied("not a described write tool")
+        if self._approvals is None:
+            deny("no approval authority")
+            raise ToolDenied("no approval authority")
+        if "*" not in tool.allowed_routes and self._route not in tool.allowed_routes:
+            deny("tool not allowed for route")
+            raise ToolDenied("tool not allowed for route")
+        if not isinstance(arguments, dict) or not all(isinstance(k, str) for k in arguments):
+            deny("TypeError")
+            raise TypeError("tool arguments must be a string-keyed object")
+        try:
+            _validate_schema(arguments, tool.input_schema)
+        except ToolSchemaError as exc:
+            deny("ToolSchemaError")
+            raise ToolSchemaError("tool input does not match input_schema") from exc
+        try:
+            operation = tool.describe(dict(arguments))
+            if operation.tool != name:
+                raise ValueError("operation names another tool")
+            self._approvals.consume(token, operation, iteration=iteration)
+        except Exception as exc:
+            deny(type(exc).__name__)
+            raise
+        try:
+            self.budget.reserve_tool()
+        except Exception as exc:
+            deny(type(exc).__name__)
+            raise
+        try:
+            result = self._execute(tool, arguments)
+            self.budget.check()
+            serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
+            _validate_schema(result, tool.output_schema)
+            self.budget.charge_output(serialized)
+        except Exception as exc:
+            # The write may have happened. `failed` says the call did not
+            # report success, not that nothing changed.
+            self._finish(call, "failed", type(exc).__name__)
+            raise
+        self._finish(call, "ok")
+        return result
 
 
 __all__ = [
