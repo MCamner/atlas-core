@@ -11,7 +11,7 @@ from .adapters.github_reader import GitHubRepoAdapter
 from .adapters.mqobsidian import MQObsidianMemoryAdapter
 from .skill_generator import generate_chatgpt_skill
 from .finalizer import render_run_text
-from .eventlog import JsonlSink, ResumeRefused
+from .eventlog import JsonlSink, LockUnavailable, ResumeRefused
 from .evidence_base import EvidenceBase
 from .snapshot import take_snapshot
 from .inspect_run import InspectError, inspect_run, render_inspection
@@ -210,7 +210,7 @@ def _host_command(args: argparse.Namespace) -> int:
                 return 2
             request_cancel(args.event_log, args.run_id)
             status['cancel_requested'] = True
-    except (InspectError, ValueError) as exc:
+    except (InspectError, LockUnavailable, ValueError) as exc:
         print(f"{name}: {exc}", file=sys.stderr)
         return 1
     if args.json:
