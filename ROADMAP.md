@@ -359,8 +359,36 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
   - Observerat på `main`, över en `atlas run` plus en `propose`-auditlogg:
     - 1 run och 1 auditlogg, 2 iterationer, 0 verktygsfel
     - auditloggen: approvals `requested/granted/consumed` 1/1/1 och skrivningar `verified` 1
-- [ ] Feedback-loop: användarbekräftat utfall → separat kandidatinlärning → schema- och proveniensgate → opt-in promotion; ingen automatisk omskrivning av historisk evidens.
-- [ ] `atlas-loop` kan konsumera API:t för *analys* av Instagram-experiment; publicering förblir separat, med egna rättigheter och mätdefinitioner.
+- [x] Feedback-loop: användarbekräftat utfall → separat kandidatinlärning → schema- och proveniensgate → opt-in promotion; ingen automatisk omskrivning av historisk evidens.
+  - **Verifierad i [#78](https://github.com/MCamner/atlas-core/pull/78), mergad som `184c304`, och på `main`:** `test` `36184945314` och Pages `36184945445` gröna på exakt merge-SHA.
+  - `atlas feedback record` gör en persons `confirmed`/`rejected` om en färdig run till en `atlas-learning-candidate.v1`. Lärdomen maskeras, och längdgränsen gäller efter maskeringen. Proveniensen läses ur run-loggen: loggens SHA-256, `run_stopped`, `task_sha256`, route och källorna.
+  - `atlas feedback promote` är opt-in per kandidat. Gaten validerar i ordning:
+    1. hela schemat (inbäddat, och lika med den publicerade filen enligt test)
+    2. id:t, omräknat ur innehållet
+    3. proveniensen mot loggen som den ser ut nu
+
+    Kontroll och append sker under `flock` på store. Utan POSIX-lås avslås promotion.
+  - Ingen automatisk omskrivning: inget skriver till en eventlogg eller ändrar en lagrad rad. Befordran lägger bara till en rad.
+  - Observerat på `main`:
+    - `atlas run`, `feedback record` och `promote` gav `atlas-learning.v1`
+    - en andra `promote` gav exit 2 (`already promoted`)
+    - en lärdom ändrad under samma id gav exit 2 (`candidate_id does not match its content`)
+    - loggens SHA-256 var oförändrad
+  - Gräns: `atlas`-CLI:t importerar `fcntl` via `eventlog.py`/`host_api.py` sedan v1.3 och startar därför inte på Windows. Det ligger utanför den här rutan.
+- [x] `atlas-loop` kan konsumera API:t för *analys* av Instagram-experiment; publicering förblir separat, med egna rättigheter och mätdefinitioner.
+  - **Verifierad i [atlas-loop#1](https://github.com/MCamner/atlas-loop/pull/1), mergad som `3313877`, och på atlas-loop `main`:** `test` `36185026446` och Pages `36185025139` gröna på exakt merge-SHA.
+  - `scripts/core-analyze.mjs` konsumerar Cores CLI-API: `atlas create`, `run --repo-path --json` och `inspect --json`.
+  - Klienten läser bara Cores egna dokument: `atlas-run.v1` och `atlas-inspect.v1`, båda för det run-id som `atlas create` gav. Allt annat avslås med stängd dörr.
+  - Publicering förblir separat: skriptet postar inget, öppnar inget nätverk och skriver bara en egen ny katalog.
+  - Egna rättigheter: Core får bara `PATH`, `HOME`, `LANG`, `LC_ALL` och `TMPDIR`, inget från `.env`.
+  - Egna mätdefinitioner: rates och Signal Score kopieras som atlas-loop registrerade dem, och ett test faller om formelnoten glider isär från `docs/app.js`.
+  - Observerat mot Core på `main` (`184c304`):
+    - `atlas-loop-core-analysis.v1`, `passed`
+    - källan `README.md` med SHA-256 `d22550e0…`
+    - `sk-should-not-leak` 0 gånger i utdata och i eventloggen
+  - Gränser:
+    - Cores CLI har ingen live-modell, så det atlas-loop får är ett spårbart körningsdokument, inte en modellanalys.
+    - En `--task` som börjar med `-` avslås, eftersom Cores begränsade CLI inte klarar `--` före uppgiften. Worker-argv hamnar då efter `--`, och körningen blir `tool_error`. Det är ett Core-fel utanför den här rutan.
 
 **v1.5 exit gate:** nekad/utgången approval ger noll mutationer; ändrad HEAD invaliderar approval; verifierad patch går att granska och avbryta.
 
