@@ -5,6 +5,7 @@ corresponding repository path is explicitly configured.
 """
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import os
@@ -99,7 +100,7 @@ class TestMQRepositoryContracts(unittest.TestCase):
         try:
             # Optional, and shipped without type stubs: this check skips when
             # it is not installed, and Core declares no dependency on it.
-            import jsonschema  # type: ignore[import-untyped]
+            jsonschema = importlib.import_module("jsonschema")
         except ImportError as exc:
             raise unittest.SkipTest("install jsonschema to validate mqobsidian") from exc
 
