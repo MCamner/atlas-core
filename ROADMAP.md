@@ -304,10 +304,59 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ## P2 — v1.5 Skrivflöden, insikter och operativ kvalitet
 
-- [ ] Separat write-capability med explicit mänskligt godkännande av exakt diff/kommando/ref; tidsbegränsat approval-token, återvalidering av HEAD/snapshot, minst privilegium och audit event.
-- [ ] Första write-use-case: skapa föreslagen patch på ny branch, kör lokala tester, visa diff, begär godkännande; aldrig auto-merge/auto-push mot `main` som default. Förhindra shell injection och godtyckliga filpaths.
-- [ ] Post-action verifiering (test/CI + diffkontroll), kompensations-/rollbackplan där den är möjlig; märk icke-återställbara externa sidoeffekter.
-- [ ] Strukturerad telemetri: per-run latens, antal iterationer, tokens/kostnad, verktygsfel, falskt positiva, verifieringsgrad, användaravslag; inga hemligheter eller rå persondata i metrics.
+- [x] Separat write-capability med explicit mänskligt godkännande av exakt diff/kommando/ref; tidsbegränsat approval-token, återvalidering av HEAD/snapshot, minst privilegium och audit event.
+  - **Verifierad i [#73](https://github.com/MCamner/atlas-core/pull/73), mergad som `82c1769`, och på `main`:** `test` `36175903842` och Pages `36175903861` gröna på exakt merge-SHA.
+  - `ToolGateway.invoke_write` är den enda väg som kör ett `write`-verktyg. `invoke` och modellvägen nekar fortfarande varje skrivning.
+  - En `ApprovalAuthority` hålls av värdkoden och utfärdar en token som gäller en gång. Token är bunden till en exakt `Operation`, alltså verktyg, argument, repo, ref och ren commit. Argumenten fryses rekursivt och digesten räknas ut en gång.
+  - Token går ut när någon av två klockor passerat, den monotona eller väggklockan, och aldrig senare än efter en timme. Före handlern omvalideras HEAD och rent worktree (`head_moved`/`state_unpinned`).
+  - `request`, `grant`, `refuse` och `consume` delar ett lås. `approval_recorded` loggar varje steg med skäl, aldrig token.
+  - Negativa tester, som alla faller mot den tidigare koden:
+    - nekad, utgången och återanvänd token, samt 8 trådar med samma token → noll mutationer
+    - ändrade argument efter grant, även nästlade
+    - väggklockan förbi `expires_at` efter suspend
+- [x] Första write-use-case: skapa föreslagen patch på ny branch, kör lokala tester, visa diff, begär godkännande; aldrig auto-merge/auto-push mot `main` som default. Förhindra shell injection och godtyckliga filpaths.
+  - **Verifierad i [#75](https://github.com/MCamner/atlas-core/pull/75), mergad som `6f7d51d`, och på `main`:** `test` `36180395159` och Pages `36180395385` gröna på exakt merge-SHA.
+  - `atlas propose` bygger och testar patchen i en `--shared`-klon. Testkommandot körs som argv utan shell. En person vid en TTY läser diffen och skriver operationskoden.
+  - Skrivningen är en enda `update-ref --stdin`-transaktion: `verify <base ref> <base>` och `create refs/heads/atlas/NAME <commit>`. Git tillämpar allt eller inget.
+  - Ingen push, ingen merge och ingen rörelse av HEAD. Bara `atlas/*` kan skapas. Detached HEAD avslås.
+  - Avslås: sökvägar utanför repot, in i `.git`, genom en symlink, samt symlink- och submodulläge. Ref och commit valideras innan de går in i transaktionen.
+  - Race-test: `main` flyttas mellan `consume()` och transaktionen → ingen branch.
+  - Observerat på `main` (`de0e201`) i en riktig pty:
+    - exit 0, och `atlas/fix-readme` skapad
+    - reflog `atlas: approved proposal`
+    - `main` och `HEAD → refs/heads/main` orörda
+- [x] Post-action verifiering (test/CI + diffkontroll), kompensations-/rollbackplan där den är möjlig; märk icke-återställbara externa sidoeffekter.
+  - **Verifierad i [#76](https://github.com/MCamner/atlas-core/pull/76), mergad som `136b8bc`, och på `main`:** `test` `36180595968` och Pages `36180595843` gröna på exakt merge-SHA.
+  - Efter skrivningen läser Core repot igen och kör upp till sex kontroller:
+    - ref:en pekar på commiten
+    - parent är base
+    - diffens digest är den godkända
+    - inga andra refs har ändrats
+    - HEAD och worktree är orörda
+    - testerna går igenom igen i en ny klon av den skapade branchen
+
+    Kontroller som beror på en saknad ref listas som `skipped`.
+  - En kontroll som faller eller hoppas över ger rollback med `update-ref -d <ref> <commit>` (CAS). En branch som någon annan har flyttat lämnas orörd.
+  - Sidoeffekterna märks:
+    - ref:en: återställbar
+    - hämtade objekt: inte exakt återställbara
+    - testkommandot: inte spårat
+    - ingen remote kontaktas
+  - "CI" betyder här tester som körs om lokalt på den skapade branchen. Core pushar inget och kan därför inte köra fjärr-CI.
+  - Observerat på `main`: 6/6 kontroller, 0 `skipped`, sidoeffekterna `[True, False, False, True]`.
+- [x] Strukturerad telemetri: per-run latens, antal iterationer, tokens/kostnad, verktygsfel, falskt positiva, verifieringsgrad, användaravslag; inga hemligheter eller rå persondata i metrics.
+  - **Verifierad i [#77](https://github.com/MCamner/atlas-core/pull/77), mergad som `de0e201`, och på `main`:** `test` `36180796589` och Pages `36180796566` gröna på exakt merge-SHA.
+  - `atlas metrics` läser eventloggen till `atlas-metrics.v1`. Per run:
+    - latens och iterationer
+    - `usage` med tokens
+    - anropsutfall; `tool_errors` räknar bara `tool_call`
+    - påståenden `verified` och `contradicted` (falskt positiva) med verifieringsgrad
+    - approvals och användaravslag
+    - skrivningar som rullats tillbaka
+  - Dokumentet byggs från en allowlist. Ett run-id som inte har UUID-formen visas som digest. Kostnad rapporteras inte, eftersom Core saknar prisdata; tokens är det Core vet.
+  - Observerat på `main`, över en `atlas run` plus en `propose`-auditlogg:
+    - 1 run och 1 auditlogg, 2 iterationer, 0 verktygsfel
+    - auditloggen: approvals `requested/granted/consumed` 1/1/1 och skrivningar `verified` 1
 - [ ] Feedback-loop: användarbekräftat utfall → separat kandidatinlärning → schema- och proveniensgate → opt-in promotion; ingen automatisk omskrivning av historisk evidens.
 - [ ] `atlas-loop` kan konsumera API:t för *analys* av Instagram-experiment; publicering förblir separat, med egna rättigheter och mätdefinitioner.
 
