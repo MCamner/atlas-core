@@ -24,11 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from atlas_core import AtlasController
 from atlas_core.adapters.model import ModelResult
-from atlas_core.budget import RunLimits
+from atlas_core.budget import RunBudget, RunLimits
 from atlas_core.claim_check import ClaimKind, TypedClaim
 from atlas_core.evidence import FINDINGS_FENCE
 from atlas_core.evidence_base import EvidenceBase
 from atlas_core.observation import Observation
+from atlas_core.observer import ObservationRequest
 from atlas_core.snapshot import collect_observation, take_snapshot
 
 PINNED_COMMIT = "e5c4064733c4fced62b71f47e7b16e9335168532"
@@ -38,7 +39,7 @@ if len(sys.argv) != 2:
 ROOT = Path(sys.argv[1]).resolve()
 TASK = "granska repot mq-image-analyze: lokal och CI gate-paritet"
 LIMITS = RunLimits(
-    wall_seconds=60, model_calls=6, tool_calls=0, tokens=500, output_bytes=2_000_000
+    wall_seconds=60, model_calls=6, tool_calls=20, tokens=500, output_bytes=2_000_000
 )
 
 TRACKED = subprocess.run(
@@ -46,6 +47,10 @@ TRACKED = subprocess.run(
 ).stdout.split()
 
 snapshot = take_snapshot(ROOT)
+if snapshot.commit != PINNED_COMMIT:
+    raise SystemExit(
+        f"checkout is at {snapshot.commit}, not the pinned {PINNED_COMMIT}"
+    )
 
 
 class Host:
@@ -54,12 +59,20 @@ class Host:
     def __init__(self) -> None:
         self.rounds: list[list[str]] = []
 
-    def observe(self, request: Any) -> list[Observation]:
+    def observe(
+        self, request: ObservationRequest, *, budget: RunBudget
+    ) -> list[Observation]:
         paths = sorted(
             {p for p in TRACKED for q in request.patterns if fnmatch(p, q)}
         )
         self.rounds.append(paths)
-        return [collect_observation(snapshot, p) for p in paths]
+        observations = []
+        for path in paths:
+            budget.check()
+            budget.reserve_tool()
+            observations.append(collect_observation(snapshot, path))
+            budget.check()
+        return observations
 
 
 def finding(
@@ -195,14 +208,16 @@ def main() -> None:
     print("passed        :", evaluation["passed"])
     print("unmet         :", evaluation["unmet_criteria"])
     print("\nverdicts:")
-    for record in evaluation["citation_checks"]:
+    checks = evaluation["citation_checks"]
+    for record in checks:
         print(f"  {record['verdict']:22s} {record['severity']:8s} {record['claim'][:96]}")
-    if snapshot.commit != PINNED_COMMIT:
-        print(
-            f"\nNOTE: checkout is at {snapshot.commit}, not the pinned "
-            f"{PINNED_COMMIT}; the numbers above are about a different state.",
-            file=sys.stderr,
-        )
+    ok = (
+        run["stop_reason"] == "passed"
+        and evaluation["passed"] is True
+        and len(checks) == len(CLAIMS)
+        and all(record["verdict"] == "verified" for record in checks)
+    )
+    raise SystemExit(0 if ok else 1)
 
 
 if __name__ == "__main__":

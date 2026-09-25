@@ -13,9 +13,9 @@ git -C /tmp/mq-image-analyze checkout e5c4064733c4fced62b71f47e7b16e9335168532
 python3 scripts/pinned_repo_review.py /tmp/mq-image-analyze
 ```
 
-The script refuses nothing and asserts nothing; it prints the run. If the
-checkout is at another commit it says so on stderr, because the numbers below
-are about one state.
+The script prints the run and exits non-zero unless it stopped `passed` with
+every claim `verified`. It refuses a checkout at any other commit, because the
+numbers below are about one state.
 
 ## What was run
 
