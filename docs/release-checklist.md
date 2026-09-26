@@ -23,8 +23,9 @@ release. Follow it from a clean checkout of the intended release commit.
   checkouts with identical pinned build inputs and `SOURCE_DATE_EPOCH`; compare
   SHA-256 digests. A mismatch blocks release until explained and fixed.
 - [ ] Generate and inspect the release SBOM; verify it describes the same
-  source/version as the wheel. This gate is blocked until the SBOM workflow is
-  implemented and produces an artifact.
+  source/version as the wheel. The test workflow now uploads a CycloneDX 1.5
+  runtime-dependency SBOM from `uv.lock`; the release artifact still needs its
+  own matching SBOM attached and digest-verified.
 - [ ] Confirm required CI, dependency and secret-scanning checks are green and
   the independent security review is recorded. Current CI does not yet provide
   all these gates; see [security review](security-review.md).

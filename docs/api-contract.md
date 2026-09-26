@@ -31,9 +31,9 @@ covered by the compatibility promise.
 
 | Surface | Declared or observed support | Release qualification |
 | --- | --- | --- |
-| Python | `requires-python >=3.10`; CI currently runs 3.11 only | 3.10 is declared, not yet CI-certified; 3.11 is the tested baseline |
-| OS, core library | Core imports and deterministic/document-processing paths have no mandatory OS-specific dependency | Lock-backed host operations and hard worker isolation are platform-qualified separately below |
-| POSIX bounded CLI / `run_isolated` | Supported with parent-enforced deadline and process-group termination | Linux CI path; macOS is not a CI release target |
+| Python | `requires-python >=3.10`; CI runs Python 3.11.16 | 3.10 is declared, not yet CI-certified; 3.11.16 is the pinned tested baseline |
+| OS, core library | Core imports and deterministic/document-processing paths have no mandatory OS-specific dependency | Ubuntu 24.04 is the pinned CI runner; lock-backed host operations and hard worker isolation are platform-qualified separately below |
+| POSIX bounded CLI / `run_isolated` | Supported with parent-enforced deadline and process-group termination | Linux CI path on Ubuntu 24.04; macOS is not a CI release target |
 | Windows bounded CLI / `run_isolated` | Unsupported; these paths fail closed | No hard process-tree termination guarantee |
 | Deterministic executor | No provider or credential required | Mandatory offline tests |
 | Ollama | Optional local provider | Live smoke is opt-in and has recorded results; it is not a reliability guarantee |
