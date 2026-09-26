@@ -394,22 +394,24 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 ## P2 — v2.0 Stabil produktionsgräns
 
-- [ ] Dokumentera API-stabilitet, semver, schema-migrationer, avvecklingspolicy, adapterkompatibilitet och supportmatris (Python, OS, provider-läge).
+- [x] Dokumentera API-stabilitet, semver, schema-migrationer, avvecklingspolicy, adapterkompatibilitet och supportmatris (Python, OS, provider-läge).
   - [`docs/api-contract.md`](docs/api-contract.md#stability-versioning-and-support) skiljer paket-SemVer från schemaversioner och visar deklarerat stöd kontra CI-verifiering. `tests/test_release_metadata.py` håller paketversionerna synkroniserade; `tests/test_migration.py` prövar lossless/complete-rapportering. Adaptrarnas gräns finns även i [`docs/adapter-contract.md`](docs/adapter-contract.md).
 - [ ] Säkerhetsgranska threat model (prompt injection, supply chain, secrets, path traversal, SSRF, exfiltration, privileged write); dependency pinning, SBOM, secret scanning och CI-gates.
   - Intern granskning och residualrisker dokumenterade i [`docs/security-review.md`](docs/security-review.md), med tekniska kontroller i [`docs/safety-model.md`](docs/safety-model.md). **Inte stängd:** CI använder fortfarande opinnade action-/Python-verktygsversioner och saknar SBOM, secret scan och dependency gate. Repoinställningar och oberoende granskning kan inte styrkas från checkouten.
-- [ ] Benchmarka deterministiska fixtures och opt-in live-repo-pilot; publicera metod, datamängd, kostnad, misslyckanden och begränsningar i stället för ett påhittat quality score.
+- [x] Benchmarka deterministiska fixtures och opt-in live-repo-pilot; publicera metod, datamängd, kostnad, misslyckanden och begränsningar i stället för ett påhittat quality score.
   - Deterministisk metod, fixtures, mätetal, 13 scenarier och begränsningar: [`docs/benchmark.md`](docs/benchmark.md). Opt-in, read-only pilot mot `mq-image-analyze` vid pinad commit, två iterationer, fyra verifierade claims och tre dokumenterade missar: [`docs/pinned-repo-review.md`](docs/pinned-repo-review.md). Separat live-provider-smoke har nio bevarade Ollama-resultat, token-/tidsmätning och en timeout redovisad i [`docs/live-smoke.md`](docs/live-smoke.md). Monetär kostnad saknas eftersom Core inte har prisdata; inga quality scores extrapoleras från piloten.
-- [ ] Release checklist: ren branch, tester, typkontroll/lint, schema compatibility, dokumentation, changelog, versionsverifiering, reproducible build, tag och återställningsplan.
+- [x] Release checklist: ren branch, tester, typkontroll/lint, schema compatibility, dokumentation, changelog, versionsverifiering, reproducible build, tag och återställningsplan.
   - Checklista och uttryckliga blockerare i [`docs/release-checklist.md`](docs/release-checklist.md). Reproducerbar dubbelbuild och SBOM står som release-blockerare tills verktyg/build-inputs pinnas och artefakter produceras.
-- [ ] Operations-runbook för provider down, rate limits, memory unavailable, partial observations, approval timeout, resume failure och felaktig release.
+- [x] Operations-runbook för provider down, rate limits, memory unavailable, partial observations, approval timeout, resume failure och felaktig release.
   - Åtgärder och fail-closed-beteende dokumenterade i [`docs/operations-runbook.md`](docs/operations-runbook.md), med länkar till kontrakt och säkerhetsgränser.
-- [ ] Migrera användare av äldre `atlas-one` promptflöde utan att automatiskt köra deras prompts eller förlora existerande innehåll; opt-in till loop.
-  - Opt-in, kopieringsbaserad migrering med hashmanifest, bevarad källa och redovisning av omappat innehåll i [`docs/atlas-one-migration.md`](docs/atlas-one-migration.md). Ingen automatisk importerare påstås; Atlas One saknar ett definierat källformat här.
+- [x] Migrera användare av äldre `atlas-one` promptflöde utan att automatiskt köra deras prompts eller förlora existerande innehåll; opt-in till loop.
+  - Opt-in, kopieringsbaserad migrering med hashmanifest, bevarad källa och redovisning av omappat innehåll i [`docs/atlas-one-migration.md`](docs/atlas-one-migration.md). [`examples/atlas-one-migration-smoke.md`](examples/atlas-one-migration-smoke.md) och [`tests/test_atlas_one_migration_smoke.py`](tests/test_atlas_one_migration_smoke.py) verifierar fixture-hash `4e96d663…da9e08`, explicit task, bevarat unmapped-innehåll samt ingen körning eller write capability. Ingen automatisk importerare påstås; Atlas One saknar ett definierat källformat här.
+
+**Closure-evidens för ruta 1 och 3–6:** [#85](https://github.com/MCamner/atlas-core/pull/85), squash-mergad som [`64af4c9`](https://github.com/MCamner/atlas-core/commit/64af4c97ea85308b2310a186cdfce08e97ad52a5). Main-workflow `test` [36245174518](https://github.com/MCamner/atlas-core/actions/runs/36245174518) passerade på exakt merge-SHA `64af4c97ea85308b2310a186cdfce08e97ad52a5`. PR:ns testkörning rapporterade 1003 tester, 2 skip; migration-smoken passerade.
 
 **v2.0 exit gate:** två dokumenterade användningsfall (read-only review och godkänt patchförslag), uppmätta resultat, oberoende säkerhetsgranskning och godkända release-gates. Ingen autonom mutation utan tillstånd.
 
-**Arbetsstatus 2026-09-26:** Underlag för ruta 1 och 3–6 finns i denna PR; Atlas One-flödet har nu även fixture, preview-test och dokumenterat smoke-resultat. Rutorna står kvar öppna enligt stängningsregeln ovan tills PR:n är mergad med grön CI och observerat resultat. Ruta 2 saknar dessutom implementerad supply-chain/secret-scan-gate och oberoende granskning.
+**Arbetsstatus 2026-09-26:** Ruta 1 och 3–6 är stängda med merge- och testbeviset ovan. Ruta 2 är fortsatt öppen och blockerad: dependency/tool pinning, SBOM, secret scanning, dependency/release gates och oberoende säkerhetsgranskning saknas.
 
 **Gate-status 2026-09-26: inte uppfylld.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). Mätresultat är länkade ovan. Oberoende säkerhetsgranskning och hosting-repo-gates saknas, så v2.0 får inte beskrivas som produktionsklar.
 
