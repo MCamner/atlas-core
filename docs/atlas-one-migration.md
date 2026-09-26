@@ -5,6 +5,12 @@ define or validate an Atlas One export format. Migration is opt-in and
 copy-based. Existing prompts are never executed, overwritten or deleted by
 Atlas Core.
 
+[`examples/atlas-one-migration-smoke.md`](../examples/atlas-one-migration-smoke.md)
+records one fixture-based preview. Its test verifies the archive hash is
+unchanged, preserves an unmapped write instruction, and emits an explicit task
+without invoking Atlas or granting write capability. This demonstrates the
+manual handoff, not compatibility with an external Atlas One export format.
+
 ## Safe migration procedure
 
 1. Export or copy the existing prompt collection to a read-only archive. Keep

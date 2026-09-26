@@ -409,7 +409,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **v2.0 exit gate:** två dokumenterade användningsfall (read-only review och godkänt patchförslag), uppmätta resultat, oberoende säkerhetsgranskning och godkända release-gates. Ingen autonom mutation utan tillstånd.
 
-**Arbetsstatus 2026-09-26:** Underlag för ruta 1 och 3–6 finns i denna PR och riktade tester passerar. Rutorna står kvar öppna enligt stängningsregeln ovan tills PR:n är mergad med grön CI och observerat resultat. Ruta 2 saknar dessutom implementerad supply-chain/secret-scan-gate och oberoende granskning.
+**Arbetsstatus 2026-09-26:** Underlag för ruta 1 och 3–6 finns i denna PR; Atlas One-flödet har nu även fixture, preview-test och dokumenterat smoke-resultat. Rutorna står kvar öppna enligt stängningsregeln ovan tills PR:n är mergad med grön CI och observerat resultat. Ruta 2 saknar dessutom implementerad supply-chain/secret-scan-gate och oberoende granskning.
 
 **Gate-status 2026-09-26: inte uppfylld.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). Mätresultat är länkade ovan. Oberoende säkerhetsgranskning och hosting-repo-gates saknas, så v2.0 får inte beskrivas som produktionsklar.
 

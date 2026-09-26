@@ -32,7 +32,7 @@ covered by the compatibility promise.
 | Surface | Declared or observed support | Release qualification |
 | --- | --- | --- |
 | Python | `requires-python >=3.10`; CI currently runs 3.11 only | 3.10 is declared, not yet CI-certified; 3.11 is the tested baseline |
-| OS, core library | Python package has no OS-specific runtime dependency | Only Ubuntu `ubuntu-latest` is a required CI runner |
+| OS, core library | Core imports and deterministic/document-processing paths have no mandatory OS-specific dependency | Lock-backed host operations and hard worker isolation are platform-qualified separately below |
 | POSIX bounded CLI / `run_isolated` | Supported with parent-enforced deadline and process-group termination | Linux CI path; macOS is not a CI release target |
 | Windows bounded CLI / `run_isolated` | Unsupported; these paths fail closed | No hard process-tree termination guarantee |
 | Deterministic executor | No provider or credential required | Mandatory offline tests |
