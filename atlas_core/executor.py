@@ -1,6 +1,10 @@
 from __future__ import annotations
+import json
 from .state import AtlasEvaluation, AtlasPlan
-from .evidence import observed_sources
+from .claim_check import ClaimKind, TypedClaim
+from .evidence import FINDINGS_FENCE, observed_sources
+from .evidence_base import EvidenceBase
+from .observation import Observation
 
 MAX_SOURCES = 8
 
@@ -10,12 +14,15 @@ def execute_plan(
     plan: AtlasPlan,
     observations: list[str] | None = None,
     feedback: AtlasEvaluation | None = None,
+    evidence_base: EvidenceBase | None = None,
 ) -> str:
     """Render the route body, then the observations it was given, then any
     sections a previous evaluation found missing."""
     observations = observations or []
     build = _ROUTE_BODIES.get(plan.route_name, _general)
     output = build(task)
+    if evidence_base is not None:
+        output += _deterministic_repo_review(task, plan, evidence_base)
     if observations:
         output += _sources_section(observations)
     if feedback is not None:
