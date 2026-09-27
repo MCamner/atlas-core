@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Security fixes:
+
+- `docs/safety-model.md` and `docs/api-contract.md` no longer say a person
+  approves `atlas propose`. The approval code is shown on the approval screen
+  and the only check is that stdin is a terminal, so a program driving a
+  pseudo-terminal can approve. The docs now state that limit and say to give
+  agents `--no-input`.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
