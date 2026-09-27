@@ -32,7 +32,9 @@ zero. Memory writes are disabled. Source or execution failures cannot turn
 into a passing evaluation.
 
 The local reader rejects candidates that escape the chosen root, limits reads
-to the excerpt and checks the shared budget. The GitHub reader validates
+to the excerpt and checks the shared budget. Git commands run in the observed
+repository override `core.fsmonitor`, so the repository's own configuration
+cannot make `git status` run a command. The GitHub reader validates
 `owner/name`, escapes the ref, charges each GET, limits response bytes and
 uses the smaller of 15 seconds and the remaining deadline as request timeout.
 Authentication, network and malformed-JSON errors fail closed; a missing

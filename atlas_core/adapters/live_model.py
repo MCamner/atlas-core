@@ -77,6 +77,7 @@ from typing import Any, Callable, Protocol, Sequence
 from atlas_core.state import AtlasEvaluation, AtlasPlan, AtlasRoute
 from atlas_core.tool_gateway import ToolDenied, ToolGateway
 
+from ._http import urlopen
 from .model import ModelResult
 from .output_contract import (
     OUTPUT_SCHEMA_VERSION,
@@ -454,7 +455,7 @@ class UrllibTransport:
             headers={"Content-Type": "application/json", **headers},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urlopen(request, timeout=timeout) as response:
             body = response.read().decode("utf-8", errors="replace")
         return json.loads(body)
 
