@@ -445,6 +445,11 @@ class UrllibTransport:
     """The default transport. Standard library, because this package has no
     runtime dependencies and a provider is not a reason to acquire one."""
 
+    #: Largest reply read from a provider. The body is read up to this bound
+    #: rather than to its end, so an endpoint that keeps sending cannot grow
+    #: memory without limit. Far above any reply the prompt bounds can produce.
+    max_response_bytes: int = 16 * 1024 * 1024
+
     def post(
         self, url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float
     ) -> dict[str, Any]:
@@ -455,8 +460,12 @@ class UrllibTransport:
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        return json.loads(body)
+            raw = response.read(self.max_response_bytes + 1)
+        if len(raw) > self.max_response_bytes:
+            raise ProviderBadResponse(
+                f"provider reply is larger than {self.max_response_bytes} bytes"
+            )
+        return json.loads(raw.decode("utf-8", errors="replace"))
 
 
 class LiveModelAdapter:

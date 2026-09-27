@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Security fixes:
+
+- The live model transport reads a provider's reply up to 16 MiB and stops
+  with `ProviderBadResponse` beyond that, instead of reading the body to its
+  end. Regression tests in `tests/test_provider_response_bound.py`.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
