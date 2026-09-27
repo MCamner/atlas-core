@@ -37,7 +37,7 @@ Code security baseline: `6474f17d4ca6fa75d56f29d2475ad4bfcb1c7d60`
 | Repository content | Core, host | Files read from the observed repository (local or GitHub) |
 | Model output | Core's gateway and approval checks | Everything the model returns, including claims of approval |
 | Tool registration | Host code holding the `ToolGateway` | Model requests for tools |
-| Write approval | A person at a terminal / host holding `ApprovalAuthority` | Model, task text, patch content |
+| Write approval | Host holding `ApprovalAuthority` and an approval channel outside the proposing process | Model, task text, patch content, CLI stdin |
 | Environment | Host process | `ATLAS_MODEL_*`, `GITHUB_TOKEN`/`GH_TOKEN` values are read from it |
 | CI | Pinned actions, locked dependencies | Pull request content |
 

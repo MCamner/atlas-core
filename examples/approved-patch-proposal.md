@@ -8,7 +8,8 @@ automatically create or apply a patch.
 2. Read the complete patch and choose a test command that is safe to run under
    your own OS account. `atlas propose` runs the test command without a shell,
    but it is not a sandbox.
-3. Ask Core to stage and verify the proposal in a shared clone:
+3. An untrusted proposer may ask the public CLI to stage and verify the
+   proposal in a shared clone:
 
    ```sh
    atlas propose --repo /path/to/repo \
@@ -17,9 +18,12 @@ automatically create or apply a patch.
      --test "python -m unittest discover -s tests"
    ```
 
-4. Review the diff and test result printed by Core. Type the operation digest
-   only when the exact change is approved. With no interactive terminal, the
-   operation is refused and no branch is created.
+4. The CLI always stops at `approval_required`; it cannot create the branch,
+   even under a pseudo-terminal. A write-capable host separately renders the
+   proposal and calls `atlas_core.patch_proposal.propose` with a trusted `ask`
+   callback connected to a UI or approval process the proposer cannot control.
+   The host returns the operation code only when the exact diff and test result
+   are approved.
 5. Inspect the resulting `atlas/*` branch and its post-action checks. Push and
    merge, if appropriate, remain separate operator actions.
 

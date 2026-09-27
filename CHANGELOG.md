@@ -4,6 +4,12 @@
 
 Security fixes:
 
+- `atlas propose` no longer accepts approval from its own terminal. The public
+  CLI always stops at `approval_required`, including under a pseudo-terminal,
+  so its controlling process cannot read and submit an in-band approval code.
+  A write-capable host must hold `ApprovalAuthority` and use an approval
+  channel outside the proposing process. Regression test in
+  `tests/test_patch_proposal.py`.
 - Git commands Core runs in an observed or target repository pass
   `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
   could name a command that `git status` ran during `atlas run --repo-path`
@@ -20,11 +26,9 @@ Security fixes:
   to wherever `Location` pointed, so a redirect could hand the GitHub token or
   the model API key to another host. Same-origin redirects keep it.
   Regression tests in `tests/test_redirect_credentials.py`.
-- `docs/safety-model.md` and `docs/api-contract.md` no longer say a person
-  approves `atlas propose`. The approval code is shown on the approval screen
-  and the only check is that stdin is a terminal, so a program driving a
-  pseudo-terminal can approve. The docs now state that limit and say to give
-  agents `--no-input`.
+- Before the later CLI fix above, `docs/safety-model.md` and
+  `docs/api-contract.md` were corrected to admit that terminal control did not
+  prove a human approval.
 - The live model transport reads a provider's reply up to 16 MiB and stops
   with `ProviderBadResponse` beyond that, instead of reading the body to its
   end. Regression tests in `tests/test_provider_response_bound.py`.
@@ -58,9 +62,10 @@ Roadmap v1.5 write capability with approval:
   logs the digest of the copy that is approved and run.
 - New event kind `approval_recorded` (`requested`, `granted`, `refused`,
   `consumed` and `rejected`, with a reason). It never carries the token.
-- `atlas propose` is the first write use case. It applies a patch and runs the
-  tests in a `--shared` clone, shows the diff and the test result, and asks a
-  person at a terminal to type the operation's code. On that yes it creates
+- `patch_proposal.propose` is the first write use case. It applies a patch and
+  runs the tests in a `--shared` clone. A trusted host can show the diff and
+  test result through an approval channel outside the proposing process. On
+  that external approval it creates
   `refs/heads/atlas/<name>` in one `update-ref --stdin` transaction:
   `verify <base ref> <base>` and `create <ref> <commit>`. If the base branch
   moved after the approval was checked, or the branch appeared meanwhile,
@@ -69,7 +74,7 @@ Roadmap v1.5 write capability with approval:
   - Patches that reach outside the repository, into `.git`, through a
     symlink, or that create a symlink or submodule are refused.
   - Test commands run without a shell.
-  - Failing tests and a missing terminal both write nothing.
+  - Failing tests and the public CLI both write nothing.
 - Post-action verification for `atlas propose`: after the write, Core reads
   the repository again. It checks that the ref points at the commit, that its
   parent and diff are the approved ones, that no other ref, HEAD or worktree

@@ -235,7 +235,7 @@ def _host_command(args: argparse.Namespace) -> int:
 
 def _propose(args: argparse.Namespace) -> int:
     """Exit 0 branch created, 1 refused input, 2 tests failed, 3 not approved."""
-    import getpass, shlex
+    import shlex
 
     try:
         test_argv = shlex.split(args.test)
@@ -243,23 +243,18 @@ def _propose(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         print(f"atlas propose: {exc}", file=sys.stderr)
         return 1
-    # A person answers at a terminal, or nobody does. The patch on stdin
-    # leaves no terminal to answer from.
-    interactive = not args.no_input and args.patch != '-' and sys.stdin.isatty()
-
-    def ask(text: str) -> str:
-        print(text, file=sys.stderr)
-        print("Type the first 12 characters of the operation to create the branch; "
-              "anything else refuses.", file=sys.stderr)
-        return input("approve> ")
-
     log = None
     if args.event_log:
         log = EventLog(new_run_id(), JsonlSink(args.event_log))
     try:
         result = propose(
             args.repo, patch, args.branch, test_argv,
-            ask=ask if interactive else None, granted_by=getpass.getuser(),
+            # The CLI is deliberately proposal-only. An in-band prompt lets a
+            # process controlling a pseudo-terminal read and submit its own
+            # approval code. A write-capable host must instead hold the
+            # ApprovalAuthority and collect permission through a boundary the
+            # proposing process cannot control.
+            ask=None, granted_by="external-authority",
             log=log, test_timeout=args.test_timeout,
         )
     except (ProposalRefused, ApprovalRejected) as exc:
@@ -315,12 +310,13 @@ def main(argv: list[str] | None = None) -> int:
     propose_p = sub.add_parser(
         'propose', help='Propose a patch as a new atlas/* branch; writes only on approval')
     propose_p.add_argument('--repo', required=True, help='Local git repository at a clean commit')
-    propose_p.add_argument('--patch', required=True, help='Unified diff file, or - for stdin (never approvable)')
+    propose_p.add_argument('--patch', required=True, help='Unified diff file, or - for stdin')
     propose_p.add_argument('--branch', required=True, help='New branch, atlas/<name>')
     propose_p.add_argument('--test', required=True, help='Test command, split into arguments and run without a shell')
     propose_p.add_argument('--test-timeout', type=float, default=300.0, help='Seconds before the tests are stopped')
     propose_p.add_argument('--event-log', default=None, help='Append approval and write events to this JSONL file')
-    propose_p.add_argument('--no-input', action='store_true', help='Never ask; stop at approval_required')
+    propose_p.add_argument('--no-input', action='store_true',
+                           help='Deprecated compatibility flag; the CLI never grants approval')
     propose_p.add_argument('--json', action='store_true', help='Print the outcome as JSON')
     metrics_p = sub.add_parser('metrics', help='Per-run telemetry read from event logs (atlas-metrics.v1)')
     metrics_p.add_argument('--event-log', required=True, action='append', help='JSONL event log; repeat for several')
