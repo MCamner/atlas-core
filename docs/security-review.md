@@ -40,7 +40,8 @@ closed unless output filenames, package/version metadata and both SHA-256
 digests match. The release CycloneDX
 SBOM identifies the package/version and records the source commit and both
 artifact hashes; `release-integrity.json` records those digests and the SBOM
-digest.
+digest. A successful main-run artifact and exact digests are recorded in
+[`evidence/release-integrity-main-2026-09-27.md`](evidence/release-integrity-main-2026-09-27.md).
 
 The baseline contains 34 findings, all manually classified as false positives:
 synthetic credentials/private-key markers in tests, an intentionally insecure
@@ -49,10 +50,8 @@ hashes and file/line metadata are stored; no secret values are stored in the
 baseline. The canary verifies that a new synthetic AWS-shaped value is rejected
 even with the baseline enabled.
 
-These repository changes do not prove that hosting rulesets require the checks
-or that GitHub Advanced Security is enabled. The independent review required by
-the v2.0 gate has not been performed. The runtime SBOM also does not replace a
-release-build SBOM tied to a published wheel and sdist.
+The current main branch-protection API snapshot is recorded in
+[`evidence/main-branch-protection-2026-09-27.md`](evidence/main-branch-protection-2026-09-27.md): PRs and the strict `python` check are required, force-push/deletion are disabled, and admins are enforced. The rulesets endpoint returned no rulesets; the classic protection endpoint returned zero required approvals and no named push restrictions. GitHub Advanced Security settings and future control-plane changes are not verified by this snapshot. The independent review required by the v2.0 gate has not been performed.
 
 Do not mark the security P2 item complete until all of the following are
 verified on the hosting repository:
@@ -64,8 +63,9 @@ verified on the hosting repository:
   passing main run to a release tag; verify and retain all artifact digests.
 - Verify the secret scan runs on pull requests and main; retain the canary
   regression proving the gate fails on a known synthetic credential.
-- Required status checks protect the release branch; the test, type-check,
-  dependency and secret-scan gates cannot be bypassed by ordinary changes.
+- Re-check that branch protection still requires the `python` status and that
+  required checks cover the current workflow. The observed snapshot has zero
+  required approvals; independent review remains a separate closure condition.
 - An independent reviewer examines this threat model, implementation and
   residual risks.
 
