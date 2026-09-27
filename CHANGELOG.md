@@ -8,6 +8,13 @@ Security fixes:
   `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
   could name a command that `git status` ran during `atlas run --repo-path`
   and `atlas propose`. Regression test in `tests/test_snapshot.py`.
+- `atlas propose` shows the diff and test output with control and format
+  characters (Unicode Cc/Cf, including escape sequences, carriage returns and
+  bidirectional overrides) spelled out. Before this, a patch could carry
+  terminal sequences that erased lines from the approval screen, so a person
+  could approve a diff different from the one written. The written branch and
+  the diff digest are unchanged. Regression test in
+  `tests/test_patch_proposal.py`.
 
 Roadmap v1.5 write capability with approval:
 

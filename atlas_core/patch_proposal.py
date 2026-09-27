@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import unicodedata
 from typing import Any, Callable, Mapping, Sequence
 
 from .approval import ApprovalAuthority, Operation, clean_head
@@ -305,12 +306,29 @@ OUTCOMES: dict[str, int] = {
 GRANT_TTL_SECONDS = 300
 
 
+def _printable(text: str) -> str:
+    """`text` with every control and format character spelled out.
+
+    The patch and the test output come from the change being approved. Raw,
+    an escape sequence or a carriage return in either can move the cursor and
+    erase lines, so the screen would show a different diff from the one that
+    is written. Line breaks and tabs are kept; everything else in Unicode
+    categories Cc and Cf (including bidirectional overrides) is shown as its
+    escape. Only the display changes: the diff digest is over the raw bytes.
+    """
+    return "".join(
+        char if char in "\n\t" or unicodedata.category(char) not in ("Cc", "Cf")
+        else char.encode("unicode_escape").decode("ascii")
+        for char in text
+    )
+
+
 def render(proposal: Proposal) -> str:
     """What the person reads before answering: the whole diff and the tests."""
     op = proposal.operation()
     tests = proposal.tests
     verdict = "timed out" if tests.timed_out else f"exit {tests.exit_code}"
-    return "\n".join([
+    return _printable("\n".join([
         f"repository : {proposal.repo}",
         f"base       : {proposal.base}",
         f"new branch : {proposal.branch} -> {proposal.commit}",
@@ -320,7 +338,7 @@ def render(proposal: Proposal) -> str:
         proposal.diff.rstrip(),
         "",
         f"operation  : {op.sha256}",
-    ])
+    ]))
 
 
 def propose(
