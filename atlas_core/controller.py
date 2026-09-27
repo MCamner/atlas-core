@@ -35,6 +35,7 @@ from .machine import classify_stop, stop_class_of
 from .snapshot import DriftReport, detect_drift
 from .observation import Observation
 from .observer import (
+    LineWindow,
     ObservationRefused,
     ObservationRequest,
     Observer,
@@ -119,7 +120,12 @@ def _material_signature(state: AtlasRunState) -> tuple[Any, ...]:
     """
     base = state.evidence_base
     observations = (
-        tuple(sorted((o.source_id, o.content_sha256) for o in base.observations))
+        tuple(
+            sorted(
+                (o.source_id, o.content_sha256, o.line_start, o.line_end)
+                for o in base.observations
+            )
+        )
         if base is not None
         else ()
     )
@@ -145,21 +151,40 @@ def _failure_signature(evaluation: AtlasEvaluation) -> tuple[Any, ...]:
 
 
 def _round_material(round_result: Any) -> set[tuple[str, str]]:
-    """The (source_id, digest) pairs one round adopted."""
-    return {
+    """Material one round adopted, including a new excerpt over same bytes."""
+    material = {
         (item.source_id, item.content_sha256) for item in round_result.added
     } | {(item.source_id, item.new_sha256) for item in round_result.superseded}
+    material |= {
+        (
+            item.source_id,
+            f"{item.sha256}@{item.new_line_start}:{item.new_line_end}",
+        )
+        for item in round_result.reframed
+    }
+    return material
 
 
 def _logged_round_material(payload: Mapping[str, Any]) -> set[tuple[str, str]]:
-    """The same pairs, read back from an `observation_recorded` payload."""
-    return {
+    """The same material, read back from an `observation_recorded` payload."""
+    material = {
         (str(item.get("source_id")), str(item.get("sha256")))
         for item in payload.get("added", [])
     } | {
         (str(item.get("source_id")), str(item.get("new_sha256")))
         for item in payload.get("superseded", [])
     }
+    material |= {
+        (
+            str(item.get("source_id")),
+            (
+                f"{item.get('sha256')}@{item.get('new_line_start')}:"
+                f"{item.get('new_line_end')}"
+            ),
+        )
+        for item in payload.get("reframed", [])
+    }
+    return material
 
 class AtlasController:
     def __init__(
@@ -660,6 +685,22 @@ class AtlasController:
                 if action is not None
                 else []
             )
+            raw_windows = (
+                action.details.get("line_windows", [])
+                if action is not None
+                else []
+            )
+            line_windows: list[LineWindow] = []
+            for item in raw_windows:
+                if not isinstance(item, Mapping):
+                    raise ValueError("line_windows entries must be mappings")
+                line_windows.append(
+                    LineWindow(
+                        path=str(item.get("path", "")),
+                        line_start=int(item.get("line_start", 0)),
+                        max_lines=int(item.get("max_lines", 0)),
+                    )
+                )
             request = request_from(
                 base.snapshot,
                 base.observations,
@@ -667,6 +708,8 @@ class AtlasController:
                 claims,
                 state.iteration,
                 patterns=patterns,
+                line_windows=line_windows,
+                include_existing_paths=not bool(line_windows),
                 question=review.question if review is not None else "",
             )
             state.enter("observing")
@@ -686,7 +729,10 @@ class AtlasController:
                 log.start_call(
                     "observe",
                     iteration=state.iteration,
-                    target=",".join(request.paths) or None,
+                    target=(
+                        ",".join(request.paths or [w.path for w in request.line_windows])
+                        or None
+                    ),
                     # The whole request. On a first read `paths` is empty and
                     # the patterns and the question are what was asked for.
                     call_input=request,
@@ -737,11 +783,15 @@ class AtlasController:
             newly_resolved = [
                 pattern for pattern in patterns if pattern not in already_resolved
             ]
+            changed_ids = {
+                item.source_id for item in round_result.superseded
+            } | {
+                item.source_id for item in round_result.reframed
+            }
             fresh: list[Observation] = list(round_result.added) + [
                 observation
                 for observation in merged
-                if observation.source_id
-                in {item.source_id for item in round_result.superseded}
+                if observation.source_id in changed_ids
             ]
 
             # A resumed run replays from the start and reads again. The bytes
@@ -789,6 +839,9 @@ class AtlasController:
             # the repository has no such file, which it cannot learn any other
             # way without listing directories itself.
             record["patterns"] = list(patterns)
+            record["line_windows"] = [
+                window.to_dict() for window in request.line_windows
+            ]
             state.metadata.setdefault("observation_rounds", []).append(record)
             if log is not None:
                 # Appended, never replacing an earlier one for the same source.
@@ -819,6 +872,21 @@ class AtlasController:
                             "new_sha256": item.new_sha256,
                         }
                         for item in round_result.superseded
+                    ],
+                    reframed=[
+                        {
+                            "source_id": item.source_id,
+                            "path": item.path,
+                            "sha256": item.sha256,
+                            "previous_line_start": item.previous_line_start,
+                            "previous_line_end": item.previous_line_end,
+                            "new_line_start": item.new_line_start,
+                            "new_line_end": item.new_line_end,
+                        }
+                        for item in round_result.reframed
+                    ],
+                    line_windows=[
+                        window.to_dict() for window in request.line_windows
                     ],
                     unchanged=list(round_result.unchanged),
                     has_new_material=round_result.has_new_material,
