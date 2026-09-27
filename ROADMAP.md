@@ -1,6 +1,6 @@
 # Atlas Core — roadmap för Atlas 2.0
 
-> Status: plan, inte leveransbevis. Uppdaterad 2026-09-27. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat.
+> Status: plan, inte leveransbevis. Uppdaterad 2026-09-27. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat. En closure-PR räknas som verifierad först när main-CI (push) har passerat på exakt merge-SHA.
 
 ## Mål och gränser
 

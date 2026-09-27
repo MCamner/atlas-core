@@ -25,7 +25,7 @@ sdist SHA-256 values matched across both builds. The release SBOM is CycloneDX
 | --- | --- | --- | ---: |
 | Wheel | `atlas_core-1.0.0-py3-none-any.whl` | `4f8b8ae9baf05d06e2e4abfb267fac8364ad8f7c40921ff70ea3f659dc5c9780` | 205083 bytes |
 | Sdist | `atlas_core-1.0.0.tar.gz` | `8ec177fb2d228999cc389bb9a0a59821560be627e6653d91795db09eca938b85` | 349792 bytes |
-| Release SBOM | `atlas-core-1.0.0.cdx.json` | `efdb9b402bf2e0119f409335c0d437fcd8ad21e701a19b836b4d41977f83dee0` | recorded in workflow manifest |
+| Release SBOM | `atlas-core-1.0.0.cdx.json` | `efdb9b402bf2e0119f409335c0d437fcd8ad21e701a19b836b4d41977f83dee0` | 1233 bytes |
 
 `release-integrity.json` in the workflow artifact records the package/version,
 source commit, source epoch, wheel/sdist hashes and SBOM hash. The hashes above
