@@ -167,6 +167,7 @@ class FilesystemRepoObserver:
                         {
                             "line_start": window.line_start,
                             "max_lines": window.max_lines,
+                            "anchor_prefix": window.anchor_prefix,
                         }
                     )
                 observation = collect_observation_safely(
