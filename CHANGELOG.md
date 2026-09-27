@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Security fixes:
+
+- Redaction also masks OpenAI keys with a type prefix (`sk-proj-`,
+  `sk-svcacct-`, `sk-admin-`), Google API keys (`AIza…`), AWS secret access
+  keys after their variable name, and opaque `Bearer` credentials of 20+
+  characters. Prose such as "a Bearer token" and hex digests stay unmasked.
+  Tests in `tests/test_redaction.py`.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
