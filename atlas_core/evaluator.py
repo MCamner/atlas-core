@@ -28,6 +28,7 @@ from .state import AtlasEvaluation, NextAction
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
 from .review_plan import ReviewPlan, answers_question, unread_patterns
+from .snapshot import DEFAULT_MAX_LINES
 from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
@@ -1014,6 +1015,56 @@ def _answering_finding(
     return False
 
 
+def _next_partial_windows(
+    base: EvidenceBase | None,
+    review: ReviewPlan | None,
+) -> list[dict[str, object]]:
+    """Next bounded excerpt for partial local sources the review already named."""
+    from fnmatch import fnmatch
+
+    if base is None or review is None:
+        return []
+
+    windows: list[dict[str, object]] = []
+    for observation in base.observations:
+        if observation.source_type != "local_file":
+            continue
+        if observation.total_lines is None or observation.total_lines == 0:
+            continue
+        if observation.line_end >= observation.total_lines:
+            continue
+        if not any(fnmatch(observation.path, pattern) for pattern in review.patterns):
+            continue
+        if (
+            review.topic == "release_changelog"
+            and observation.path == "CHANGELOG.md"
+        ):
+            # The host already reads the whole bounded-size file to compute the
+            # authoritative digest. Locating a static heading prefix does not
+            # widen what is exported as evidence; it only chooses which at-most
+            # 80 lines become the next excerpt.
+            windows.append(
+                {
+                    "path": observation.path,
+                    "line_start": 1,
+                    "max_lines": DEFAULT_MAX_LINES,
+                    "anchor_prefix": "## v",
+                }
+            )
+            continue
+
+        line_start = observation.line_end + 1
+        remaining = observation.total_lines - observation.line_end
+        windows.append(
+            {
+                "path": observation.path,
+                "line_start": line_start,
+                "max_lines": min(DEFAULT_MAX_LINES, remaining),
+            }
+        )
+    return windows
+
+
 def _next_action(
     gaps: list[str],
     evidence: _Evidence,
@@ -1138,6 +1189,27 @@ def _next_action(
         return NextAction(
             kind="recite_from_source", gap_codes=codes, details={"citations": broken}
         )
+
+    if off_topic and review is not None:
+        windows = _next_partial_windows(base, review)
+        # A missing source-attestation heading is a presentation gap. When the
+        # source itself is only partially observed, new bytes take precedence:
+        # another producer pass can add a heading, but it cannot manufacture
+        # lines the run never read. Structural/citation failures above still
+        # win and are repaired before any wider observation.
+        if windows and all(
+            gap in {"sources_not_documented"} for gap in evidence.gaps
+        ):
+            return NextAction(
+                kind="observe_again",
+                gap_codes=codes,
+                actor="host",
+                details={
+                    "reason": "partial_source_window",
+                    "line_windows": windows,
+                    "question": review.question,
+                },
+            )
 
     if evidence.gaps:
         return NextAction(

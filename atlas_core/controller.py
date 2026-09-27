@@ -35,6 +35,7 @@ from .machine import classify_stop, stop_class_of
 from .snapshot import DriftReport, detect_drift
 from .observation import Observation
 from .observer import (
+    LineWindow,
     ObservationRefused,
     ObservationRequest,
     Observer,
@@ -105,10 +106,9 @@ def _material_signature(state: AtlasRunState) -> tuple[Any, ...]:
     and the plan it holds them for. Two channels, because those are the two
     that exist —
 
-    - the evidence base, by source and content digest. A new observation
-      changes it, a superseded one changes it, and a test result changes it
-      too: a test reaches a run as an observation through its own adapter, not
-      as a separate kind of thing;
+    - the evidence base, by source, content digest and observed line range. A
+      new observation changes it, a superseded one changes it, and a new
+      bounded window over the same bytes changes it too;
     - the review plan's question and the sources it asks for. A plan that
       narrowed differently is a different investigation, and this is what makes
       "a documented plan change" a fact in the document rather than a claim
@@ -119,7 +119,12 @@ def _material_signature(state: AtlasRunState) -> tuple[Any, ...]:
     """
     base = state.evidence_base
     observations = (
-        tuple(sorted((o.source_id, o.content_sha256) for o in base.observations))
+        tuple(
+            sorted(
+                (o.source_id, o.content_sha256, o.line_start, o.line_end)
+                for o in base.observations
+            )
+        )
         if base is not None
         else ()
     )
@@ -145,21 +150,40 @@ def _failure_signature(evaluation: AtlasEvaluation) -> tuple[Any, ...]:
 
 
 def _round_material(round_result: Any) -> set[tuple[str, str]]:
-    """The (source_id, digest) pairs one round adopted."""
-    return {
+    """Material one round adopted, including a new excerpt over same bytes."""
+    material = {
         (item.source_id, item.content_sha256) for item in round_result.added
     } | {(item.source_id, item.new_sha256) for item in round_result.superseded}
+    material |= {
+        (
+            item.source_id,
+            f"{item.sha256}@{item.new_line_start}:{item.new_line_end}",
+        )
+        for item in round_result.reframed
+    }
+    return material
 
 
 def _logged_round_material(payload: Mapping[str, Any]) -> set[tuple[str, str]]:
-    """The same pairs, read back from an `observation_recorded` payload."""
-    return {
+    """The same material, read back from an `observation_recorded` payload."""
+    material = {
         (str(item.get("source_id")), str(item.get("sha256")))
         for item in payload.get("added", [])
     } | {
         (str(item.get("source_id")), str(item.get("new_sha256")))
         for item in payload.get("superseded", [])
     }
+    material |= {
+        (
+            str(item.get("source_id")),
+            (
+                f"{item.get('sha256')}@{item.get('new_line_start')}:"
+                f"{item.get('new_line_end')}"
+            ),
+        )
+        for item in payload.get("reframed", [])
+    }
+    return material
 
 class AtlasController:
     def __init__(
@@ -660,6 +684,39 @@ class AtlasController:
                 if action is not None
                 else []
             )
+            raw_windows = (
+                action.details.get("line_windows", [])
+                if action is not None
+                else []
+            )
+            line_windows: list[LineWindow] = []
+            for item in raw_windows:
+                if not isinstance(item, Mapping):
+                    raise ValueError("line_windows entries must be mappings")
+                path = item.get("path")
+                line_start = item.get("line_start")
+                max_lines = item.get("max_lines")
+                anchor_prefix = item.get("anchor_prefix")
+                if (
+                    not isinstance(path, str)
+                    or isinstance(line_start, bool)
+                    or not isinstance(line_start, int)
+                    or isinstance(max_lines, bool)
+                    or not isinstance(max_lines, int)
+                    or (
+                        anchor_prefix is not None
+                        and not isinstance(anchor_prefix, str)
+                    )
+                ):
+                    raise ValueError("line_windows entries have invalid types")
+                line_windows.append(
+                    LineWindow(
+                        path=path,
+                        line_start=line_start,
+                        max_lines=max_lines,
+                        anchor_prefix=anchor_prefix,
+                    )
+                )
             request = request_from(
                 base.snapshot,
                 base.observations,
@@ -667,6 +724,8 @@ class AtlasController:
                 claims,
                 state.iteration,
                 patterns=patterns,
+                line_windows=line_windows,
+                include_existing_paths=not bool(line_windows),
                 question=review.question if review is not None else "",
             )
             state.enter("observing")
@@ -686,7 +745,10 @@ class AtlasController:
                 log.start_call(
                     "observe",
                     iteration=state.iteration,
-                    target=",".join(request.paths) or None,
+                    target=(
+                        ",".join(request.paths or [w.path for w in request.line_windows])
+                        or None
+                    ),
                     # The whole request. On a first read `paths` is empty and
                     # the patterns and the question are what was asked for.
                     call_input=request,
@@ -737,11 +799,15 @@ class AtlasController:
             newly_resolved = [
                 pattern for pattern in patterns if pattern not in already_resolved
             ]
+            changed_ids = {
+                item.source_id for item in round_result.superseded
+            } | {
+                item.source_id for item in round_result.reframed
+            }
             fresh: list[Observation] = list(round_result.added) + [
                 observation
                 for observation in merged
-                if observation.source_id
-                in {item.source_id for item in round_result.superseded}
+                if observation.source_id in changed_ids
             ]
 
             # A resumed run replays from the start and reads again. The bytes
@@ -789,6 +855,9 @@ class AtlasController:
             # the repository has no such file, which it cannot learn any other
             # way without listing directories itself.
             record["patterns"] = list(patterns)
+            record["line_windows"] = [
+                window.to_dict() for window in request.line_windows
+            ]
             state.metadata.setdefault("observation_rounds", []).append(record)
             if log is not None:
                 # Appended, never replacing an earlier one for the same source.
@@ -819,6 +888,21 @@ class AtlasController:
                             "new_sha256": item.new_sha256,
                         }
                         for item in round_result.superseded
+                    ],
+                    reframed=[
+                        {
+                            "source_id": item.source_id,
+                            "path": item.path,
+                            "sha256": item.sha256,
+                            "previous_line_start": item.previous_line_start,
+                            "previous_line_end": item.previous_line_end,
+                            "new_line_start": item.new_line_start,
+                            "new_line_end": item.new_line_end,
+                        }
+                        for item in round_result.reframed
+                    ],
+                    line_windows=[
+                        window.to_dict() for window in request.line_windows
                     ],
                     unchanged=list(round_result.unchanged),
                     has_new_material=round_result.has_new_material,

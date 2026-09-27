@@ -43,7 +43,7 @@ from typing import Protocol
 
 from .budget import RunBudget
 from .observation import Observation
-from .snapshot import Snapshot
+from .snapshot import DEFAULT_MAX_LINES, Snapshot
 
 
 class ObservationRefused(Exception):
@@ -53,6 +53,48 @@ class ObservationRefused(Exception):
     would let a host widen a run's evidence by accident, and the run would
     report a grade over a set nobody agreed to.
     """
+
+
+@dataclass(frozen=True)
+class LineWindow:
+    """One bounded excerpt request for an already-known source path."""
+
+    path: str
+    line_start: int = 1
+    max_lines: int = DEFAULT_MAX_LINES
+    anchor_prefix: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.path.strip():
+            raise ValueError("a line window must name a path")
+        if self.line_start < 1:
+            raise ValueError("line_start must be at least 1")
+        if self.max_lines < 1 or self.max_lines > DEFAULT_MAX_LINES:
+            raise ValueError(
+                f"max_lines must be between 1 and {DEFAULT_MAX_LINES}"
+            )
+        if self.anchor_prefix is not None:
+            if self.line_start != 1:
+                raise ValueError(
+                    "anchor_prefix and explicit line_start are mutually exclusive"
+                )
+            if (
+                not self.anchor_prefix
+                or "\n" in self.anchor_prefix
+                or "\r" in self.anchor_prefix
+                or len(self.anchor_prefix) > 128
+            ):
+                raise ValueError("anchor_prefix must be one bounded line prefix")
+
+    def to_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {
+            "path": self.path,
+            "line_start": self.line_start,
+            "max_lines": self.max_lines,
+        }
+        if self.anchor_prefix is not None:
+            result["anchor_prefix"] = self.anchor_prefix
+        return result
 
 
 @dataclass(frozen=True)
@@ -81,10 +123,19 @@ class ObservationRequest:
     #: A host resolves these against the snapshot; `paths` is what the run has
     #: already read. On a first read `paths` is empty and this is the request.
     patterns: list[str] = field(default_factory=list)
+    #: Explicit bounded windows to read from paths already selected by the
+    #: review. A window never expands the set of paths; it only changes which
+    #: lines of one selected source become the current excerpt.
+    line_windows: list[LineWindow] = field(default_factory=list)
     #: The question the read is in service of, so a host that can choose has
     #: something to choose by.
     question: str = ""
     iteration: int = 0
+
+    def __post_init__(self) -> None:
+        paths = [window.path for window in self.line_windows]
+        if len(paths) != len(set(paths)):
+            raise ValueError("a request may carry at most one line window per path")
 
 
 class Observer(Protocol):
@@ -126,6 +177,19 @@ class Supersession:
 
 
 @dataclass(frozen=True)
+class Reframing:
+    """Same source bytes, but a different bounded excerpt became current."""
+
+    source_id: str
+    path: str
+    sha256: str
+    previous_line_start: int
+    previous_line_end: int
+    new_line_start: int
+    new_line_end: int
+
+
+@dataclass(frozen=True)
 class ObservationRound:
     """What one round of reading produced.
 
@@ -137,12 +201,13 @@ class ObservationRound:
 
     added: list[Observation]
     superseded: list[Supersession]
+    reframed: list[Reframing]
     unchanged: list[str]
     requested: int
 
     @property
     def has_new_material(self) -> bool:
-        return bool(self.added or self.superseded)
+        return bool(self.added or self.superseded or self.reframed)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -159,6 +224,18 @@ class ObservationRound:
                     "new_sha256": s.new_sha256,
                 }
                 for s in self.superseded
+            ],
+            "reframed": [
+                {
+                    "source_id": item.source_id,
+                    "path": item.path,
+                    "sha256": item.sha256,
+                    "previous_line_start": item.previous_line_start,
+                    "previous_line_end": item.previous_line_end,
+                    "new_line_start": item.new_line_start,
+                    "new_line_end": item.new_line_end,
+                }
+                for item in self.reframed
             ],
             "unchanged": list(self.unchanged),
         }
@@ -184,6 +261,7 @@ def merge_observations(
     merged = list(existing)
     added: list[Observation] = []
     superseded: list[Supersession] = []
+    reframed: list[Reframing] = []
     unchanged: list[str] = []
     seen: set[str] = set()
 
@@ -211,7 +289,26 @@ def merge_observations(
             added.append(item)
             continue
         if previous.content_sha256 == item.content_sha256:
-            unchanged.append(item.source_id)
+            same_window = (
+                previous.line_start == item.line_start
+                and previous.line_end == item.line_end
+                and previous.excerpt == item.excerpt
+            )
+            if same_window:
+                unchanged.append(item.source_id)
+                continue
+            reframed.append(
+                Reframing(
+                    source_id=item.source_id,
+                    path=item.path,
+                    sha256=item.content_sha256,
+                    previous_line_start=previous.line_start,
+                    previous_line_end=previous.line_end,
+                    new_line_start=item.line_start,
+                    new_line_end=item.line_end,
+                )
+            )
+            merged[merged.index(previous)] = item
             continue
         superseded.append(
             Supersession(
@@ -226,6 +323,7 @@ def merge_observations(
     return merged, ObservationRound(
         added=added,
         superseded=superseded,
+        reframed=reframed,
         unchanged=unchanged,
         requested=len(incoming),
     )
@@ -238,6 +336,8 @@ def request_from(
     claims: list[str],
     iteration: int,
     patterns: list[str] | None = None,
+    line_windows: list[LineWindow] | None = None,
+    include_existing_paths: bool = True,
     question: str = "",
 ) -> ObservationRequest:
     """Build the request from what the run could not stand behind.
@@ -246,23 +346,27 @@ def request_from(
     stops a run when *any* observation stops verifying, so a host that re-read
     only the cited ones would hand back a set that still fails the same gate.
     """
+    selected = list(observations) if include_existing_paths else []
     return ObservationRequest(
         snapshot=snapshot,
-        source_ids=[observation.source_id for observation in observations],
-        paths=[observation.path for observation in observations],
+        source_ids=[observation.source_id for observation in selected],
+        paths=[observation.path for observation in selected],
         blocked_by=list(blocked_by),
         claims=list(claims),
         patterns=list(patterns or []),
+        line_windows=list(line_windows or []),
         question=question,
         iteration=iteration,
     )
 
 
 __all__ = [
+    "LineWindow",
     "ObservationRefused",
     "ObservationRequest",
     "ObservationRound",
     "Observer",
+    "Reframing",
     "Supersession",
     "merge_observations",
     "request_from",

@@ -7,7 +7,7 @@ from ..budget import RunBudget
 from ..containment import PathRefused, SourceTooLarge, resolve_within
 from ..integrity import collect_observation_safely
 from ..observation import Observation
-from ..observer import ObservationRequest
+from ..observer import LineWindow, ObservationRequest
 
 CANDIDATE_FILES = [
     "README.md", "pyproject.toml", "package.json", "docs/architecture.md",
@@ -121,37 +121,78 @@ class FilesystemRepoObserver:
         root = Path(request.snapshot.root).expanduser().resolve()
         if root != self.repo_path:
             raise ValueError("the request's snapshot is not this repository")
-        # Paths already in the run first: they are what the drift gate needs.
-        # Then the patterns round-robin, so a pattern that matches many files
-        # cannot use up the round before another pattern gets one read — a
-        # pattern this round came back from counts as answered.
-        reread = _present(root, list(request.paths))
+
+        windows = {
+            window.path: window
+            for window in request.line_windows
+            if window.path in _present(root, [window.path])
+        }
+        # Explicit windows win over ordinary re-reads of the same path. A
+        # request may therefore advance one long source without also returning
+        # its first excerpt and creating two observations with one source_id.
+        reread = _present(
+            root,
+            [path for path in request.paths if path not in windows],
+        )
         by_pattern = [_present(root, _matching(root, p)) for p in request.patterns]
-        if not request.paths and not request.patterns:
+        if not request.paths and not request.patterns and not request.line_windows:
             by_pattern = [_present(root, CANDIDATE_FILES)]
-        wanted = reread + [
-            name for rank in zip_longest(*by_pattern) for name in rank if name is not None
+
+        wanted: list[tuple[str, LineWindow | None]] = [
+            (window.path, window) for window in request.line_windows
+            if window.path in windows
         ]
+        wanted.extend((path, None) for path in reread)
+        wanted.extend(
+            (name, None)
+            for rank in zip_longest(*by_pattern)
+            for name in rank
+            if name is not None
+        )
+
         observations: list[Observation] = []
-        seen: set[str] = set()
-        for relative in list(dict.fromkeys(wanted))[: self.max_files_per_round]:
+        seen_paths: set[str] = set()
+        for relative, window in wanted:
+            if relative in seen_paths:
+                continue
+            seen_paths.add(relative)
+            if len(observations) >= self.max_files_per_round:
+                break
             budget.check()
             budget.reserve_tool()
             try:
+                if window is None:
+                    observation = collect_observation_safely(
+                        request.snapshot,
+                        relative,
+                        max_bytes=self.max_bytes_per_file,
+                    )
+                else:
+                    observation = collect_observation_safely(
+                        request.snapshot,
+                        relative,
+                        max_bytes=self.max_bytes_per_file,
+                        line_start=window.line_start,
+                        max_lines=window.max_lines,
+                        anchor_prefix=window.anchor_prefix,
+                    )
+            except ValueError:
+                # A range derived from an earlier observation can become
+                # unreachable only when the file changed underneath the run.
+                # Re-read its head so the same source_id returns with the new
+                # full-content digest; merge/drift handling can then report
+                # the change instead of turning a range race into tool_error.
+                if window is None:
+                    raise
                 observation = collect_observation_safely(
-                    request.snapshot, relative, max_bytes=self.max_bytes_per_file
+                    request.snapshot,
+                    relative,
+                    max_bytes=self.max_bytes_per_file,
                 )
             except (PathRefused, SourceTooLarge, OSError):
-                # Refused, too large, gone or unreadable (a permission, say):
-                # not read, so not evidence. One such file must not end the
-                # run's reading of the rest.
                 continue
             budget.check()
-            # Two names for one file (a link inside the root) resolve to the
-            # same source; a round may carry each source once.
-            if observation.source_id not in seen:
-                seen.add(observation.source_id)
-                observations.append(observation)
+            observations.append(observation)
         return observations
 
 
