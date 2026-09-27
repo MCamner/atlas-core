@@ -42,9 +42,24 @@ produces different digests even when no packaged file changed (observed
 between `217c113` and `07ac394`). Reproducibility is claimed per commit. For
 a release, the artifact from the tagged commit is the one to attach.
 
-## Not done
+## Published release
 
-- No GitHub release exists. The only tag is `v0.2.0`. The verified
-  distributions, SBOM and manifest have not been attached to a release tag,
-  and the artifact expires on the date above unless retained.
+- [`v1.0.0`](https://github.com/MCamner/atlas-core/releases/tag/v1.0.0) is an
+  annotated tag resolving to `8230fecd3e7e4f4a0d65bb61ee517017d1857932`.
+  Exact-main workflow
+  [36315653280](https://github.com/MCamner/atlas-core/actions/runs/36315653280)
+  passed on that commit and produced the attached wheel, sdist, CycloneDX 1.5
+  release SBOM and `release-integrity.json`.
+- The release assets were downloaded again after publication. Their SHA-256
+  values match both GitHub's retained asset digests and the manifest:
+
+| File | SHA-256 | Size |
+| --- | --- | ---: |
+| `atlas_core-1.0.0-py3-none-any.whl` | `bc7d6bcc79cb1812d05e813ed192fa74fd9895e06812d426acf0488659fa074b` | 207113 bytes |
+| `atlas_core-1.0.0.tar.gz` | `6fe69c16f31f7f1ca1329e93b0590483c1ca1a952cf137929156246e86f5e9a9` | 354136 bytes |
+| `atlas-core-1.0.0.cdx.json` | `1600551aa287a3e3b4e146391e2c7b00a6700d628425d786510fa973350d6f7b` | 1233 bytes |
+| `release-integrity.json` | `4323c1edc822805da424b21ec7a404337e9d7df85a0f92e8892a0b9a700535c9` | 722 bytes |
+
+## Remaining limitation
+
 - Artifacts are not signed and have no provenance attestation.

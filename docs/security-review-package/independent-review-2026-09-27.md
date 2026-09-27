@@ -55,6 +55,12 @@ write. A negative terminal-controller regression test covers this boundary.
 Because this reviewer implemented that remediation, this note is not an
 independent re-review and the fix must be re-reviewed before closure.
 
+C1 was subsequently remediated: annotated tag `v1.0.0` resolves to merge SHA
+`8230fecd`, exact-main run 36315653280 passed, and the wheel, sdist, release
+SBOM and integrity manifest are retained on the GitHub release with matching
+downloaded SHA-256 digests. This is post-review evidence, not a changed review
+conclusion.
+
 - Affected: `atlas_core/patch_proposal.py` (`render`, `propose`), CLI terminal
   check, and the v2.0 exit condition.
 - Description: the approval value is derived from and printed with the

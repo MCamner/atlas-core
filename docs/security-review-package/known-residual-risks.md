@@ -39,11 +39,11 @@ baseline:
 
 | # | Condition | State |
 | --- | --- | --- |
-| C1 | Attach verified wheel, sdist, release SBOM and digest manifest from a passing main run to a release tag; retain the digests. | Not done. No GitHub release; only tag is `v0.2.0`. |
-| C2 | Verify that Dependabot update PRs are reviewed. | Not verified. |
+| C1 | Attach verified wheel, sdist, release SBOM and digest manifest from a passing main run to a release tag; retain the digests. | Done. `v1.0.0` points to `8230fecd`; exact-main run 36315653280 passed and the four release assets retain matching SHA-256 digests. See [`release-integrity.md`](release-integrity.md). |
+| C2 | Verify that Dependabot update PRs are reviewed. | Verified for the reviewed update: PR #93 records maintainer review and passed exact-head CI. |
 | C3 | Re-check that branch protection still requires `python`. | Holds as of the observation at `6474f17` in [`hosting-controls.md`](hosting-controls.md). |
 | C4 | Secret scan runs on PRs and main; canary retained. | `test.yml` runs on `pull_request` and `push` to `main`; canary step present. |
-| C5 | Independent review of threat model, implementation and residual risks. | This package is the input; review not yet performed. A non-independent pre-review was done and its findings are in [`pre-review-findings.md`](pre-review-findings.md). |
+| C5 | Independent review of threat model, implementation and residual risks. | Performed in [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md). Its F4 finding was remediated in #109 and awaits independent re-review. |
 
 The reviewer's report should say whether C1 and C2 must be met before the
 security item closes, or can be tracked separately.
