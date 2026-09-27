@@ -1172,6 +1172,27 @@ def _next_action(
             kind="recite_from_source", gap_codes=codes, details={"citations": broken}
         )
 
+    if off_topic and review is not None:
+        windows = _next_partial_windows(base, review)
+        # A missing source-attestation heading is a presentation gap. When the
+        # source itself is only partially observed, new bytes take precedence:
+        # another producer pass can add a heading, but it cannot manufacture
+        # lines the run never read. Structural/citation failures above still
+        # win and are repaired before any wider observation.
+        if windows and all(
+            gap in {"sources_not_documented"} for gap in evidence.gaps
+        ):
+            return NextAction(
+                kind="observe_again",
+                gap_codes=codes,
+                actor="host",
+                details={
+                    "reason": "partial_source_window",
+                    "line_windows": windows,
+                    "question": review.question,
+                },
+            )
+
     if evidence.gaps:
         return NextAction(
             kind="cite_sources",
@@ -1184,19 +1205,6 @@ def _next_action(
         )
 
     if off_topic and review is not None:
-        windows = _next_partial_windows(base, review)
-        if windows:
-            return NextAction(
-                kind="observe_again",
-                gap_codes=codes,
-                actor="host",
-                details={
-                    "reason": "partial_source_window",
-                    "line_windows": windows,
-                    "question": review.question,
-                },
-            )
-
         # Late, and for a reason found by driving the loop rather than by
         # reading it. "Nothing on topic" is true whenever nothing was settled,
         # which includes every structural failure above: a block that will not
