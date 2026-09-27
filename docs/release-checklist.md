@@ -19,13 +19,18 @@ release. Follow it from a clean checkout of the intended release commit.
 - [ ] Review `CHANGELOG.md`, `VERSION`, `MANIFEST.json`, `pyproject.toml` and
   `atlas_core.__version__` together. `tests/test_release_metadata.py` enforces
   equality and changelog ordering.
-- [ ] Review the generated wheel and sdist contents. Build twice from clean
-  checkouts with identical pinned build inputs and `SOURCE_DATE_EPOCH`; compare
-  SHA-256 digests. A mismatch blocks release until explained and fixed.
-- [ ] Generate and inspect the release SBOM; verify it describes the same
-  source/version as the wheel. The test workflow now uploads a CycloneDX 1.5
-  runtime-dependency SBOM from `uv.lock`; the release artifact still needs its
-  own matching SBOM attached and digest-verified.
+- [ ] Review the generated wheel and sdist contents. The test workflow builds
+  both from two clean detached worktrees with the same commit-derived
+  `SOURCE_DATE_EPOCH`, using the hash-locked `build` dependency group. Sdist tar
+  owner/time/gzip metadata is canonicalized to that epoch; member contents are
+  unchanged. It fails closed unless both final SHA-256 digests match and package
+  metadata agrees. Review `release-integrity.json` and retain the wheel and sdist
+  digests.
+- [ ] Generate and inspect the release SBOM; verify its package/version match
+  the wheel and sdist. The test workflow writes source commit and both artifact
+  hashes into the CycloneDX 1.5 SBOM and records its SHA-256 in
+  `release-integrity.json`. Verify all files are present in the uploaded
+  `atlas-core-release-integrity` artifact.
 - [ ] Confirm required CI, dependency and secret-scanning checks are green and
   the independent security review is recorded. The configured workflow
   provides dependency and secret-scanning gates; verify they are required by
@@ -49,12 +54,16 @@ release. Follow it from a clean checkout of the intended release commit.
 
 ## Reproducibility status
 
-The project now pins GitHub Actions, CI tooling and PEP 517 build-system
-versions. CI dependencies are hash-locked through `uv.lock`, and CI produces a
-validated CycloneDX runtime-dependency SBOM. PEP 517 build-system versions are
-pinned in `pyproject.toml`, but their distributions are not hash-locked in
-`uv.lock`.
+The project pins GitHub Actions and CI tooling. PEP 517 build-system inputs are
+exact-version-pinned in `pyproject.toml` and repeated in the `build` dependency
+group, whose distribution hashes are recorded in `uv.lock`. The test workflow
+builds wheel and sdist twice from clean worktrees. It canonicalizes only sdist
+archive metadata (timestamps, owner/group fields, PAX time entries and gzip
+header) to the commit-derived `SOURCE_DATE_EPOCH`; file payloads are never
+rewritten. It fails closed on final artifact digest mismatch, validates a
+release SBOM against package/version metadata, and records the source commit
+plus wheel, sdist and SBOM digests in `release-integrity.json`.
 
-The remaining release blockers are reproducible double-build verification,
-artifact-level integrity for build-system inputs, and a release SBOM tied to
-the actual wheel and sdist.
+This CI evidence does not publish a release. A release must attach the verified
+wheel, sdist, SBOM and digest manifest to the same tag and retain their artifact
+digests.

@@ -9,7 +9,7 @@ security review required by the v2.0 exit gate.
 | Threat | Current controls | Residual risk / required action |
 | --- | --- | --- |
 | Prompt injection in repository or tool output | Repository content is data; tool capabilities and write approval are enforced in code. Negative cases are in the P0.3 attack tests. | Core cannot guarantee that an external model ignores malicious content. Review model/provider use and retain human review. |
-| Supply-chain compromise | Core declares no runtime dependencies. CI and auxiliary workflows pin actions by full commit SHA. CI dependencies are exact-pinned and transitively hash-locked in `uv.lock`; PEP 517 build-system dependencies are exact-version-pinned in `pyproject.toml` but are not represented or hash-locked in `uv.lock`. `pip-audit --strict` gates the locked CI environment; Dependabot checks uv and Actions updates weekly. CI uploads a CycloneDX 1.5 runtime-dependency SBOM. | Build-system downloads remain exact-version-pinned rather than artifact-hash-locked. Reproducible double-build and release-artifact verification remain release blockers. The runtime SBOM describes runtime dependencies, not the complete build environment or a release wheel. Repository rulesets and independent review cannot be verified from source. |
+| Supply-chain compromise | Core declares no runtime dependencies. CI and auxiliary workflows pin actions by full commit SHA. CI and PEP 517 build dependencies are exact-pinned and transitively hash-locked in `uv.lock`; the reproducible build gate verifies that `pyproject.toml` build requirements match the locked `build` group. `pip-audit --strict` gates the locked CI environment; Dependabot checks uv and Actions updates weekly. CI uploads a CycloneDX 1.5 runtime SBOM and a release-integrity bundle with double-built wheel/sdist, artifact-bound SBOM and digest manifest. | These gates require a green exact-head run on this change and a green main run after merge. CI evidence is not release publication; the verified bundle must be attached to the release tag and its digests retained. Repository rulesets and independent review cannot be verified from source. |
 | Secret exposure | Provider keys stay out of run metadata; exported run documents are redacted. CI runs `detect-secrets-hook` against tracked files, uses a reviewed hash-only baseline for existing test canaries/digests, and runs a synthetic-key canary that must be rejected by the same hook. | Redaction is deliberately narrow and does not detect arbitrary personal data. A repository baseline can hide a real secret if it is wrongly approved; baseline changes require human review. GitHub-hosted secret scanning settings cannot be verified from this checkout. |
 | Path traversal and symlinks | Snapshot containment, path validation and negative tests reject escape paths and symlink reads. | A directory component can still change between resolution and open; see the TOCTOU boundary in `safety-model.md`. |
 | SSRF / network access | Core has no generic URL tool; the optional GitHub reader targets the GitHub API. Tool gateway denies network capability by default. | Trusted custom adapters execute with host privileges and can open arbitrary network connections. Do not register unreviewed adapters; isolate them externally. |
@@ -20,16 +20,27 @@ security review required by the v2.0 exit gate.
 
 The configured `.github/workflows/test.yml` uses Ubuntu 24.04 and Python 3.11.16,
 with actions pinned by full commit SHA and uv 0.12.13 installed through a pinned
-setup action. CI dependencies are exact-pinned and transitively hash-locked in
-`uv.lock`. PEP 517 build-system dependencies are exact-version-pinned in
-`pyproject.toml`, but are not represented in `uv.lock` and therefore are not
-claimed as hash-locked by that file. The lock covers exact CI-tool versions;
-CI asserts the lock is current, installs it in locked mode, runs tests/mypy/
-pyright, and gates on `pip-audit --strict`. The same job runs the
+setup action. CI and PEP 517 build dependencies are exact-pinned and transitively
+hash-locked in `uv.lock`; `scripts/reproducible_build.py` checks that the
+`build` group matches `pyproject.toml`'s PEP 517 requirements. CI asserts the
+lock is current, installs locked groups, runs tests/mypy/pyright, and gates on
+`pip-audit --strict`. The same job runs the
 detect-secrets baseline hook and canary, exports a CycloneDX 1.5 SBOM for the
 runtime dependency graph and uploads it as an artifact. Run-atlas and Pages
 actions are pinned too. Dependabot is configured for weekly uv and Actions
 updates.
+
+The release-integrity step requires a clean source checkout, makes two detached
+worktrees at the exact source commit, derives `SOURCE_DATE_EPOCH` from that
+commit, installs the hash-locked build group, and builds wheel plus sdist
+without unpinned build isolation. It canonicalizes only sdist container metadata
+(timestamps, owner/group fields, PAX time entries and gzip header); member file
+contents are unchanged and content differences remain digest-visible. It fails
+closed unless output filenames, package/version metadata and both SHA-256
+digests match. The release CycloneDX
+SBOM identifies the package/version and records the source commit and both
+artifact hashes; `release-integrity.json` records those digests and the SBOM
+digest.
 
 The baseline contains 34 findings, all manually classified as false positives:
 synthetic credentials/private-key markers in tests, an intentionally insecure
@@ -46,13 +57,11 @@ release-build SBOM tied to a published wheel and sdist.
 Do not mark the security P2 item complete until all of the following are
 verified on the hosting repository:
 
-- Merge the pinned Actions/dependency lock, strict audit, secret-scan and SBOM
-  jobs with green exact-head CI; verify Dependabot update PRs are reviewed.
-- Treat build-system downloads as version-pinned but not artifact-hash-locked;
-  verify hashes or an equivalent integrity control before claiming a
-  reproducible release build.
-- Generate an SBOM from the release build, attach it to the release artifact
-  and verify it describes the same source/version as the wheel and sdist.
+- Merge the pinned Actions/dependency lock, strict audit, secret-scan,
+  reproducible-build and SBOM jobs with green exact-head CI; verify Dependabot
+  update PRs are reviewed.
+- Attach the verified wheel, sdist, release SBOM and digest manifest from the
+  passing main run to a release tag; verify and retain all artifact digests.
 - Verify the secret scan runs on pull requests and main; retain the canary
   regression proving the gate fails on a known synthetic credential.
 - Required status checks protect the release branch; the test, type-check,

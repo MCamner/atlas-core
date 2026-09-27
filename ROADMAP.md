@@ -1,6 +1,6 @@
 # Atlas Core — roadmap för Atlas 2.0
 
-> Status: plan, inte leveransbevis. Uppdaterad 2026-09-26. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat.
+> Status: plan, inte leveransbevis. Uppdaterad 2026-09-27. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat.
 
 ## Mål och gränser
 
@@ -397,11 +397,11 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 - [x] Dokumentera API-stabilitet, semver, schema-migrationer, avvecklingspolicy, adapterkompatibilitet och supportmatris (Python, OS, provider-läge).
   - [`docs/api-contract.md`](docs/api-contract.md#stability-versioning-and-support) skiljer paket-SemVer från schemaversioner och visar deklarerat stöd kontra CI-verifiering. `tests/test_release_metadata.py` håller paketversionerna synkroniserade; `tests/test_migration.py` prövar lossless/complete-rapportering. Adaptrarnas gräns finns även i [`docs/adapter-contract.md`](docs/adapter-contract.md).
 - [ ] Säkerhetsgranska threat model (prompt injection, supply chain, secrets, path traversal, SSRF, exfiltration, privileged write); dependency pinning, SBOM, secret scanning och CI-gates.
-  - Intern granskning och residualrisker dokumenterade i [`docs/security-review.md`](docs/security-review.md), med tekniska kontroller i [`docs/safety-model.md`](docs/safety-model.md). Detta säkerhetsspår lägger till full-SHA-pinnade Actions, en exakt/hashad `uv.lock`, strict `pip-audit`, Dependabot-uppdateringar, detect-secrets med klassificerad hash-baseline och avvisad canary, samt en uppladdad CycloneDX 1.5 runtime-SBOM. **Fortsatt öppen:** kräver merge och grön main-CI på exakt SHA, verifierade hosting-regler/required checks, en release-SBOM bunden till wheel/sdist och oberoende säkerhetsgranskning.
+  - Intern granskning och residualrisker dokumenterade i [`docs/security-review.md`](docs/security-review.md), med tekniska kontroller i [`docs/safety-model.md`](docs/safety-model.md). #87 införde full-SHA-pinnade Actions, hashad `uv.lock`, strict `pip-audit`, Dependabot och detect-secrets med falsk-positiv-baseline/canary. Detta release-integrity-spår lägger till hash-låsta PEP 517 build inputs, två rena wheel/sdist-byggen med jämförda SHA-256, CycloneDX 1.5 release-SBOM och digestmanifest. **Fortsatt öppen:** kräver merge och grön main-CI på exakt SHA, verifierade hosting-regler/required checks och oberoende säkerhetsgranskning.
 - [x] Benchmarka deterministiska fixtures och opt-in live-repo-pilot; publicera metod, datamängd, kostnad, misslyckanden och begränsningar i stället för ett påhittat quality score.
   - Deterministisk metod, fixtures, mätetal, 13 scenarier och begränsningar: [`docs/benchmark.md`](docs/benchmark.md). Opt-in, read-only pilot mot `mq-image-analyze` vid pinad commit, två iterationer, fyra verifierade claims och tre dokumenterade missar: [`docs/pinned-repo-review.md`](docs/pinned-repo-review.md). Separat live-provider-smoke har nio bevarade Ollama-resultat, token-/tidsmätning och en timeout redovisad i [`docs/live-smoke.md`](docs/live-smoke.md). Monetär kostnad saknas eftersom Core inte har prisdata; inga quality scores extrapoleras från piloten.
 - [x] Release checklist: ren branch, tester, typkontroll/lint, schema compatibility, dokumentation, changelog, versionsverifiering, reproducible build, tag och återställningsplan.
-  - Checklista och uttryckliga blockerare i [`docs/release-checklist.md`](docs/release-checklist.md). CI producerar nu runtime dependency-SBOM; reproducerbar dubbelbuild och release-SBOM verifierad mot wheel/sdist återstår som separata release-blockerare.
+  - Checklista och uttryckliga blockerare i [`docs/release-checklist.md`](docs/release-checklist.md). Test-workflowen producerar runtime-SBOM och release-integrity-bundle med två deterministiska distributioner, artefaktbunden release-SBOM och digester; release-taggen måste fortfarande bära och verifiera samma artefakter.
 - [x] Operations-runbook för provider down, rate limits, memory unavailable, partial observations, approval timeout, resume failure och felaktig release.
   - Åtgärder och fail-closed-beteende dokumenterade i [`docs/operations-runbook.md`](docs/operations-runbook.md), med länkar till kontrakt och säkerhetsgränser.
 - [x] Migrera användare av äldre `atlas-one` promptflöde utan att automatiskt köra deras prompts eller förlora existerande innehåll; opt-in till loop.
@@ -411,9 +411,9 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **v2.0 exit gate:** två dokumenterade användningsfall (read-only review och godkänt patchförslag), uppmätta resultat, oberoende säkerhetsgranskning och godkända release-gates. Ingen autonom mutation utan tillstånd.
 
-**Arbetsstatus 2026-09-26:** Ruta 1 och 3–6 är stängda med merge- och testbeviset ovan. Ruta 2 är fortsatt öppen; detta säkerhetsspår implementerar CI-pinning, audit, secret scan och runtime-SBOM. Closure kräver dessutom mergead och grön exact-SHA main-CI, verifierade hosting-regler, release-SBOM för byggda paket och oberoende säkerhetsgranskning.
+**Arbetsstatus 2026-09-27:** Ruta 1 och 3–6 är stängda med merge- och testbeviset ovan. Ruta 2 är fortsatt öppen; PR #87 lade till CI-pinning/audit/secret scan, och denna PR lägger till reproducible wheel/sdist, release-SBOM och digestmanifest. Closure kräver mergead och grön exact-SHA main-CI, verifierade hosting-regler och oberoende säkerhetsgranskning.
 
-**Gate-status 2026-09-26: inte uppfylld.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). Mätresultat är länkade ovan. Oberoende säkerhetsgranskning och hosting-repo-gates saknas, så v2.0 får inte beskrivas som produktionsklar.
+**Gate-status 2026-09-27: inte uppfylld.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). Mätresultat är länkade ovan. Oberoende säkerhetsgranskning och verifierade hosting-repo-gates saknas, så v2.0 får inte beskrivas som produktionsklar.
 
 ## Exekveringsordning — första 6 PR:er
 

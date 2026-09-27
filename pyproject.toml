@@ -23,6 +23,11 @@ ci = [
 	"pyright==1.1.414",
 	"pytest==9.0.3",
 ]
+build = [
+	"build==1.6.1",
+	"setuptools==84.0.0",
+	"wheel==0.48.0",
+]
 
 [project.scripts]
 atlas = "atlas_core.cli:main"
