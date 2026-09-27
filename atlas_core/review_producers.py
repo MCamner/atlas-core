@@ -17,11 +17,10 @@ _TEST_COMMAND_MARKERS = ("unittest", "pytest")
 _TEST_GATE_PATH = ".github/workflows/test.yml"
 _MANUAL_RUN_PATH = ".github/workflows/run-atlas.yml"
 
-_RELEASE_VERSION_PATHS = (
+_RELEASE_METADATA_PATHS = (
     "VERSION",
     "pyproject.toml",
     "MANIFEST.json",
-    "CHANGELOG.md",
 )
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
@@ -108,24 +107,23 @@ def _produce_ci_test_command_parity(
     )
 
 
-def _produce_release_version_parity(
+def _produce_release_metadata_parity(
     task: str,
     plan: AtlasPlan,
     evidence_base: EvidenceBase,
 ) -> str:
     review = plan.review
-    if review is None or review.topic != "release" or not _asks_release_version_parity(task):
+    if review is None or review.topic != "release_metadata" or not _asks_release_metadata_parity(task):
         return ""
 
     by_path = {observation.path: observation for observation in evidence_base.observations}
-    if any(path not in by_path for path in _RELEASE_VERSION_PATHS):
+    if any(path not in by_path for path in _RELEASE_METADATA_PATHS):
         return ""
 
     parsed = {
         "VERSION": _version_file(by_path["VERSION"]),
         "pyproject.toml": _pyproject_version(by_path["pyproject.toml"]),
         "MANIFEST.json": _manifest_version(by_path["MANIFEST.json"]),
-        "CHANGELOG.md": _changelog_version(by_path["CHANGELOG.md"]),
     }
     if any(item is None for item in parsed.values()):
         return ""
@@ -136,7 +134,7 @@ def _produce_release_version_parity(
         if item is not None
     }
     findings = []
-    for path in _RELEASE_VERSION_PATHS:
+    for path in _RELEASE_METADATA_PATHS:
         version, line_number, quote, literal = parsed[path]  # type: ignore[misc]
         findings.append(
             _contains_finding(
@@ -154,15 +152,15 @@ def _produce_release_version_parity(
     unique = sorted(set(values.values()))
     if len(unique) == 1:
         conclusion = (
-            "De fyra observerade releasekällorna anger samma version: "
+            "De tre observerade package-metadata-källorna anger samma version: "
             f"`{unique[0]}`."
         )
     else:
         rendered = ", ".join(f"{path}={version}" for path, version in values.items())
-        conclusion = f"De observerade releaseversionerna skiljer sig: {rendered}."
+        conclusion = f"De observerade package-versionerna skiljer sig: {rendered}."
 
     return _render(
-        heading="Release version parity",
+        heading="Package version metadata parity",
         conclusion=conclusion,
         findings=findings,
     )
@@ -196,14 +194,17 @@ def _asks_test_command_parity(task: str) -> bool:
     return asks_test_command and asks_same
 
 
-def _asks_release_version_parity(task: str) -> bool:
+def _asks_release_metadata_parity(task: str) -> bool:
     text = task.lower()
-    asks_version = "version" in text
+    names_metadata_source = any(
+        marker in text
+        for marker in ("manifest.json", "pyproject.toml", "version metadata", "versionsmetadata")
+    )
     asks_agreement = any(
         marker in text
         for marker in ("samma", "synk", "sync", "överens", "agree", "match")
     )
-    return asks_version and asks_agreement
+    return names_metadata_source and asks_agreement
 
 
 def _single_test_command(
@@ -284,27 +285,6 @@ def _manifest_version(
     return candidates[0] if len(candidates) == 1 else None
 
 
-def _changelog_version(
-    observation: Observation,
-) -> tuple[str, int, str, str] | None:
-    # Changelogs legitimately contain history. The first semver release heading
-    # is the current released version; later headings are older releases, not
-    # ambiguity about which release the file presents first.
-    for offset, line in enumerate(observation.excerpt.splitlines()):
-        match = re.match(r"^##\s+v([^\s]+)", line.strip())
-        if not match:
-            continue
-        version = match.group(1)
-        if _SEMVER.fullmatch(version):
-            return (
-                version,
-                observation.line_start + offset,
-                line,
-                f"## v{version}",
-            )
-    return None
-
-
 def _contains_finding(
     observation: Observation,
     text: str,
@@ -350,7 +330,7 @@ def _contains_finding(
 
 _PRODUCERS: tuple[Producer, ...] = (
     _produce_ci_test_command_parity,
-    _produce_release_version_parity,
+    _produce_release_metadata_parity,
 )
 
 
