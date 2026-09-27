@@ -99,9 +99,9 @@ by the deploy on `main`. `upload-pages-artifact` v4+ excludes dotfiles;
 
 ## Status of the review's blockers
 
-- **F4/R11:** remediation merged in #109; independent re-review pending.
-- **C1:** release `v1.0.0` published with the verified bundle (#110); the
-  re-review should confirm it.
+- **F4/R11:** technical re-review against `v1.0.0` / `8230fec` reproduced the pseudo-terminal boundary and the external-host happy path. Technical finding resolved; independent attestation still pending.
+- **C1:** technical re-review independently compared the exact-main CI artifact hashes with GitHub's recorded release-asset SHA-256 digests. C1 is resolved.
+- See [`technical-re-review-2026-09-28.md`](technical-re-review-2026-09-28.md) for the evidence and the explicit independence limitation.
 
 ## Post-v2.0 changes outside this closure review
 

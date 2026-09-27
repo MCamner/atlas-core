@@ -65,6 +65,7 @@ equivalent report.
 | [`reviewer-report-template.md`](reviewer-report-template.md) | Structure for the independent conclusion |
 | [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md) | Independent review at `5702aa7`; closure refused on F4 and C1 |
 | [`changes-since-review.md`](changes-since-review.md) | Re-review target `v1.0.0` / `8230fec`, the delta since `5702aa7`, and later changes excluded from v2.0 closure |
+| [`technical-re-review-2026-09-28.md`](technical-re-review-2026-09-28.md) | Technical re-review of F4/R11 and C1 against `v1.0.0`; technical blockers resolved, but this report is explicitly not the independent attestation required for closure |
 
 ## Reviewer independence
 
