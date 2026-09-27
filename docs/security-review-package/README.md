@@ -50,6 +50,7 @@ equivalent report.
 | [`hosting-controls.md`](hosting-controls.md) | GitHub branch protection and repository security settings as observed |
 | [`known-residual-risks.md`](known-residual-risks.md) | Limits the authors know about, and open release conditions |
 | [`reviewer-report-template.md`](reviewer-report-template.md) | Structure for the independent conclusion |
+| [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md) | Independent review of current `main`; closure refused on F4 and C1 |
 
 ## Reviewer independence
 
