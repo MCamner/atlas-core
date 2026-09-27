@@ -40,7 +40,8 @@ closed unless output filenames, package/version metadata and both SHA-256
 digests match. The release CycloneDX
 SBOM identifies the package/version and records the source commit and both
 artifact hashes; `release-integrity.json` records those digests and the SBOM
-digest.
+digest. A successful main-run artifact and exact digests are recorded in
+[`evidence/release-integrity-main-2026-09-27.md`](evidence/release-integrity-main-2026-09-27.md).
 
 The baseline contains 34 findings, all manually classified as false positives:
 synthetic credentials/private-key markers in tests, an intentionally insecure
