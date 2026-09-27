@@ -164,6 +164,7 @@ def collect_observation(
     *,
     max_lines: int = DEFAULT_MAX_LINES,
     line_start: int = 1,
+    anchor_prefix: str | None = None,
     confidentiality: str | None = None,
     max_bytes: int | None = None,
 ) -> Observation:
@@ -187,6 +188,14 @@ def collect_observation(
     refusal.
     """
     content = read_within(snapshot.root, relative_path, max_bytes=max_bytes)
+    if anchor_prefix is not None:
+        if line_start != 1:
+            raise ValueError("anchor_prefix and explicit line_start are mutually exclusive")
+        if not anchor_prefix or "\n" in anchor_prefix or "\r" in anchor_prefix:
+            raise ValueError("anchor_prefix must be one non-empty line prefix")
+        if len(anchor_prefix) > 128:
+            raise ValueError("anchor_prefix is too long")
+        line_start = _first_prefixed_line(content, anchor_prefix)
     excerpt, observed_line_start, line_end = _excerpt(
         content, max_lines, line_start=line_start
     )
@@ -323,6 +332,13 @@ def _git(root: Path, *args: str) -> str:
     if completed.returncode != 0:
         return UNKNOWN
     return completed.stdout.strip()
+
+
+def _first_prefixed_line(content: str, prefix: str) -> int:
+    for index, line in enumerate(content.splitlines(), start=1):
+        if line.startswith(prefix):
+            return index
+    raise ValueError(f"anchor_prefix {prefix!r} was not found")
 
 
 def _excerpt(
