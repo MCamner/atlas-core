@@ -724,6 +724,15 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
    result and types the first 12 characters of the operation digest. Anything
    else refuses. With no terminal (`--no-input` or the patch on stdin),
    nothing is asked and nothing is written.
+
+   The code is the start of the digest shown on the same screen, and the
+   only check is that stdin is a terminal. The answer therefore shows that
+   whoever controls that terminal saw the operation, not that a person typed
+   it. A program that runs `atlas propose` under a pseudo-terminal it
+   controls, such as an agent with shell access, can read the code and
+   approve its own write. Run `atlas propose` yourself when the approval must
+   come from a person; give an agent `--no-input`, which stops at
+   `approval_required` with nothing written.
 5. On that yes, `create_branch` runs once through `invoke_write`: it fetches
    the one commit and checks that its parent is the base and that its diff has
    the approved digest. It then creates the ref in one

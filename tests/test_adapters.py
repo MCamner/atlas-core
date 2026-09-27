@@ -26,6 +26,12 @@ class TestGitHubRepoAdapter(unittest.TestCase):
             GitHubRepoAdapter("not-a-full-name")
         self.assertIn("owner/name", str(ctx.exception))
 
+    def test_dot_segments_are_not_a_repository(self):
+        for name in ("../..", "./repo", "owner/..", "owner/."):
+            with self.subTest(name), self.assertRaises(ValueError):
+                GitHubRepoAdapter(name)
+        self.assertEqual(GitHubRepoAdapter("owner/.github").repo_full_name, "owner/.github")
+
 
 class TestMQObsidianMemoryAdapter(unittest.TestCase):
     def test_reads_small_context_surfaces_in_contract_order(self):

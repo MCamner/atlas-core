@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 
 from ..budget import BudgetExceeded, RunBudget
+from ._http import urlopen
 
 CANDIDATE_FILES = [
     "README.md", "pyproject.toml", "package.json", "docs/architecture.md",
@@ -24,7 +25,10 @@ class GitHubRepoAdapter:
     """Fixed-surface GitHub GET reader; bounded mode refuses network ambiguity."""
 
     def __init__(self, repo_full_name: str, ref: str | None = None, max_chars_per_file: int = 1200):
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_full_name):
+        # `.` and `..` fit the character class but are path segments, not
+        # names, and the name is placed in the request path.
+        if (not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo_full_name)
+                or any(part in (".", "..") for part in repo_full_name.split("/"))):
             raise ValueError("repo_full_name must be in owner/name form")
         if not isinstance(max_chars_per_file, int) or max_chars_per_file < 1:
             raise ValueError("max_chars_per_file must be positive")
@@ -73,7 +77,7 @@ class GitHubRepoAdapter:
         req.add_header("User-Agent", "atlas-core-github-reader")
         if self.token:
             req.add_header("Authorization", f"Bearer {self.token}")
-        return urllib.request.urlopen(req, timeout=timeout)
+        return urlopen(req, timeout=timeout)
 
     def _get_json(self, url: str, *, budget: RunBudget | None = None,
                   missing_is_ok: bool = False) -> dict | None:
