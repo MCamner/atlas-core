@@ -1035,6 +1035,24 @@ def _next_partial_windows(
             continue
         if not any(fnmatch(observation.path, pattern) for pattern in review.patterns):
             continue
+        if (
+            review.topic == "release_changelog"
+            and observation.path == "CHANGELOG.md"
+        ):
+            # The host already reads the whole bounded-size file to compute the
+            # authoritative digest. Locating a static heading prefix does not
+            # widen what is exported as evidence; it only chooses which at-most
+            # 80 lines become the next excerpt.
+            windows.append(
+                {
+                    "path": observation.path,
+                    "line_start": 1,
+                    "max_lines": DEFAULT_MAX_LINES,
+                    "anchor_prefix": "## v",
+                }
+            )
+            continue
+
         line_start = observation.line_end + 1
         remaining = observation.total_lines - observation.line_end
         windows.append(
