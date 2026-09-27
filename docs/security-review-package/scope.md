@@ -1,6 +1,6 @@
 # Scope
 
-Review target: `07ac3944db800b28bfc41fcd933cd10d6b04c00d`
+Code security baseline: `6474f17d4ca6fa75d56f29d2475ad4bfcb1c7d60`
 
 ## In scope
 
