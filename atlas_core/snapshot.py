@@ -163,6 +163,7 @@ def collect_observation(
     relative_path: str,
     *,
     max_lines: int = DEFAULT_MAX_LINES,
+    line_start: int = 1,
     confidentiality: str | None = None,
     max_bytes: int | None = None,
 ) -> Observation:
@@ -186,7 +187,9 @@ def collect_observation(
     refusal.
     """
     content = read_within(snapshot.root, relative_path, max_bytes=max_bytes)
-    excerpt, line_start, line_end = _excerpt(content, max_lines)
+    excerpt, observed_line_start, line_end = _excerpt(
+        content, max_lines, line_start=line_start
+    )
     total_lines = len(content.splitlines())
     if confidentiality is None:
         confidentiality = classify_confidentiality(content)
@@ -197,7 +200,7 @@ def collect_observation(
         collected_at=datetime.now(timezone.utc).isoformat(),
         content_sha256=sha256_text(content),
         excerpt=excerpt,
-        line_start=line_start,
+        line_start=observed_line_start,
         line_end=line_end,
         # Counted here because here is where the whole content is in hand. A
         # later reader has the excerpt and cannot tell it from the file.
@@ -322,14 +325,24 @@ def _git(root: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def _excerpt(content: str, max_lines: int) -> tuple[str, int, int]:
+def _excerpt(
+    content: str, max_lines: int, *, line_start: int = 1
+) -> tuple[str, int, int]:
     if max_lines < 1:
         raise ValueError("max_lines must be at least 1")
+    if line_start < 1:
+        raise ValueError("line_start must be at least 1")
     lines = content.splitlines()
     if not lines:
+        if line_start != 1:
+            raise ValueError("line_start is beyond an empty source")
         return "", 0, 0
-    kept = lines[:max_lines]
-    return "\n".join(kept), 1, len(kept)
+    if line_start > len(lines):
+        raise ValueError(
+            f"line_start {line_start} exceeds source length {len(lines)}"
+        )
+    kept = lines[line_start - 1 : line_start - 1 + max_lines]
+    return "\n".join(kept), line_start, line_start + len(kept) - 1
 
 
 def _lines(content: str, line_start: int, line_end: int) -> str:
