@@ -1,8 +1,9 @@
 # Hosting Controls
 
 Repository: `MCamner/atlas-core` (public). Observed 2026-09-27 through the
-authenticated GitHub REST API, with `main` at the review target
-`07ac3944db800b28bfc41fcd933cd10d6b04c00d`. No token values are recorded.
+authenticated GitHub REST API, with `main` at the code security baseline
+`6474f17d4ca6fa75d56f29d2475ad4bfcb1c7d60`. No token values are recorded.
+The same values were read at `07ac394` earlier the same day.
 
 ## Branch protection on `main`
 

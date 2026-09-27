@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+Security fixes:
+
+- Git commands Core runs in an observed or target repository pass
+  `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
+  could name a command that `git status` ran during `atlas run --repo-path`
+  and `atlas propose`. Regression test in `tests/test_snapshot.py`.
+- `atlas propose` shows the diff and test output with control and format
+  characters (Unicode Cc/Cf, including escape sequences, carriage returns and
+  bidirectional overrides) spelled out. Before this, a patch could carry
+  terminal sequences that erased lines from the approval screen, so a person
+  could approve a diff different from the one written. The written branch and
+  the diff digest are unchanged. Regression test in
+  `tests/test_patch_proposal.py`.
+- The GitHub reader and the live model transport drop `Authorization` when a
+  redirect changes scheme, host or port. urllib's default handler copied it
+  to wherever `Location` pointed, so a redirect could hand the GitHub token or
+  the model API key to another host. Same-origin redirects keep it.
+  Regression tests in `tests/test_redirect_credentials.py`.
+- `docs/safety-model.md` and `docs/api-contract.md` no longer say a person
+  approves `atlas propose`. The approval code is shown on the approval screen
+  and the only check is that stdin is a terminal, so a program driving a
+  pseudo-terminal can approve. The docs now state that limit and say to give
+  agents `--no-input`.
+- The live model transport reads a provider's reply up to 16 MiB and stops
+  with `ProviderBadResponse` beyond that, instead of reading the body to its
+  end. Regression tests in `tests/test_provider_response_bound.py`.
+- Redaction also masks OpenAI keys with a type prefix (`sk-proj-`,
+  `sk-svcacct-`, `sk-admin-`), Google API keys (`AIza…`), AWS secret access
+  keys after their variable name, and opaque `Bearer` credentials of 20+
+  characters. Prose such as "a Bearer token" and hex digests stay unmasked.
+  Tests in `tests/test_redaction.py`.
+- The GitHub reader refuses `.` and `..` as owner or repository name. They
+  matched the allowed characters and were placed in the request path.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
@@ -461,7 +495,6 @@ Roadmap P1.1, filed items: closing what was pulled out of the boxes.
     removed. One needed a fixture that fails *differently* on each pass, so the
     claim "`max_iterations` is only the reason when the bound bound something"
     still has a run that reaches its bound.
-||||||| e4e37cb
 
 Roadmap P1.1, filed item: a question with declared predicates.
 
@@ -566,7 +599,6 @@ numbers say.
 - `docs/benchmark.md` publishes the method, the fixtures, the results and the
   limitations — including that the producers are scripted, so nothing here
   measures a model.
-||||||| parent of abe9161 (feat(p11): what another pass rests on, declared per action)
 
 Roadmap P1.1 box three, partly: criteria that come from the question, not just
 the route. The box stays open — see below, and ROADMAP.md.
@@ -650,7 +682,6 @@ to read.
   something to resolve and a host that can choose has something to choose by.
 - Topic selection is keyword matching against a declared vocabulary of five
   topics. A real mechanism and a narrow one; there is no model in it.
-||||||| parent of 0b4f532 (feat(p11): fixture repositories with an answer key, and the numbers)
 
 Post-merge review of #36: a citation is not a check, and the run document must
 not say it was.

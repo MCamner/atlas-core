@@ -138,6 +138,18 @@ class TestGitSnapshotProvenance(_Repo):
         (self.root / "README.md").write_text(README + "efteråt\n", encoding="utf-8")
         self.assertTrue(snapshot.has_moved())
 
+    def test_the_repositorys_own_config_cannot_run_a_command(self):
+        """The observed repository is data. Its `.git/config` must not execute."""
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        marker = outside / "ran"
+        self._git("config", "core.fsmonitor", f"touch '{marker}'; false")
+
+        snapshot = take_snapshot(self.root)
+
+        self.assertFalse(marker.exists())
+        self.assertEqual(snapshot.worktree_state, "clean")
+
 
 class TestCollection(_Repo):
     def test_collection_hashes_full_content_not_the_excerpt(self):

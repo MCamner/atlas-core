@@ -1,6 +1,6 @@
 # Threat Model Map
 
-Review target: `07ac3944db800b28bfc41fcd933cd10d6b04c00d`
+Code security baseline: `6474f17d4ca6fa75d56f29d2475ad4bfcb1c7d60`
 
 Each area lists what the authors say is enforced, where it is implemented,
 which tests exercise it, and which limits are already documented. "Enforced"
@@ -33,9 +33,9 @@ They are not findings and carry no severity.
 | | |
 | --- | --- |
 | Claim | Provider keys stay out of run documents. Exports are redacted. CI scans tracked files for secrets and proves the scan rejects a synthetic key. |
-| Code | `atlas_core/redaction.py` (`SECRET_PATTERNS`, `HOME_PATH`, `EMAIL`, `VERBATIM_KEYS`), `atlas_core/integrity.py`, `atlas_core/adapters/live_model.py` (`ProviderConfig.api_key` with `repr=False`, `describe()`, `config_id`), `atlas_core/patch_proposal.py` (test output passed through `redact_text`) |
+| Code | `atlas_core/redaction.py` (`SECRET_PATTERNS` including `sk-proj-`-style, `AIza`, AWS secret and `Bearer` shapes since #105, `HOME_PATH`, `EMAIL`, `VERBATIM_KEYS`), `atlas_core/integrity.py`, `atlas_core/adapters/live_model.py` (`ProviderConfig.api_key` with `repr=False`, `describe()`, `config_id`), `atlas_core/patch_proposal.py` (test output passed through `redact_text`) |
 | CI | `detect-secrets-hook` against `.secrets.baseline` (34 entries, all classified as false positives in `docs/security-review.md`); `scripts/secret_scan_smoke.py` canary |
-| Tests | `tests/test_redaction.py`, `tests/test_integrity.py`, `tests/test_live_provider.py`, `tests/test_approval.py` (`test_the_token_is_never_written_down`) |
+| Tests | `tests/test_redaction.py` (incl. `TestCommonKeyShapes`), `tests/test_integrity.py`, `tests/test_live_provider.py`, `tests/test_approval.py` (`test_the_token_is_never_written_down`) |
 | Documented limit | Redaction matches credential shapes, home directories and email addresses only. A wrongly approved baseline entry can hide a real secret. |
 
 ## 4. Path traversal and TOCTOU
@@ -43,8 +43,8 @@ They are not findings and carry no severity.
 | | |
 | --- | --- |
 | Claim | Reads are refused, not sanitised, when a path escapes the snapshot root. Symlinks are resolved before the check. The final component is opened with `O_NOFOLLOW`. |
-| Code | `atlas_core/containment.py` (`resolve_within`, `read_within`), `atlas_core/snapshot.py`, `atlas_core/observation.py` (path refused at construction), `atlas_core/finding.py` (`LocalFileReader`), `atlas_core/patch_proposal.py` (`_safe_path`, `patch_paths`, refused symlink/submodule modes) |
-| Tests | `tests/test_integrity.py` (`test_a_symlink_pointing_outside_is_refused`, `test_a_symlinked_directory_pointing_outside_is_refused`, `test_the_unprotected_read_would_have_served_the_outside_bytes`), `tests/test_observation.py`, `tests/test_finding.py`, `tests/test_redaction.py`, `tests/test_adapters.py`, `tests/test_patch_proposal.py` (`test_paths_outside_the_repository`, `test_symlinks_and_submodules`, `test_a_path_through_an_existing_symlink`) |
+| Code | `atlas_core/containment.py` (`resolve_within`, `read_within`), `atlas_core/snapshot.py` (`GIT_HARDENING`: git runs with `-c core.fsmonitor=false`, #100), `atlas_core/observation.py` (path refused at construction), `atlas_core/finding.py` (`LocalFileReader`), `atlas_core/patch_proposal.py` (`_safe_path`, `patch_paths`, refused symlink/submodule modes) |
+| Tests | `tests/test_snapshot.py` (`test_the_repositorys_own_config_cannot_run_a_command`), `tests/test_integrity.py` (`test_a_symlink_pointing_outside_is_refused`, `test_a_symlinked_directory_pointing_outside_is_refused`, `test_the_unprotected_read_would_have_served_the_outside_bytes`), `tests/test_observation.py`, `tests/test_finding.py`, `tests/test_redaction.py`, `tests/test_adapters.py`, `tests/test_patch_proposal.py` (`test_paths_outside_the_repository`, `test_symlinks_and_submodules`, `test_a_path_through_an_existing_symlink`) |
 | Documented limit | A directory component can still be swapped for a link between resolve and open (`atlas_core/integrity.py` module docstring). |
 
 ## 5. SSRF and network access
@@ -52,8 +52,8 @@ They are not findings and carry no severity.
 | | |
 | --- | --- |
 | Claim | Core has no generic URL tool. The GitHub reader targets `https://api.github.com` only. The tool gateway denies `network` capability. |
-| Code | `atlas_core/adapters/github_reader.py` (`owner/name` regex, `quote(ref, safe="")`, per-GET budget, bounded body, timeout ≤ 15 s), `atlas_core/adapters/live_model.py` (`UrllibTransport`, endpoint from config or `ATLAS_MODEL_ENDPOINT`), `atlas_core/tool_gateway.py` |
-| Tests | `tests/test_tool_gateway.py` (`test_read_only_denies_write_and_network_before_handler`), `tests/test_adapters.py`, `tests/test_live_provider.py` |
+| Code | `atlas_core/adapters/github_reader.py` (`owner/name` regex with `.`/`..` refused since #106, `quote(ref, safe="")`, per-GET budget, bounded body, timeout ≤ 15 s), `atlas_core/adapters/live_model.py` (`UrllibTransport`, reply bounded to 16 MiB since #104, endpoint from config or `ATLAS_MODEL_ENDPOINT`), `atlas_core/adapters/_http.py` (drops `Authorization` on cross-origin redirects, #102), `atlas_core/tool_gateway.py` |
+| Tests | `tests/test_tool_gateway.py` (`test_read_only_denies_write_and_network_before_handler`), `tests/test_redirect_credentials.py`, `tests/test_provider_response_bound.py`, `tests/test_adapters.py`, `tests/test_live_provider.py` |
 | Documented limit | Trusted custom adapters run with host privileges and can open any connection. |
 
 ## 6. Privileged writes
@@ -61,9 +61,9 @@ They are not findings and carry no severity.
 | | |
 | --- | --- |
 | Claim | `atlas run` is read-only. The only write path is `ToolGateway.invoke_write` with a single-use token bound to an exact `Operation` (tool, arguments, repo, ref, clean commit). `atlas propose` creates one `refs/heads/atlas/<name>` by compare-and-swap, verifies it, and rolls back by compare-and-swap. |
-| Code | `atlas_core/approval.py` (`Operation`, `ApprovalAuthority`, `clean_head`), `atlas_core/tool_gateway.py` (`invoke_write`), `atlas_core/patch_proposal.py` (`prepare`, `_create_branch`, `verify_created`, `rollback`, `validate_branch`) |
-| Tests | `tests/test_approval.py` (26 tests: exact write once, concurrent token use, expiry on two clocks, HEAD moved, argument mutation, no retry), `tests/test_patch_proposal.py` (24 tests) |
-| Documented limit | The `--test` command runs as the caller, without a sandbox. `clean_head` checks HEAD and worktree, not where `ref` points; the use case must make the base a precondition of the mutation (done in `atlas propose` with `update-ref --stdin` `verify` + `create`). |
+| Code | `atlas_core/approval.py` (`Operation`, `ApprovalAuthority`, `clean_head`), `atlas_core/tool_gateway.py` (`invoke_write`), `atlas_core/patch_proposal.py` (`prepare`, `_create_branch`, `verify_created`, `rollback`, `validate_branch`, `_printable` for the approval screen since #101) |
+| Tests | `tests/test_approval.py` (26 tests: exact write once, concurrent token use, expiry on two clocks, HEAD moved, argument mutation, no retry), `tests/test_patch_proposal.py` (incl. `test_control_characters_are_shown_not_interpreted`) |
+| Documented limit | The approval proves that whoever controls the terminal saw the operation, not that a person approved (F4, open; see [`pre-review-findings.md`](pre-review-findings.md#f4--terminal-approval-does-not-prove-a-human-approver)). The `--test` command runs as the caller, without a sandbox. `clean_head` checks HEAD and worktree, not where `ref` points; the use case must make the base a precondition of the mutation (done in `atlas propose` with `update-ref --stdin` `verify` + `create`). |
 
 ## 7. Process isolation and resource limits
 
@@ -93,28 +93,31 @@ expression interpolation.
 
 ## Questions for the reviewer
 
-The authors cannot give an independent answer to these. They are listed so
-they are not missed. No severity is implied.
+The authors cannot give an independent answer to these. No severity is
+implied. Questions 1, 3 and 4 from the first version of this package were
+addressed by fixes (O1, F3, F5 in [`pre-review-findings.md`](pre-review-findings.md));
+they stay listed so the reviewer can check the fixes.
 
-1. **GitHub reader `owner/name` pattern.** `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`
-   also accepts `.` and `..` as segments. The host is fixed, but the request
-   path, with a `GITHUB_TOKEN`/`GH_TOKEN` bearer header if set, is built from
-   it. Is this acceptable?
+1. **GitHub `owner/name` pattern** (fixed in #106). Is refusing `.`/`..`
+   segments sufficient?
 2. **Live model endpoint.** `ATLAS_MODEL_ENDPOINT` (or host config) accepts any
    URL, including `http://`. The API key and bounded prompt are sent there.
    `docs/safety-model.md` argues environment variables are closer to
    repository content than to the host for capabilities. Does the same
    argument apply to the endpoint and key? (The public CLI does not build a
    live model adapter; this concerns hosts calling `build_model_adapter()`.)
-3. **Redirects.** Both `urllib` callers use the default opener, so HTTP
-   redirects are followed. Can an `Authorization` header follow a redirect
-   to another host in either adapter?
-4. **Unbounded provider response.** `UrllibTransport.post` reads the whole
-   response body before parsing. The GitHub reader bounds its reads; the model
-   transport does not.
+3. **Redirects** (fixed in #102). Is dropping only `Authorization` on a
+   scheme, host or port change sufficient?
+4. **Provider response size** (fixed in #104). Is 16 MiB an appropriate bound?
 5. **Caller-supplied paths.** Event log, lock, cancel, feedback store and
    `generate-skill --force` paths come from the caller. Is the "caller is
    trusted" assumption stated clearly enough for hosts that pass through
    user input?
 6. **Directory-component TOCTOU.** Is the documented residual window
    acceptable for the read-only use case as deployed?
+7. **Git configuration beyond `core.fsmonitor`.** Is overriding only
+   `core.fsmonitor` sufficient for the observed repository, and is the
+   remaining exposure in `atlas propose` (textconv, `reference-transaction`
+   hook in the caller's own repository) acceptable?
+8. **F4.** Does terminal approval, as documented, satisfy the exit condition
+   "no autonomous mutation without permission"?
