@@ -25,6 +25,9 @@ Security fixes:
   and the only check is that stdin is a terminal, so a program driving a
   pseudo-terminal can approve. The docs now state that limit and say to give
   agents `--no-input`.
+- The live model transport reads a provider's reply up to 16 MiB and stops
+  with `ProviderBadResponse` beyond that, instead of reading the body to its
+  end. Regression tests in `tests/test_provider_response_bound.py`.
 
 Roadmap v1.5 write capability with approval:
 
