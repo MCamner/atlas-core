@@ -73,7 +73,7 @@ class TestTargetedLineRanges(unittest.TestCase):
         tail = collect_observation(
             snapshot,
             "CHANGELOG.md",
-            anchor_prefix="## v",
+            line_start=81,
             max_lines=20,
         )
         anchored = collect_observation(
@@ -104,7 +104,7 @@ class TestTargetedLineRanges(unittest.TestCase):
         tail = collect_observation(
             snapshot,
             "CHANGELOG.md",
-            line_start=81,
+            anchor_prefix="## v",
             max_lines=20,
         )
 
