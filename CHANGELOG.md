@@ -15,7 +15,6 @@ Security fixes:
   could approve a diff different from the one written. The written branch and
   the diff digest are unchanged. Regression test in
   `tests/test_patch_proposal.py`.
-||||||| 2765e66
 
 Roadmap v1.5 write capability with approval:
 
