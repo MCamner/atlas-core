@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Security fixes:
+
+- Git commands Core runs in an observed or target repository pass
+  `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
+  could name a command that `git status` ran during `atlas run --repo-path`
+  and `atlas propose`. Regression test in `tests/test_snapshot.py`.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,

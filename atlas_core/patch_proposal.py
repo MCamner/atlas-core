@@ -33,6 +33,7 @@ from .approval import ApprovalAuthority, Operation, clean_head
 from .budget import RunBudget, RunLimits
 from .eventlog import EventLog
 from .redaction import redact_text
+from .snapshot import GIT_HARDENING
 from .tool_gateway import ToolContext, ToolDefinition, ToolGateway
 
 #: A new branch lives under `atlas/`, so a proposal can never name `main`,
@@ -95,7 +96,7 @@ class Proposal:
 
 def _git(cwd: str | Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
     result = subprocess.run(
-        ["git", "-C", str(cwd), *args], capture_output=True, timeout=60,
+        ["git", *GIT_HARDENING, "-C", str(cwd), *args], capture_output=True, timeout=60,
     )
     if check and result.returncode != 0:
         raise ProposalRefused(
