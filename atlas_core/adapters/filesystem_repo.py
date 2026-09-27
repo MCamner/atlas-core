@@ -7,7 +7,7 @@ from ..budget import RunBudget
 from ..containment import PathRefused, SourceTooLarge, resolve_within
 from ..integrity import collect_observation_safely
 from ..observation import Observation
-from ..observer import ObservationRequest
+from ..observer import LineWindow, ObservationRequest
 
 CANDIDATE_FILES = [
     "README.md", "pyproject.toml", "package.json", "docs/architecture.md",
@@ -138,7 +138,7 @@ class FilesystemRepoObserver:
         if not request.paths and not request.patterns and not request.line_windows:
             by_pattern = [_present(root, CANDIDATE_FILES)]
 
-        wanted: list[tuple[str, object | None]] = [
+        wanted: list[tuple[str, LineWindow | None]] = [
             (window.path, window) for window in request.line_windows
             if window.path in windows
         ]
