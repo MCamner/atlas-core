@@ -28,6 +28,7 @@ from .state import AtlasEvaluation, NextAction
 from .safety import requires_write_approval
 from .evidence_base import EvidenceBase
 from .review_plan import ReviewPlan, answers_question, unread_patterns
+from .snapshot import DEFAULT_MAX_LINES
 from .claim_check import ClaimResult, ClaimVerdict, apply_verdict, check_claim
 from .finding import EvidenceStatus, Finding, check_finding
 from .evidence import (
@@ -1014,6 +1015,38 @@ def _answering_finding(
     return False
 
 
+def _next_partial_windows(
+    base: EvidenceBase | None,
+    review: ReviewPlan | None,
+) -> list[dict[str, object]]:
+    """Next bounded excerpt for partial local sources the review already named."""
+    from fnmatch import fnmatch
+
+    if base is None or review is None:
+        return []
+
+    windows: list[dict[str, object]] = []
+    for observation in base.observations:
+        if observation.source_type != "local_file":
+            continue
+        if observation.total_lines is None or observation.total_lines == 0:
+            continue
+        if observation.line_end >= observation.total_lines:
+            continue
+        if not any(fnmatch(observation.path, pattern) for pattern in review.patterns):
+            continue
+        line_start = observation.line_end + 1
+        remaining = observation.total_lines - observation.line_end
+        windows.append(
+            {
+                "path": observation.path,
+                "line_start": line_start,
+                "max_lines": min(DEFAULT_MAX_LINES, remaining),
+            }
+        )
+    return windows
+
+
 def _next_action(
     gaps: list[str],
     evidence: _Evidence,
@@ -1151,6 +1184,19 @@ def _next_action(
         )
 
     if off_topic and review is not None:
+        windows = _next_partial_windows(base, review)
+        if windows:
+            return NextAction(
+                kind="observe_again",
+                gap_codes=codes,
+                actor="host",
+                details={
+                    "reason": "partial_source_window",
+                    "line_windows": windows,
+                    "question": review.question,
+                },
+            )
+
         # Late, and for a reason found by driving the loop rather than by
         # reading it. "Nothing on topic" is true whenever nothing was settled,
         # which includes every structural failure above: a block that will not
