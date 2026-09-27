@@ -696,12 +696,17 @@ class AtlasController:
                 path = item.get("path")
                 line_start = item.get("line_start")
                 max_lines = item.get("max_lines")
+                anchor_prefix = item.get("anchor_prefix")
                 if (
                     not isinstance(path, str)
                     or isinstance(line_start, bool)
                     or not isinstance(line_start, int)
                     or isinstance(max_lines, bool)
                     or not isinstance(max_lines, int)
+                    or (
+                        anchor_prefix is not None
+                        and not isinstance(anchor_prefix, str)
+                    )
                 ):
                     raise ValueError("line_windows entries have invalid types")
                 line_windows.append(
@@ -709,6 +714,7 @@ class AtlasController:
                         path=path,
                         line_start=line_start,
                         max_lines=max_lines,
+                        anchor_prefix=anchor_prefix,
                     )
                 )
             request = request_from(
