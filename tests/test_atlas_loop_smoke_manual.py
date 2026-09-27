@@ -8,11 +8,10 @@ import unittest
 
 
 TASK = (
-    "Granska atlas-core på den här committen och identifiera den viktigaste "
-    "återstående verifierbara risken inför v2.0. Basera svaret endast på filer "
-    "som faktiskt observeras. Ange vilken källa som stöder slutsatsen, varför "
-    "den är viktig och ett konkret nästa steg. Om evidensen inte räcker, säg "
-    "det istället för att gissa."
+    "Granska atlas-core och hitta P0/P1/P2 förbättringar. Prioritera den "
+    "viktigaste verifierbara bristen som stöds av filer du faktiskt läser. "
+    "Ange källan och varför den spelar roll. Om evidensen inte räcker, säg "
+    "det i stället för att gissa."
 )
 
 
@@ -72,13 +71,16 @@ class TestAtlasLoopEndToEndSmoke(unittest.TestCase):
 
         self.assertEqual(run.get("schema"), "atlas-run.v1")
         self.assertIsNotNone(run.get("route"))
+        self.assertEqual(run["route"].get("name"), "repo_review")
         self.assertGreaterEqual(run.get("iteration", 0), 1)
         self.assertTrue(run.get("observations"), msg="repo run observed no sources")
         self.assertNotIn(
             run.get("stop_reason"),
-            {"tool_error", "cancelled", "budget_exhausted"},
+            {"tool_error", "cancelled", "budget_exhausted", "approval_required"},
         )
         self.assertNotEqual(run.get("status"), "failed")
+        if run.get("evaluations"):
+            self.assertFalse(run["evaluations"][-1].get("requires_user_approval"))
 
 
 if __name__ == "__main__":
