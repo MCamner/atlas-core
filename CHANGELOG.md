@@ -15,6 +15,11 @@ Security fixes:
   could approve a diff different from the one written. The written branch and
   the diff digest are unchanged. Regression test in
   `tests/test_patch_proposal.py`.
+- The GitHub reader and the live model transport drop `Authorization` when a
+  redirect changes scheme, host or port. urllib's default handler copied it
+  to wherever `Location` pointed, so a redirect could hand the GitHub token or
+  the model API key to another host. Same-origin redirects keep it.
+  Regression tests in `tests/test_redirect_credentials.py`.
 
 Roadmap v1.5 write capability with approval:
 
