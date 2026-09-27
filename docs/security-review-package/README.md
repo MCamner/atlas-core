@@ -9,25 +9,38 @@ v2.0 exit gate (`ROADMAP.md`, P2 / v2.0, security item).
 
 | | |
 | --- | --- |
-| Code security baseline | `6474f17d4ca6fa75d56f29d2475ad4bfcb1c7d60` (`main`, 2026-09-27) |
-| Review package revision | the `main` commit that contains this version of the package |
+| Release target | `v1.0.0` |
+| Code security baseline | `8230fecd3e7e4f4a0d65bb61ee517017d1857932` |
+| Review package revision | the later documentation commit that contains this package |
 
-The code baseline is the last commit that changed code, workflows or
-dependencies. It includes the fixes for the pre-review findings in
-[`pre-review-findings.md`](pre-review-findings.md).
+The security-gate re-review is intentionally pinned to the immutable released
+baseline `v1.0.0` / `8230fec`. GitHub reports the annotated tag signature as
+verified, and the tag resolves to that commit. This target contains the F4
+remediation from #109 and is the source commit for the published v1.0.0 release.
 
-This package cannot name its own revision, because recording a SHA in it
-creates a new commit. The reviewer records the `main` commit they reviewed
-and confirms that nothing but documentation changed since the code baseline:
+The package itself may be updated later to describe evidence or later work.
+Those documentation commits do **not** move the code target. Runtime changes
+after `8230fec` are outside the v2.0 closure review and are listed in
+[`changes-since-review.md`](changes-since-review.md).
+
+The reviewer should first verify the immutable target and then inspect the
+delta from the original independent review:
 
 ```sh
-git diff --stat 6474f17d4ca6fa75d56f29d2475ad4bfcb1c7d60 <reviewed-commit> \
-  -- atlas_core .github scripts pyproject.toml uv.lock
+git rev-parse 'v1.0.0^{commit}'
+# expected: 8230fecd3e7e4f4a0d65bb61ee517017d1857932
+
+git log --format='%h %s' \
+  5702aa7385efda8f9d893be036aee56fe4cf07be..8230fecd3e7e4f4a0d65bb61ee517017d1857932
+
+git diff --stat \
+  5702aa7385efda8f9d893be036aee56fe4cf07be \
+  8230fecd3e7e4f4a0d65bb61ee517017d1857932 \
+  -- atlas_core .github scripts pyproject.toml uv.lock tests
 ```
 
-Empty output means the evidence in this package applies. If code changed,
-review the later commit and treat the evidence here as applying only where
-the reviewer confirms it still holds.
+A passed re-review applies to `v1.0.0` / `8230fec` only. It must not be
+described as an independent review of the later `main` branch.
 
 ## Status of this package
 
@@ -50,7 +63,8 @@ equivalent report.
 | [`hosting-controls.md`](hosting-controls.md) | GitHub branch protection and repository security settings as observed |
 | [`known-residual-risks.md`](known-residual-risks.md) | Limits the authors know about, and open release conditions |
 | [`reviewer-report-template.md`](reviewer-report-template.md) | Structure for the independent conclusion |
-| [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md) | Independent review of current `main`; closure refused on F4 and C1 |
+| [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md) | Independent review at `5702aa7`; closure refused on F4 and C1 |
+| [`changes-since-review.md`](changes-since-review.md) | Re-review target `v1.0.0` / `8230fec`, the delta since `5702aa7`, and later changes excluded from v2.0 closure |
 
 ## Reviewer independence
 
