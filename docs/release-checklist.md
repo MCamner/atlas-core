@@ -27,8 +27,9 @@ release. Follow it from a clean checkout of the intended release commit.
   runtime-dependency SBOM from `uv.lock`; the release artifact still needs its
   own matching SBOM attached and digest-verified.
 - [ ] Confirm required CI, dependency and secret-scanning checks are green and
-  the independent security review is recorded. Current CI does not yet provide
-  all these gates; see [security review](security-review.md).
+  the independent security review is recorded. The configured workflow
+  provides dependency and secret-scanning gates; verify they are required by
+  the release-branch rules. See [security review](security-review.md).
 - [ ] Read the support matrix and publish only the Python/OS/provider cells
   with matching test evidence.
 
@@ -48,8 +49,12 @@ release. Follow it from a clean checkout of the intended release commit.
 
 ## Reproducibility status
 
-The project has synchronized version metadata and release-metadata tests, but
-the current repository does not pin the build backend or CI action/tool
-versions and has no automated SBOM gate. Therefore the double-build and SBOM
-items above are release blockers, not checks that can currently be reported as
-passing.
+The project now pins GitHub Actions, CI tooling and PEP 517 build-system
+versions. CI dependencies are hash-locked through `uv.lock`, and CI produces a
+validated CycloneDX runtime-dependency SBOM. PEP 517 build-system versions are
+pinned in `pyproject.toml`, but their distributions are not hash-locked in
+`uv.lock`.
+
+The remaining release blockers are reproducible double-build verification,
+artifact-level integrity for build-system inputs, and a release SBOM tied to
+the actual wheel and sdist.
