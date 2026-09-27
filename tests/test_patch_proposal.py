@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
@@ -105,6 +106,22 @@ class TestApprovedProposal(Repo):
         self.assertIn("+fixed", self.shown)
         self.assertIn("exit 0", self.shown)
         self.assert_no_clone_left()
+
+    def test_control_characters_are_shown_not_interpreted(self) -> None:
+        """What a person reads is what is written: no terminal control reaches them."""
+        patch = ("diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n"
+                 "@@ -1 +1 @@\n-broken\n+fixed\x1b[1A\x1b[2K\r‮end\n").encode("utf-8")
+        noisy = [sys.executable, "-c", "print('\\x1b[2J\\x9bmoved\\r')"]
+        result = self.propose(patch=patch, test=noisy)
+        self.assertEqual(result["outcome"], "branch_created")
+        allowed = {"\n", "\t"}
+        hidden = [c for c in self.shown if c not in allowed
+                  and unicodedata.category(c) in ("Cc", "Cf")]
+        self.assertEqual(hidden, [])
+        self.assertIn("+fixed\\x1b[1A\\x1b[2K\\r\\u202eend", self.shown)
+        self.assertIn("\\x1b[2J\\x9bmoved\\r", self.shown)
+        # The written branch carries the raw bytes; only the display is escaped.
+        self.assertIn("\x1b[1A", git(self.root, "show", f"{result['commit']}:README.md"))
 
     def test_the_approved_operation_names_the_diff_it_shows(self) -> None:
         proposal = prepare(str(self.root), FIX, "atlas/x", PASSES)

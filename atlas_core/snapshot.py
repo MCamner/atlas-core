@@ -46,6 +46,11 @@ DEFAULT_MAX_LINES = 80
 VerificationResult = Literal["fresh", "stale", "missing", "refused", "unverifiable"]
 
 _GIT_TIMEOUT = 10
+#: Placed before every subcommand run in an observed repository. That
+#: repository is data, and git otherwise honours its own `.git/config`:
+#: `core.fsmonitor` names a command git runs during `status`. A `-c` value
+#: overrides the repository's, and git passes it on to any git it starts.
+GIT_HARDENING = ("-c", "core.fsmonitor=false")
 
 
 @dataclass(frozen=True)
@@ -303,7 +308,7 @@ def _git(root: Path, *args: str) -> str:
     """Ask git, and return `unknown` rather than a guess when it cannot say."""
     try:
         completed = subprocess.run(
-            ["git", *args],
+            ["git", *GIT_HARDENING, *args],
             cwd=root,
             capture_output=True,
             text=True,

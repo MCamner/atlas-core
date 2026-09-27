@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 
 from ..budget import BudgetExceeded, RunBudget
+from ._http import urlopen
 
 CANDIDATE_FILES = [
     "README.md", "pyproject.toml", "package.json", "docs/architecture.md",
@@ -73,7 +74,7 @@ class GitHubRepoAdapter:
         req.add_header("User-Agent", "atlas-core-github-reader")
         if self.token:
             req.add_header("Authorization", f"Bearer {self.token}")
-        return urllib.request.urlopen(req, timeout=timeout)
+        return urlopen(req, timeout=timeout)
 
     def _get_json(self, url: str, *, budget: RunBudget | None = None,
                   missing_is_ok: bool = False) -> dict | None:
