@@ -495,7 +495,6 @@ Roadmap P1.1, filed items: closing what was pulled out of the boxes.
     removed. One needed a fixture that fails *differently* on each pass, so the
     claim "`max_iterations` is only the reason when the bound bound something"
     still has a run that reaches its bound.
-||||||| e4e37cb
 
 Roadmap P1.1, filed item: a question with declared predicates.
 
@@ -600,7 +599,6 @@ numbers say.
 - `docs/benchmark.md` publishes the method, the fixtures, the results and the
   limitations — including that the producers are scripted, so nothing here
   measures a model.
-||||||| parent of abe9161 (feat(p11): what another pass rests on, declared per action)
 
 Roadmap P1.1 box three, partly: criteria that come from the question, not just
 the route. The box stays open — see below, and ROADMAP.md.
@@ -684,7 +682,6 @@ to read.
   something to resolve and a host that can choose has something to choose by.
 - Topic selection is keyword matching against a declared vocabulary of five
   topics. A real mechanism and a narrow one; there is no model in it.
-||||||| parent of 0b4f532 (feat(p11): fixture repositories with an answer key, and the numbers)
 
 Post-merge review of #36: a citation is not a check, and the run document must
 not say it was.

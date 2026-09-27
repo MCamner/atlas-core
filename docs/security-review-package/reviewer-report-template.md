@@ -8,9 +8,12 @@ valid an outcome as "Suitable".
 
 - Name:
 - Organisation / role:
-- Independence basis (relation to the authors and to PRs #87, #95, #96, #97):
+- Independence basis (relation to the authors and to PRs #87, #95–#106):
 - Review dates:
-- Reviewed commit SHA:
+- Reviewed `main` commit SHA:
+- Code changes since the code security baseline `6474f17`
+  (`git diff --stat 6474f17 <reviewed> -- atlas_core .github scripts pyproject.toml uv.lock`):
+  none / list:
 - Material used (this package, source, other):
 - Methods (code reading, testing, tooling, time spent):
 
@@ -36,6 +39,20 @@ closure.
 
 ### Observations (no severity)
 
+## Pre-review findings
+
+For each item in [`pre-review-findings.md`](pre-review-findings.md): is the
+fix effective (F1–F3, F5, F6, O1), is the severity right, and is F4
+acceptable as a documented limit or blocking?
+
+- F1:
+- F2:
+- F3:
+- F4:
+- F5:
+- F6:
+- O1:
+
 ## Questions from the authors
 
 Answer or decline each question in
@@ -47,11 +64,13 @@ Answer or decline each question in
 4.
 5.
 6.
+7.
+8.
 
 ## Known residual risks
 
 For each item in [`known-residual-risks.md`](known-residual-risks.md)
-(R1–R10, H1–H3, C1–C5): acceptable / needs fix / blocking, with a short
+(R1–R12, H1–H3, C1–C5): acceptable / needs fix / blocking, with a short
 reason.
 
 ## Accepted residual risks
