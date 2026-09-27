@@ -106,10 +106,9 @@ def _material_signature(state: AtlasRunState) -> tuple[Any, ...]:
     and the plan it holds them for. Two channels, because those are the two
     that exist —
 
-    - the evidence base, by source and content digest. A new observation
-      changes it, a superseded one changes it, and a test result changes it
-      too: a test reaches a run as an observation through its own adapter, not
-      as a separate kind of thing;
+    - the evidence base, by source, content digest and observed line range. A
+      new observation changes it, a superseded one changes it, and a new
+      bounded window over the same bytes changes it too;
     - the review plan's question and the sources it asks for. A plan that
       narrowed differently is a different investigation, and this is what makes
       "a documented plan change" a fact in the document rather than a claim
@@ -694,11 +693,22 @@ class AtlasController:
             for item in raw_windows:
                 if not isinstance(item, Mapping):
                     raise ValueError("line_windows entries must be mappings")
+                path = item.get("path")
+                line_start = item.get("line_start")
+                max_lines = item.get("max_lines")
+                if (
+                    not isinstance(path, str)
+                    or isinstance(line_start, bool)
+                    or not isinstance(line_start, int)
+                    or isinstance(max_lines, bool)
+                    or not isinstance(max_lines, int)
+                ):
+                    raise ValueError("line_windows entries have invalid types")
                 line_windows.append(
                     LineWindow(
-                        path=str(item.get("path", "")),
-                        line_start=int(item.get("line_start", 0)),
-                        max_lines=int(item.get("max_lines", 0)),
+                        path=path,
+                        line_start=line_start,
+                        max_lines=max_lines,
                     )
                 )
             request = request_from(
