@@ -287,22 +287,22 @@ def _manifest_version(
 def _changelog_version(
     observation: Observation,
 ) -> tuple[str, int, str, str] | None:
-    candidates: list[tuple[str, int, str, str]] = []
+    # Changelogs legitimately contain history. The first semver release heading
+    # is the current released version; later headings are older releases, not
+    # ambiguity about which release the file presents first.
     for offset, line in enumerate(observation.excerpt.splitlines()):
         match = re.match(r"^##\s+v([^\s]+)", line.strip())
         if not match:
             continue
         version = match.group(1)
         if _SEMVER.fullmatch(version):
-            candidates.append(
-                (
-                    version,
-                    observation.line_start + offset,
-                    line,
-                    f"## v{version}",
-                )
+            return (
+                version,
+                observation.line_start + offset,
+                line,
+                f"## v{version}",
             )
-    return candidates[0] if len(candidates) == 1 else None
+    return None
 
 
 def _contains_finding(
