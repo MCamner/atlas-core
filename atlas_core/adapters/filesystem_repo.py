@@ -161,20 +161,21 @@ class FilesystemRepoObserver:
             budget.check()
             budget.reserve_tool()
             try:
-                kwargs = {"max_bytes": self.max_bytes_per_file}
-                if window is not None:
-                    kwargs.update(
-                        {
-                            "line_start": window.line_start,
-                            "max_lines": window.max_lines,
-                            "anchor_prefix": window.anchor_prefix,
-                        }
+                if window is None:
+                    observation = collect_observation_safely(
+                        request.snapshot,
+                        relative,
+                        max_bytes=self.max_bytes_per_file,
                     )
-                observation = collect_observation_safely(
-                    request.snapshot,
-                    relative,
-                    **kwargs,
-                )
+                else:
+                    observation = collect_observation_safely(
+                        request.snapshot,
+                        relative,
+                        max_bytes=self.max_bytes_per_file,
+                        line_start=window.line_start,
+                        max_lines=window.max_lines,
+                        anchor_prefix=window.anchor_prefix,
+                    )
             except ValueError:
                 # A range derived from an earlier observation can become
                 # unreachable only when the file changed underneath the run.
