@@ -92,7 +92,10 @@ class TestDeterministicCiParityReview(unittest.TestCase):
             {"verified"},
         )
         self.assertEqual(
-            {check["scope"] for check in checks},
+            {
+                check["claim_check"]["checked"]["path"]
+                for check in checks
+            },
             {
                 ".github/workflows/test.yml",
                 ".github/workflows/run-atlas.yml",
