@@ -14,5 +14,17 @@ class TestRouter(unittest.TestCase):
         route = select_route("hitta grundorsaken till varför releaseflödet fastnar")
         self.assertEqual(route.name, "root_cause")
 
+    def test_named_atlas_ci_review_uses_repo_review_topic(self):
+        route = select_route(
+            "Granska CI-konfigurationen i atlas-core och avgör om workflowet "
+            "för manuell körning använder samma testkommando som test-gaten"
+        )
+        self.assertEqual(route.name, "repo_review")
+        self.assertIn("ämnet 'ci'", route.reason)
+
+    def test_prompt_improvement_still_requires_prompt_signal(self):
+        route = select_route("förbättra Atlas system prompt för tydligare routing")
+        self.assertEqual(route.name, "prompt_improvement")
+
 if __name__ == "__main__":
     unittest.main()
