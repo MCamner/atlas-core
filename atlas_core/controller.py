@@ -1076,7 +1076,13 @@ class AtlasController:
                         "reason": "live_model_provider"
                     }
             else:
-                output = execute_plan(task, plan, state.observations, feedback=feedback)
+                output = execute_plan(
+                    task,
+                    plan,
+                    state.observations,
+                    feedback=feedback,
+                    evidence_base=state.evidence_base,
+                )
             if budget is not None and self.model_adapter is None:
                 try:
                     budget.charge_output(output)
