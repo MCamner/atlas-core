@@ -33,6 +33,8 @@ Security fixes:
   keys after their variable name, and opaque `Bearer` credentials of 20+
   characters. Prose such as "a Bearer token" and hex digests stay unmasked.
   Tests in `tests/test_redaction.py`.
+- The GitHub reader refuses `.` and `..` as owner or repository name. They
+  matched the allowed characters and were placed in the request path.
 
 Roadmap v1.5 write capability with approval:
 
