@@ -16,7 +16,8 @@ from .state import AtlasRoute
 #: Words that ask for something to be *examined*, as opposed to explained,
 #: compared or decided. Deliberately small: this only breaks a tie where no
 #: route matched at all, and a longer list would start taking tasks away from
-#: routes that did match.
+#: routes that did match. Product/repository names are intentionally not route
+#: keywords: naming Atlas says what is being reviewed, not which method to use.
 REVIEW_VERBS: tuple[str, ...] = (
     "granska", "review", "revidera", "gå igenom", "ga igenom", "audit",
     "kontrollera", "inspektera", "check",
@@ -49,7 +50,7 @@ ROUTES: dict[str, dict] = {
         "risk_level": "low",
     },
     "prompt_improvement": {
-        "keywords": ["prompt", "förbättra prompt", "router", "skill", "system prompt", "atlas"],
+        "keywords": ["prompt", "förbättra prompt", "router", "skill", "system prompt"],
         "steps": ["diagnose_prompt", "identify_failure_modes", "rewrite_structure", "test_cases"],
         "risk_level": "low",
     },
