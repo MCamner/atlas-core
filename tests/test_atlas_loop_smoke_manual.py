@@ -8,10 +8,10 @@ import unittest
 
 
 TASK = (
-    "Granska CI-konfigurationen i atlas-core och avgör om Run Atlas Core "
-    "använder samma testkommando som den ordinarie test-gaten. Ange exakt "
-    "vilka workflow-filer som stöder svaret. Om underlaget inte räcker, säg "
-    "det i stället för att gissa."
+    "Granska CI-konfigurationen i repot och avgör om workflowet för manuell "
+    "körning använder samma testkommando som den ordinarie test-gaten. Ange "
+    "exakt vilka workflow-filer som stöder svaret. Om underlaget inte räcker, "
+    "säg det i stället för att gissa."
 )
 
 
