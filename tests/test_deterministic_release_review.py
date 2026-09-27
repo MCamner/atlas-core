@@ -75,7 +75,7 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
             json_mode=True,
         )
 
-    def test_matching_versions_become_four_verified_findings(self) -> None:
+    def test_matching_versions_become_three_verified_findings(self) -> None:
         self._write_release_sources()
 
         run = self._run()
@@ -110,7 +110,7 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
         run = self._run()
 
         self.assertEqual(run["stop_reason"], "passed")
-        self.assertIn("releaseversionerna skiljer sig", run["outputs"][-1])
+        self.assertIn("package-versionerna skiljer sig", run["outputs"][-1])
         checks = run["evaluations"][-1]["citation_checks"]
         self.assertEqual(len(checks), 3)
         self.assertEqual({check["verdict"] for check in checks}, {"verified"})
