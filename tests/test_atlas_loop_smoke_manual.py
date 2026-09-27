@@ -8,9 +8,9 @@ import unittest
 
 
 TASK = (
-    "Granska atlas-core och hitta P0/P1/P2 förbättringar. Prioritera den "
-    "viktigaste verifierbara bristen som stöds av filer du faktiskt läser. "
-    "Ange källan och varför den spelar roll. Om evidensen inte räcker, säg "
+    "Granska CI-konfigurationen i atlas-core och avgör om Run Atlas Core "
+    "använder samma testkommando som den ordinarie test-gaten. Ange exakt "
+    "vilka workflow-filer som stöder svaret. Om underlaget inte räcker, säg "
     "det i stället för att gissa."
 )
 
@@ -72,6 +72,7 @@ class TestAtlasLoopEndToEndSmoke(unittest.TestCase):
         self.assertEqual(run.get("schema"), "atlas-run.v1")
         self.assertIsNotNone(run.get("route"))
         self.assertEqual(run["route"].get("name"), "repo_review")
+        self.assertEqual((run.get("plan") or {}).get("review", {}).get("topic"), "ci")
         self.assertGreaterEqual(run.get("iteration", 0), 1)
         self.assertTrue(run.get("observations"), msg="repo run observed no sources")
         self.assertNotIn(
