@@ -48,7 +48,7 @@ jobs:
         run: uv sync --locked --group ci
 
       - name: Run tests
-        run: uv run --locked --group ci pytest -q
+        run: uv run --locked --group ci python -m unittest discover -s tests
 
       - name: Run Atlas
         # Inputs reach the shell through env, never through ${{ }} interpolation.
