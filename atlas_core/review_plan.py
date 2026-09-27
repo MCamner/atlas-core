@@ -131,15 +131,25 @@ TOPICS: tuple[ReviewTopic, ...] = (
         patterns=("tests/*", "test_*", "pyproject.toml", "README.md"),
     ),
     ReviewTopic(
+        code="release_metadata",
+        question=(
+            "Do VERSION, pyproject.toml and MANIFEST.json declare the same "
+            "package version?"
+        ),
+        keywords=(
+            "manifest.json", "pyproject.toml", "version metadata",
+            "versionsmetadata", "package version metadata",
+        ),
+        patterns=("VERSION", "pyproject.toml", "MANIFEST.json"),
+    ),
+    ReviewTopic(
         code="release",
         question=(
             "Do the version, the changelog and the release process agree with "
             "each other?"
         ),
         keywords=("release", "släpp", "slapp", "version", "changelog", "tag"),
-        patterns=(
-            "VERSION", "pyproject.toml", "MANIFEST.json", "CHANGELOG.md", "README.md",
-        ),
+        patterns=("CHANGELOG.md", "pyproject.toml", "README.md"),
     ),
     ReviewTopic(
         code="documentation",
