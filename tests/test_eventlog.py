@@ -575,8 +575,8 @@ class TestTheObservationPathIsRecorded(_ObserveBase):
         ][0]["payload"]
         self.assertEqual(
             sorted(payload),
-            ["added", "has_new_material", "patterns", "requested", "superseded",
-             "unchanged"],
+            ["added", "has_new_material", "line_windows", "patterns", "reframed",
+             "requested", "superseded", "unchanged"],
         )
 
 
