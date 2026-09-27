@@ -73,16 +73,25 @@ class TestTargetedLineRanges(unittest.TestCase):
         tail = collect_observation(
             snapshot,
             "CHANGELOG.md",
-            line_start=81,
+            anchor_prefix="## v",
+            max_lines=20,
+        )
+        anchored = collect_observation(
+            snapshot,
+            "CHANGELOG.md",
+            anchor_prefix="## v",
             max_lines=20,
         )
 
         self.assertEqual(head.content_sha256, tail.content_sha256)
+        self.assertEqual(head.content_sha256, anchored.content_sha256)
         self.assertEqual((head.line_start, head.line_end), (1, 80))
         self.assertEqual((tail.line_start, tail.line_end), (81, 97))
-        self.assertIn("## v1.2.3", tail.excerpt)
+        self.assertEqual((anchored.line_start, anchored.line_end), (95, 97))
+        self.assertIn("## v1.2.3", anchored.excerpt)
         self.assertFalse(head.read_in_full())
         self.assertFalse(tail.read_in_full())
+        self.assertFalse(anchored.read_in_full())
 
     def test_same_bytes_new_window_is_reframed_not_superseded(self) -> None:
         self._write_long_file(heading_line=95)
@@ -118,10 +127,10 @@ class TestTargetedLineRanges(unittest.TestCase):
                 reframed.new_line_start,
                 reframed.new_line_end,
             ),
-            ("CHANGELOG.md", 1, 80, 81, 97),
+            ("CHANGELOG.md", 1, 80, 95, 97),
         )
         self.assertEqual(len(merged), 1)
-        self.assertEqual((merged[0].line_start, merged[0].line_end), (81, 97))
+        self.assertEqual((merged[0].line_start, merged[0].line_end), (95, 97))
 
     def test_loop_reads_second_window_and_verifies_changelog_version(self) -> None:
         self._write_long_file(heading_line=95)
@@ -152,7 +161,12 @@ class TestTargetedLineRanges(unittest.TestCase):
         self.assertEqual(len(rounds), 2)
         self.assertEqual(
             rounds[1]["line_windows"],
-            [{"path": "CHANGELOG.md", "line_start": 81, "max_lines": 17}],
+            [{
+                "path": "CHANGELOG.md",
+                "line_start": 1,
+                "max_lines": 80,
+                "anchor_prefix": "## v",
+            }],
         )
         self.assertEqual(len(rounds[1]["reframed"]), 1)
         self.assertEqual(
@@ -162,16 +176,28 @@ class TestTargetedLineRanges(unittest.TestCase):
                 rounds[1]["reframed"][0]["new_line_start"],
                 rounds[1]["reframed"][0]["new_line_end"],
             ),
-            (1, 80, 81, 97),
+            (1, 80, 95, 97),
         )
 
-    def test_window_paging_stays_bounded_by_iteration_limit(self) -> None:
-        self._write_long_file(heading_line=170)
+    def test_missing_anchor_fails_closed_without_widening_evidence(self) -> None:
+        lines = ["# Changelog", "", "## Unreleased", ""]
+        while len(lines) < 200:
+            lines.append(f"- pending note {len(lines) + 1}")
+        (self.root / "CHANGELOG.md").write_text(
+            "\n".join(lines) + "\n",
+            encoding="utf-8",
+        )
+        (self.root / "pyproject.toml").write_text(
+            "[project]\n"
+            'name = "demo"\n'
+            'version = "1.2.3"\n',
+            encoding="utf-8",
+        )
 
         run = self._run(max_iterations=2)
 
-        self.assertNotEqual(run["stop_reason"], "passed")
-        self.assertEqual(run["iteration"], 2)
+        self.assertEqual(run["stop_reason"], "blocked")
+        self.assertEqual(run["iteration"], 1)
         changelog = next(
             item
             for item in run["evidence_manifest"]["observations"]
@@ -179,7 +205,7 @@ class TestTargetedLineRanges(unittest.TestCase):
         )
         self.assertEqual(
             (changelog["line_start"], changelog["line_end"]),
-            (81, 160),
+            (1, 80),
         )
         self.assertEqual(
             run["evaluations"][-1]["citation_checks"],
