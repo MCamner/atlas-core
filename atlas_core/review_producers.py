@@ -107,6 +107,69 @@ def _produce_ci_test_command_parity(
     )
 
 
+def _produce_release_changelog_parity(
+    task: str,
+    plan: AtlasPlan,
+    evidence_base: EvidenceBase,
+) -> str:
+    review = plan.review
+    if (
+        review is None
+        or review.topic != "release_changelog"
+        or not _asks_release_changelog_parity(task)
+    ):
+        return ""
+
+    by_path = {
+        observation.path: observation
+        for observation in evidence_base.observations
+    }
+    pyproject = by_path.get("pyproject.toml")
+    changelog = by_path.get("CHANGELOG.md")
+    if pyproject is None or changelog is None:
+        return ""
+
+    package = _pyproject_version(pyproject)
+    release = _changelog_version(changelog)
+    if package is None or release is None:
+        return ""
+
+    package_version, package_line, package_quote, package_literal = package
+    release_version, release_line, release_quote, release_literal = release
+    findings = [
+        _contains_finding(
+            pyproject,
+            package_literal,
+            package_line,
+            package_quote,
+            limitation=(
+                "This establishes the package version declared in [project]."
+            ),
+        ),
+        _contains_finding(
+            changelog,
+            release_literal,
+            release_line,
+            release_quote,
+            limitation=(
+                "This establishes the first semver release heading visible in "
+                "the bounded CHANGELOG window selected by the loop."
+            ),
+        ),
+    ]
+
+    relation = "matchar" if package_version == release_version else "matchar inte"
+    conclusion = (
+        f"CHANGELOG-versionen `{release_version}` {relation} package-versionen "
+        f"`{package_version}` i pyproject.toml."
+    )
+    return _render(
+        heading="Changelog version parity",
+        conclusion=conclusion,
+        findings=findings,
+    )
+
+
 def _produce_release_metadata_parity(
     task: str,
     plan: AtlasPlan,
@@ -194,6 +257,16 @@ def _asks_test_command_parity(task: str) -> bool:
     return asks_test_command and asks_same
 
 
+def _asks_release_changelog_parity(task: str) -> bool:
+    text = task.lower()
+    names_changelog = "changelog" in text
+    asks_agreement = any(
+        marker in text
+        for marker in ("match", "samma", "synk", "sync", "överens", "agree")
+    )
+    return names_changelog and asks_agreement
+
+
 def _asks_release_metadata_parity(task: str) -> bool:
     text = task.lower()
     names_metadata_source = any(
@@ -265,6 +338,25 @@ def _pyproject_version(
     return candidates[0] if len(candidates) == 1 else None
 
 
+def _changelog_version(
+    observation: Observation,
+) -> tuple[str, int, str, str] | None:
+    for offset, line in enumerate(observation.excerpt.splitlines()):
+        stripped = line.strip()
+        match = re.match(r"^##\s+v([^\s]+)", stripped)
+        if not match:
+            continue
+        version = match.group(1)
+        if _SEMVER.fullmatch(version):
+            return (
+                version,
+                observation.line_start + offset,
+                line,
+                f"## v{version}",
+            )
+    return None
+
+
 def _manifest_version(
     observation: Observation,
 ) -> tuple[str, int, str, str] | None:
@@ -330,6 +422,7 @@ def _contains_finding(
 
 _PRODUCERS: tuple[Producer, ...] = (
     _produce_ci_test_command_parity,
+    _produce_release_changelog_parity,
     _produce_release_metadata_parity,
 )
 
