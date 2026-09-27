@@ -250,3 +250,31 @@ class TestVerificationDoesNotGuess(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCommonKeyShapes(unittest.TestCase):
+    """Formats a repository or provider is likely to carry today.
+
+    Built by concatenation with low-entropy filler, so the repository's own
+    secret scan does not read the fixtures as real keys.
+    """
+
+    SHAPES = {
+        "openai project key": "sk-proj-" + "Ab_c-" * 10,
+        "openai service account key": "sk-svcacct-" + "Ab_c-" * 10,
+        "google api key": "AIza" + "a" * 35,
+        "aws secret access key": "aws_secret_access_key = " + "a" * 40,
+        "bearer header": "Authorization: Bearer " + "a" * 32,
+    }
+
+    def test_each_shape_is_masked(self):
+        for name, value in self.SHAPES.items():
+            with self.subTest(name):
+                self.assertIn(REDACTED, redact_text(value))
+                self.assertEqual(classify_confidentiality(value), "secret")
+
+    def test_the_words_around_a_credential_are_not(self):
+        prose = "Send a Bearer token in the Authorization header."
+        digest = "sha256 " + "0123456789abcdef" * 4
+        self.assertEqual(redact_text(prose), prose)
+        self.assertEqual(redact_text(digest), digest)

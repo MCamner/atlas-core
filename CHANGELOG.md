@@ -4,6 +4,35 @@
 
 Security fixes:
 
+- Git commands Core runs in an observed or target repository pass
+  `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
+  could name a command that `git status` ran during `atlas run --repo-path`
+  and `atlas propose`. Regression test in `tests/test_snapshot.py`.
+- `atlas propose` shows the diff and test output with control and format
+  characters (Unicode Cc/Cf, including escape sequences, carriage returns and
+  bidirectional overrides) spelled out. Before this, a patch could carry
+  terminal sequences that erased lines from the approval screen, so a person
+  could approve a diff different from the one written. The written branch and
+  the diff digest are unchanged. Regression test in
+  `tests/test_patch_proposal.py`.
+- The GitHub reader and the live model transport drop `Authorization` when a
+  redirect changes scheme, host or port. urllib's default handler copied it
+  to wherever `Location` pointed, so a redirect could hand the GitHub token or
+  the model API key to another host. Same-origin redirects keep it.
+  Regression tests in `tests/test_redirect_credentials.py`.
+- `docs/safety-model.md` and `docs/api-contract.md` no longer say a person
+  approves `atlas propose`. The approval code is shown on the approval screen
+  and the only check is that stdin is a terminal, so a program driving a
+  pseudo-terminal can approve. The docs now state that limit and say to give
+  agents `--no-input`.
+- The live model transport reads a provider's reply up to 16 MiB and stops
+  with `ProviderBadResponse` beyond that, instead of reading the body to its
+  end. Regression tests in `tests/test_provider_response_bound.py`.
+- Redaction also masks OpenAI keys with a type prefix (`sk-proj-`,
+  `sk-svcacct-`, `sk-admin-`), Google API keys (`AIza…`), AWS secret access
+  keys after their variable name, and opaque `Bearer` credentials of 20+
+  characters. Prose such as "a Bearer token" and hex digests stay unmasked.
+  Tests in `tests/test_redaction.py`.
 - The GitHub reader refuses `.` and `..` as owner or repository name. They
   matched the allowed characters and were placed in the request path.
 
