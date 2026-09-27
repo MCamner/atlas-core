@@ -60,8 +60,9 @@ class LineWindow:
     """One bounded excerpt request for an already-known source path."""
 
     path: str
-    line_start: int
+    line_start: int = 1
     max_lines: int = DEFAULT_MAX_LINES
+    anchor_prefix: str | None = None
 
     def __post_init__(self) -> None:
         if not self.path.strip():
@@ -72,13 +73,28 @@ class LineWindow:
             raise ValueError(
                 f"max_lines must be between 1 and {DEFAULT_MAX_LINES}"
             )
+        if self.anchor_prefix is not None:
+            if self.line_start != 1:
+                raise ValueError(
+                    "anchor_prefix and explicit line_start are mutually exclusive"
+                )
+            if (
+                not self.anchor_prefix
+                or "\n" in self.anchor_prefix
+                or "\r" in self.anchor_prefix
+                or len(self.anchor_prefix) > 128
+            ):
+                raise ValueError("anchor_prefix must be one bounded line prefix")
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "path": self.path,
             "line_start": self.line_start,
             "max_lines": self.max_lines,
         }
+        if self.anchor_prefix is not None:
+            result["anchor_prefix"] = self.anchor_prefix
+        return result
 
 
 @dataclass(frozen=True)
