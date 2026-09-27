@@ -13,9 +13,9 @@ from atlas_core.snapshot import take_snapshot
 
 
 TASK = (
-    "Granska release-versionerna och avgör om VERSION, pyproject.toml, "
-    "MANIFEST.json och CHANGELOG.md är synkroniserade med samma version. "
-    "Ange källorna och gissa inte om något är tvetydigt."
+    "Granska package version metadata och avgör om VERSION, pyproject.toml "
+    "och MANIFEST.json är synkroniserade med samma version. Ange källorna "
+    "och gissa inte om något är tvetydigt."
 )
 LIMITS = RunLimits(
     wall_seconds=30,
@@ -62,15 +62,6 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
             '}\n',
             encoding="utf-8",
         )
-        (self.root / "CHANGELOG.md").write_text(
-            "# Changelog\n\n"
-            "## Unreleased\n\n"
-            f"## v{version} — 2026-09-27\n"
-            "- current release\n\n"
-            "## v1.0.0 — 2026-01-01\n"
-            "- older release\n",
-            encoding="utf-8",
-        )
         (self.root / "README.md").write_text("# Demo\n", encoding="utf-8")
 
     def _run(self) -> dict:
@@ -90,7 +81,7 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
         run = self._run()
 
         self.assertEqual(run["route"]["name"], "repo_review")
-        self.assertEqual(run["plan"]["review"]["topic"], "release")
+        self.assertEqual(run["plan"]["review"]["topic"], "release_metadata")
         self.assertEqual(run["stop_reason"], "passed")
         self.assertEqual(run["iteration"], 1)
         self.assertIn(
@@ -99,7 +90,7 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
         )
 
         checks = run["evaluations"][-1]["citation_checks"]
-        self.assertEqual(len(checks), 4)
+        self.assertEqual(len(checks), 3)
         self.assertEqual({check["verdict"] for check in checks}, {"verified"})
         self.assertEqual(
             {
@@ -110,7 +101,6 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
                 "VERSION",
                 "pyproject.toml",
                 "MANIFEST.json",
-                "CHANGELOG.md",
             },
         )
 
@@ -122,7 +112,7 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
         self.assertEqual(run["stop_reason"], "passed")
         self.assertIn("releaseversionerna skiljer sig", run["outputs"][-1])
         checks = run["evaluations"][-1]["citation_checks"]
-        self.assertEqual(len(checks), 4)
+        self.assertEqual(len(checks), 3)
         self.assertEqual({check["verdict"] for check in checks}, {"verified"})
 
     def test_ambiguous_project_version_fails_closed(self) -> None:
@@ -132,7 +122,7 @@ class TestDeterministicReleaseVersionReview(unittest.TestCase):
 
         self.assertNotEqual(run["stop_reason"], "passed")
         self.assertEqual(run["evaluations"][-1]["citation_checks"], [])
-        self.assertNotIn("Release version parity", run["outputs"][-1])
+        self.assertNotIn("Package version metadata parity", run["outputs"][-1])
 
 
 if __name__ == "__main__":
