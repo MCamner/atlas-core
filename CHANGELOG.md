@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Security fixes:
+
+- The GitHub reader refuses `.` and `..` as owner or repository name. They
+  matched the allowed characters and were placed in the request path.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
