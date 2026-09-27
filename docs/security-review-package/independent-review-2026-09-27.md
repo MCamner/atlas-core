@@ -49,6 +49,12 @@ None.
 
 #### IR-1 — In-band terminal approval does not prevent autonomous mutation
 
+Remediation was subsequently added on this branch: the public CLI always
+passes `ask=None`, never consults stdin for approval and therefore cannot
+write. A negative terminal-controller regression test covers this boundary.
+Because this reviewer implemented that remediation, this note is not an
+independent re-review and the fix must be re-reviewed before closure.
+
 - Affected: `atlas_core/patch_proposal.py` (`render`, `propose`), CLI terminal
   check, and the v2.0 exit condition.
 - Description: the approval value is derived from and printed with the
@@ -167,7 +173,8 @@ risk by the implementer of those controls.
 
 ## Conclusion
 
-- Blocking findings remaining: **YES** — IR-1/F4/R11 and C1.
+- Blocking findings remaining at the reviewed commit: **YES** — IR-1/F4/R11
+  and C1. The branch contains an unreviewed remediation for IR-1/F4/R11.
 - Conclusion: **Not suitable for Atlas Core v2.0 security-gate closure.**
 - Conditions: implement and independently re-review an approval boundary that
   an autonomous proposer cannot satisfy itself; publish and retain the exact

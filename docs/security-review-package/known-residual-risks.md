@@ -20,7 +20,7 @@ blocks closure.
 | R8 | The `atlas propose --test` command runs as the caller without a sandbox. | `docs/security-review.md` |
 | R9 | `clean_head` checks HEAD and a clean worktree, not where `ref` points; each write use case must enforce the base itself. | `docs/safety-model.md` |
 | R10 | Rollback in `atlas propose` removes the branch only if it still points to Core's commit; process termination does not undo side effects already committed. | `atlas_core/patch_proposal.py`, `docs/safety-model.md` |
-| R11 | `atlas propose` approval shows that whoever controls the terminal saw the operation; it does not prove a human approved. An agent driving a pseudo-terminal can approve (F4, open design limit). | [`pre-review-findings.md`](pre-review-findings.md), `docs/safety-model.md`, `docs/api-contract.md` |
+| R11 | Fixed after the review baseline: the public CLI never reads or grants terminal approval and always stops at `approval_required`. Write-capable hosts must keep the approval channel outside the proposing process. | [`pre-review-findings.md`](pre-review-findings.md), `docs/safety-model.md`, `docs/api-contract.md` |
 | R12 | Git runs in observed and target repositories with only `core.fsmonitor` overridden. In `atlas propose`, the caller's own repository can still run a textconv driver during `git diff` and a `reference-transaction` hook during `update-ref`. | [`pre-review-findings.md`](pre-review-findings.md) (F1) |
 
 ## Hosting and process

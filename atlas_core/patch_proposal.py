@@ -350,10 +350,12 @@ def propose(
 ) -> dict[str, Any]:
     """Prepare, test, show, ask, and write only on an exact yes.
 
-    `ask` shows the rendered proposal to a person and returns what they typed;
-    `None` means nobody can be asked, which ends in `approval_required` with
-    nothing written. The answer that approves is the first 12 characters of the
-    operation digest, so a yes names what it is a yes to.
+    `ask` is a trusted host callback that shows the rendered proposal through
+    an approval channel the proposing process cannot control and returns the
+    answer. `None` ends in `approval_required` with nothing written. The public
+    CLI always passes `None`; it cannot grant itself permission from stdin.
+    The answer that approves is the first 12 characters of the operation
+    digest, so a yes names what it is a yes to.
     """
     proposal = prepare(repo, patch, branch, test_argv, test_timeout=test_timeout)
     try:

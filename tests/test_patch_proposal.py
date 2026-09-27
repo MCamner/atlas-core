@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
@@ -388,6 +389,18 @@ class TestCli(Repo):
         self.assertEqual(json.loads(out)["outcome"], "approval_required")
         kinds = [json.loads(line)["kind"] for line in log.read_text().splitlines()]
         self.assertEqual(kinds, ["approval_recorded"])
+        self.assert_untouched()
+
+    def test_a_terminal_controller_cannot_approve_its_own_write(self) -> None:
+        patch = Path(self.tmp.name) / "fix.patch"
+        patch.write_bytes(FIX)
+        with mock.patch.object(sys.stdin, "isatty", return_value=True), \
+                mock.patch("builtins.input", side_effect=AssertionError("stdin was consulted")):
+            code, out, _ = self.run_cli(
+                "propose", "--repo", str(self.root), "--patch", str(patch),
+                "--branch", "atlas/fix-readme", "--test", "true", "--json")
+        self.assertEqual(code, 3)
+        self.assertEqual(json.loads(out)["outcome"], "approval_required")
         self.assert_untouched()
 
     def test_refused_input_is_exit_1(self) -> None:

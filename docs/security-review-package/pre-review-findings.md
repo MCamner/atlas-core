@@ -126,6 +126,13 @@ CI [36295967046](https://github.com/MCamner/atlas-core/actions/runs/36295967046)
 
 ### F4 — Terminal approval does not prove a human approver
 
+**Remediation after the reviewed baseline:** the public `atlas propose` CLI no
+longer reads an approval from stdin and always returns `approval_required`.
+`TestCli.test_a_terminal_controller_cannot_approve_its_own_write` sets
+`isatty()` true and fails if `input()` is consulted. The write-capable Python
+API remains available only behind a trusted host callback. This change
+requires independent re-review before F4 can be marked closed.
+
 - Finding: the `atlas propose` approval code is the first 12 characters of the
   operation digest, printed on the same screen. The only check is that stdin
   is a terminal. A program running `atlas propose` under a pseudo-terminal it

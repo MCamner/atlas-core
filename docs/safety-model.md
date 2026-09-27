@@ -167,14 +167,14 @@ read-only mounts/network policy. Windows currently fails closed for this API.
     refused, consumed and rejected, each with its reason. A write tool is
     never retried. Approval-like model prose still confers nothing: the model
     never holds a token, and no path from model text reaches `invoke_write`.
-    The one CLI path that registers a write tool is `atlas propose` (see
-    `docs/api-contract.md`, *Write Boundary*). After the operation's code is
-    typed at a terminal, it creates a new `atlas/*` branch and nothing else.
-    That code is displayed on the approval screen, so the answer proves the
-    terminal's controller saw the operation, not that a person typed it: a
-    program driving a pseudo-terminal, such as an agent with shell access,
-    can approve. An approval that must come from a person requires the person
-    to run `atlas propose`; agents get `--no-input`.
+    The public `atlas propose` CLI is proposal-only: it always stops at
+    `approval_required`, never reads an answer from stdin and never registers
+    an in-band terminal grant. A write-capable host must hold the approval
+    boundary and call `patch_proposal.propose` with a trusted callback whose
+    channel the proposing process cannot control. The operation binding,
+    single-use token and compare-and-swap write then limit that permission to
+    one exact `atlas/*` branch creation. Core does not claim to constrain a
+    host that gives an agent arbitrary shell or Git access outside this API.
 - **Text is not evidence.** README/tool-output prompt injection cannot itself
   register a tool or grant permission, but Core does not guarantee that an
   arbitrary external model ignores malicious text.

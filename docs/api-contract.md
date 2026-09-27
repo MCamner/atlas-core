@@ -720,20 +720,15 @@ atlas propose --repo DIR --patch FILE --branch atlas/NAME --test "CMD ARGS"
 3. In a `--shared` clone, the patch is applied and committed. The test
    command is split into arguments and run there without a shell, and the
    diff is computed. `DIR` is not touched.
-4. If the tests pass, a person at a terminal reads the whole diff and the test
-   result and types the first 12 characters of the operation digest. Anything
-   else refuses. With no terminal (`--no-input` or the patch on stdin),
-   nothing is asked and nothing is written.
-
-   The code is the start of the digest shown on the same screen, and the
-   only check is that stdin is a terminal. The answer therefore shows that
-   whoever controls that terminal saw the operation, not that a person typed
-   it. A program that runs `atlas propose` under a pseudo-terminal it
-   controls, such as an agent with shell access, can read the code and
-   approve its own write. Run `atlas propose` yourself when the approval must
-   come from a person; give an agent `--no-input`, which stops at
-   `approval_required` with nothing written.
-5. On that yes, `create_branch` runs once through `invoke_write`: it fetches
+4. The CLI stops at `approval_required` after preparation and tests, even when
+   stdin is a terminal. It never reads an approval answer and never writes.
+   `--no-input` remains as a compatibility flag but does not change this
+   fail-closed behaviour. This prevents a process controlling a pseudo-terminal
+   from reading and submitting its own in-band approval code.
+5. A write-capable host may call `patch_proposal.propose` with a trusted `ask`
+   callback connected to an approval channel the proposing process cannot
+   control. Host code, not model output or the public CLI, holds this boundary.
+   On that external approval, `create_branch` runs once through `invoke_write`: it fetches
    the one commit and checks that its parent is the base and that its diff has
    the approved digest. It then creates the ref in one
    `git update-ref --stdin` transaction:
