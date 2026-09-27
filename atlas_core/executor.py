@@ -86,6 +86,141 @@ def _evidence_section(feedback: AtlasEvaluation, observations: list[str]) -> str
     return section
 
 
+_TEST_COMMAND_MARKERS = ("unittest", "pytest")
+_TEST_GATE_PATH = ".github/workflows/test.yml"
+_MANUAL_RUN_PATH = ".github/workflows/run-atlas.yml"
+
+
+def _deterministic_repo_review(
+    task: str, plan: AtlasPlan, evidence_base: EvidenceBase
+) -> str:
+    """Produce only the narrow repo findings Core can establish itself.
+
+    This is deliberately not a semantic repo reviewer. It handles one exact
+    deterministic question: whether the ordinary test gate and the manual
+    Atlas workflow carry the same test command. The producer works from
+    Observation.v1 objects so source ids, hashes and line ranges are never
+    reconstructed from rendered prose.
+    """
+    review = plan.review
+    if (
+        plan.route_name != "repo_review"
+        or review is None
+        or review.topic != "ci"
+        or not _asks_test_command_parity(task)
+    ):
+        return ""
+
+    by_path = {
+        observation.path: observation
+        for observation in evidence_base.observations
+    }
+    gate = by_path.get(_TEST_GATE_PATH)
+    manual = by_path.get(_MANUAL_RUN_PATH)
+    if gate is None or manual is None:
+        return ""
+
+    gate_command = _single_test_command(gate)
+    manual_command = _single_test_command(manual)
+    if gate_command is None or manual_command is None:
+        return ""
+
+    gate_text, gate_line, gate_quote = gate_command
+    manual_text, manual_line, manual_quote = manual_command
+    findings = [
+        _contains_finding(gate, gate_text, gate_line, gate_quote),
+        _contains_finding(manual, manual_text, manual_line, manual_quote),
+    ]
+    same = gate_text == manual_text
+    relation = "samma" if same else "olika"
+    conclusion = (
+        f"De två observerade workflow-filerna använder {relation} normaliserade "
+        f"testkommandon. Ordinarie gate: `{gate_text}`. Manuell körning: "
+        f"`{manual_text}`."
+    )
+    bullets = "\n".join(f"- {finding['claim']}" for finding in findings)
+    block = json.dumps(findings, ensure_ascii=False, indent=2)
+    return (
+        "\n## CI test-command parity\n"
+        + conclusion
+        + "\n\n## Findings\n"
+        + bullets
+        + "\n\n```"
+        + FINDINGS_FENCE
+        + "\n"
+        + block
+        + "\n```\n"
+    )
+
+
+def _asks_test_command_parity(task: str) -> bool:
+    text = task.lower()
+    asks_test_command = "testkommando" in text or "test command" in text
+    asks_same = "samma" in text or "same" in text
+    return asks_test_command and asks_same
+
+
+def _single_test_command(
+    observation: Observation,
+) -> tuple[str, int, str] | None:
+    candidates: list[tuple[str, int, str]] = []
+    for offset, line in enumerate(observation.excerpt.splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("- run:"):
+            command = stripped[len("- run:"):].strip()
+        elif stripped.startswith("run:"):
+            command = stripped[len("run:"):].strip()
+        else:
+            continue
+        if command and any(marker in command for marker in _TEST_COMMAND_MARKERS):
+            candidates.append((command, observation.line_start + offset, line))
+
+    # Ambiguity is not resolved by guessing which command is "the" gate.
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _contains_finding(
+    observation: Observation,
+    text: str,
+    line_number: int,
+    quoted_line: str,
+) -> dict[str, object]:
+    typed = TypedClaim(
+        kind=ClaimKind.CONTAINS,
+        source_id=observation.source_id,
+        text=text,
+    )
+    return {
+        "claim": typed.render(
+            observation.path, observation.line_start, observation.line_end
+        ),
+        "scope": observation.path,
+        "severity": "unknown",
+        "severity_rationale": (
+            "Informational CI-parity fact; no defect severity is assigned."
+        ),
+        "evidence": [
+            {
+                "source_id": observation.source_id,
+                "content_sha256": observation.content_sha256,
+                "line_start": line_number,
+                "line_end": line_number,
+                "quoted": quoted_line,
+            }
+        ],
+        "typed_claim": {
+            "kind": typed.kind.value,
+            "source_id": typed.source_id,
+            "text": typed.text,
+        },
+        "limitations": [
+            "This establishes literal command parity only; it does not prove "
+            "the two workflows execute under identical surrounding conditions."
+        ],
+        "reproducible_command": "unknown",
+    }
+
+
 _EVIDENCE_GAPS = ("sources_not_documented", "uncited_findings")
 
 
