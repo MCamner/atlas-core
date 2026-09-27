@@ -137,7 +137,9 @@ TOPICS: tuple[ReviewTopic, ...] = (
             "each other?"
         ),
         keywords=("release", "släpp", "slapp", "version", "changelog", "tag"),
-        patterns=("CHANGELOG.md", "pyproject.toml", "README.md"),
+        patterns=(
+            "VERSION", "pyproject.toml", "MANIFEST.json", "CHANGELOG.md", "README.md",
+        ),
     ),
     ReviewTopic(
         code="documentation",
