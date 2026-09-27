@@ -26,7 +26,7 @@ class TestAtlasLoopEndToEndSmoke(unittest.TestCase):
                 "atlas_core.cli",
                 "run",
                 TASK,
-                "--repo",
+                "--repo-path",
                 str(root),
                 "--json",
             ],
