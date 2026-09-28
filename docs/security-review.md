@@ -50,11 +50,9 @@ hashes and file/line metadata are stored; no secret values are stored in the
 baseline. The canary verifies that a new synthetic AWS-shaped value is rejected
 even with the baseline enabled.
 
-The current main branch-protection API snapshot is recorded in
-[`evidence/main-branch-protection-2026-09-27.md`](evidence/main-branch-protection-2026-09-27.md): PRs and the strict `python` check are required, force-push/deletion are disabled, and admins are enforced. The rulesets endpoint returned no rulesets; the classic protection endpoint returned zero required approvals and no named push restrictions. GitHub Advanced Security settings and future control-plane changes are not verified by this snapshot. The independent review required by the v2.0 gate has not been performed.
+The current main branch-protection API snapshot is recorded in\n[`evidence/main-branch-protection-2026-09-27.md`](evidence/main-branch-protection-2026-09-27.md): PRs and the strict `python` check are required, force-push/deletion are disabled, and admins are enforced. The rulesets endpoint returned no rulesets; the classic protection endpoint returned zero required approvals and no named push restrictions. GitHub Advanced Security settings and future control-plane changes are not verified by this snapshot. The independent review and closure re-review for the pinned `v1.0.0` baseline are recorded in [`security-review-package/independent-review-2026-09-27.md`](security-review-package/independent-review-2026-09-27.md) and [`security-review-package/independent-re-review-2026-09-28.md`](security-review-package/independent-re-review-2026-09-28.md).
 
-Do not mark the security P2 item complete until all of the following are
-verified on the hosting repository:
+The security P2 item is complete for the pinned `v1.0.0` / `8230fec` baseline because the following conditions have been verified:
 
 - Merge the pinned Actions/dependency lock, strict audit, secret-scan,
   reproducible-build and SBOM jobs with green exact-head CI; verify Dependabot
@@ -63,11 +61,7 @@ verified on the hosting repository:
   passing main run to a release tag; verify and retain all artifact digests.
 - Verify the secret scan runs on pull requests and main; retain the canary
   regression proving the gate fails on a known synthetic credential.
-- Re-check that branch protection still requires the `python` status and that
-  required checks cover the current workflow. The observed snapshot has zero
-  required approvals; independent review remains a separate closure condition.
-- An independent reviewer examines this threat model, implementation and
-  residual risks.
+- Re-check that branch protection still requires the `python` status and that\n  required checks cover the current workflow. The observed snapshot has zero\n  required approvals, retained as a non-blocking governance follow-up.\n- An independent reviewer examines this threat model, implementation and\n  residual risks; the closure re-review found no blocking findings remaining for\n  `v1.0.0`.
 
 The repository evidence alone cannot establish organization-level branch rules
 or an independent review. Those are intentionally not claimed here.
