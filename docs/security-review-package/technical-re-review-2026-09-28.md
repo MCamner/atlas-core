@@ -1,172 +1,149 @@
-# Technical Re-review Report — Atlas Core v1.0.0
+# Technical Re-review — Atlas Core v1.0.0
 
-Review target: `v1.0.0` / `8230fecd3e7e4f4a0d65bb61ee517017d1857932`
+## Status
 
-Review date: 2026-09-28
+This is a **non-independent technical re-review** of the two blockers from
+`docs/security-review-package/independent-review-2026-09-27.md`.
 
-Reviewer role: technical re-review performed by ChatGPT with repository access and
-independent reproduction of the two remaining blockers.
+- Review target: `v1.0.0`
+- Reviewed commit: `8230fecd3e7e4f4a0d65bb61ee517017d1857932`
+- Review date: 2026-09-28
+- Reviewer: OpenAI ChatGPT
+- Independence status: **not independent**. This reviewer participated in
+  later Atlas Core implementation/review work and therefore does not satisfy
+  this repository's independent-review criterion.
 
-## Independence statement
+The purpose of this report is to settle the **technical state** of F4/R11 and
+C1 without misrepresenting the remaining governance requirement.
 
-This report is **not** an independent-security-review attestation under this
-package's own independence rule. The reviewer has participated in later Atlas
-Core implementation/review work and edited the security-review package in #111.
-User authorization cannot change that factual relationship.
+## Result
 
-The report may therefore close the *technical findings* F4/R11 and C1, but it
-does not by itself satisfy the separate v2.0 requirement that the closure
-opinion be authored by a reviewer who meets the package's independence
-criterion.
+| Item | Technical result | Independent sign-off |
+| --- | --- | --- |
+| F4 / IR-1 / R11 | **Remediation effective** | Still required |
+| C1 release bundle | **Satisfied** | Still required as part of gate sign-off |
+| C5 independent re-review | Not satisfied by this report | **Open** |
 
-## Scope
+No new blocking technical finding was identified in the scoped re-review of
+`8230fec`.
 
-This re-review is pinned to the immutable released target:
+## F4 / IR-1 / R11 — terminal approval boundary
 
-- tag: `v1.0.0`
-- commit: `8230fecd3e7e4f4a0d65bb61ee517017d1857932`
-- exact-main CI: run `36315653280`, event `push`, conclusion `success`,
-  head SHA exactly `8230fecd3e7e4f4a0d65bb61ee517017d1857932`
+### Original blocker
 
-Later runtime changes are out of scope for this v2.0 closure target.
+The original review found that an in-band terminal approval could be satisfied
+by a process controlling the pseudo-terminal. That did not prove permission
+from an actor outside the proposing process.
 
-## F4 / IR-1 / R11 — approval boundary
+### Remediation reviewed
 
-### Source review
+At `8230fec`, the public CLI calls `patch_proposal.propose(..., ask=None,
+granted_by="external-authority")`. The CLI does not call `input()` or
+otherwise collect an approval answer from stdin.
 
-At the target commit:
+`patch_proposal.propose` treats `ask=None` as a hard stop:
 
-- `atlas_core/cli.py` calls `patch_proposal.propose(..., ask=None, ...)`.
-  The public `atlas propose` command therefore has no path that reads an
-  approval answer from stdin or grants an in-band terminal approval.
-- `atlas_core/patch_proposal.py` treats `ask=None` as
-  `approval_required` and performs no write.
-- A write-capable embedding host may provide a trusted `ask` callback through
-  a channel outside the proposing process.
-- `tests/test_patch_proposal.py` includes both:
-  - a negative pseudo-terminal test asserting the CLI cannot approve its own
-    write; and
-  - a positive host/API path where an exact external approval creates one
-    `atlas/*` branch and leaves HEAD, the worktree and other refs unchanged.
+- tests must pass first;
+- an approval request is recorded;
+- the function returns `outcome="approval_required"`;
+- no grant token is issued;
+- the write gateway is not invoked.
 
-### Independent runtime reproduction of target artifact
+A write-capable embedding host may supply an `ask` callback, but the documented
+contract requires that callback to use an approval channel the proposing
+process cannot control. The public CLI itself ships no such grant path.
 
-The wheel from exact-main run `36315653280` was installed with
-`--no-deps`. It reports version `1.0.0`.
+### Regression evidence
 
-A fresh temporary git repository was then used for two reproductions:
+`tests/test_patch_proposal.py` at `8230fec` contains:
 
-1. **Public CLI under a pseudo-terminal**
-   - command: `atlas propose ... --test true --json`
-   - stdin/stdout attached to a PTY
-   - no approval input supplied
-   - exit code: `3`
-   - outcome: `approval_required`
-   - proposed branch created: **no**
+- `test_no_input_stops_at_approval_required_with_exit_3`;
+- `test_a_terminal_controller_cannot_approve_its_own_write`.
 
-2. **Write-capable host/API path**
-   - `atlas_core.patch_proposal.propose` called with an explicit trusted
-     callback returning the operation code after seeing the rendered proposal
-   - outcome: `branch_created`
-   - exactly the requested `atlas/*` branch was created
-   - original HEAD stayed unchanged
-   - worktree stayed clean
-   - original checked-out file stayed unchanged
+The latter forces `sys.stdin.isatty() == True` and makes any call to
+`builtins.input` fail the test. The CLI still returns exit 3,
+`approval_required`, and leaves the repository untouched.
 
-### F4 conclusion
+### Technical conclusion
 
-**Resolved at `8230fec`.**
+**F4 / IR-1 / R11 is technically remediated for the public CLI boundary.**
 
-The original blocker was that an autonomous process controlling the same
-terminal could read and submit its own approval. That path no longer exists in
-the public CLI. Mutation requires a separate host-provided approval callback.
+The remaining `ask` callback is an explicit trusted-host boundary, not an
+in-band CLI approval path. Core documents that a host which gives an agent
+arbitrary shell/Git access is outside this control.
 
-The v2.0 exit gate asks for a documented approved-patch-proposal use case; it
-does not require Atlas Core itself to ship a standalone approval UI. The
-documented use case remains demonstrated at the Core API boundary, while the
-public CLI correctly remains proposal-only.
+The documented "human-approved patch proposal" use case is therefore a
+**host-integration contract**, not a claim that Atlas Core ships a standalone
+approval UI. That distinction is explicit in
+`examples/approved-patch-proposal.md`.
 
-## C1 — retained release-integrity bundle
+## C1 — published release-integrity bundle
 
-### Tag and commit binding
+### Release identity
 
-GitHub reports the annotated tag `v1.0.0` as signature-verified
-(`verified: true`, reason `valid`). The tag resolves to:
+GitHub reports:
 
-`8230fecd3e7e4f4a0d65bb61ee517017d1857932`
+- annotated tag: `v1.0.0`;
+- tag verification: `verified: true`, reason `valid`;
+- tag object target:
+  `8230fecd3e7e4f4a0d65bb61ee517017d1857932`.
 
-The target commit is itself signature-verified. Its commit timestamp is
-`1790508292`, which matches the `source_date_epoch` in the release manifest.
+Exact-main workflow run `36315653280`:
 
-### Exact-main CI
+- event: `push`;
+- conclusion: `success`;
+- `head_sha`:
+  `8230fecd3e7e4f4a0d65bb61ee517017d1857932`.
 
-Run `36315653280`:
+### CI artifact
 
-- event: `push`
-- status: completed
-- conclusion: success
-- head SHA: exactly
-  `8230fecd3e7e4f4a0d65bb61ee517017d1857932`
-- retained artifact: `atlas-core-release-integrity`
+Artifact `atlas-core-release-integrity` from run `36315653280` contains:
 
-The downloaded CI artifact contains:
+| File | Size | SHA-256 |
+| --- | ---: | --- |
+| `atlas_core-1.0.0-py3-none-any.whl` | 207113 | `bc7d6bcc79cb1812d05e813ed192fa74fd9895e06812d426acf0488659fa074b` |
+| `atlas_core-1.0.0.tar.gz` | 354136 | `6fe69c16f31f7f1ca1329e93b0590483c1ca1a952cf137929156246e86f5e9a9` |
+| `atlas-core-1.0.0.cdx.json` | 1233 | `1600551aa287a3e3b4e146391e2c7b00a6700d628425d786510fa973350d6f7b` |
+| `release-integrity.json` | 722 | `4323c1edc822805da424b21ec7a404337e9d7df85a0f92e8892a0b9a700535c9` |
 
-| File | SHA-256 |
-| --- | --- |
-| `atlas-core-1.0.0.cdx.json` | `1600551aa287a3e3b4e146391e2c7b00a6700d628425d786510fa973350d6f7b` |
-| `atlas_core-1.0.0-py3-none-any.whl` | `bc7d6bcc79cb1812d05e813ed192fa74fd9895e06812d426acf0488659fa074b` |
-| `atlas_core-1.0.0.tar.gz` | `6fe69c16f31f7f1ca1329e93b0590483c1ca1a952cf137929156246e86f5e9a9` |
-| `release-integrity.json` | `4323c1edc822805da424b21ec7a404337e9d7df85a0f92e8892a0b9a700535c9` |
+The manifest inside that artifact states:
 
-### Published GitHub release
-
-The public `v1.0.0` GitHub release contains the same four named assets.
-GitHub's recorded SHA-256 digest for each uploaded release asset is exactly the
-same as the corresponding file hash calculated from the exact-main CI
-artifact above.
-
-The manifest in that artifact records:
-
-- schema: `atlas-release-integrity.v1`
-- package: `atlas-core`
-- version: `1.0.0`
+- schema: `atlas-release-integrity.v1`;
+- package: `atlas-core`;
+- version: `1.0.0`;
 - source commit:
-  `8230fecd3e7e4f4a0d65bb61ee517017d1857932`
-- source date epoch: `1790508292`
-- wheel/sdist digests and sizes matching the files
-- release SBOM digest matching the file
+  `8230fecd3e7e4f4a0d65bb61ee517017d1857932`;
+- wheel, sdist and SBOM digests equal the artifact bytes.
 
-The SBOM is CycloneDX 1.5 and identifies `atlas-core` version `1.0.0`.
+### Published release assets
 
-### C1 conclusion
+The GitHub release for `v1.0.0` contains the same four files. GitHub's
+asset metadata reports exactly the same sizes and SHA-256 digests listed
+above.
 
-**Resolved.**
+Therefore the retained release bundle is byte-identical to the verified CI
+artifact produced by exact-main run `36315653280`.
 
-The verified bundle from the passing exact-main run is retained on the
-`v1.0.0` release, with GitHub-recorded asset digests matching the independently
-calculated hashes of the CI artifact.
+### Technical conclusion
 
-## Blocking findings
+**C1 is satisfied.**
 
-Technical blocking findings remaining against
-`v1.0.0` / `8230fec`: **NO**.
+The release tag is verified, resolves to the reviewed commit, the build run is
+green on that exact commit, and the four retained release assets match the CI
+artifact byte-for-byte.
 
-- F4 / IR-1 / R11: resolved.
-- C1: resolved.
+## Overall technical conclusion
 
-Previously documented non-blocking residual risks remain residual risks; this
-re-review does not reclassify later post-v2.0 runtime changes.
+For the scoped blockers at `v1.0.0 / 8230fec`:
 
-## Closure status
+- F4 / IR-1 / R11: **closed technically**;
+- C1: **closed technically**;
+- new blocking technical findings in this scoped re-review: **none**.
 
-Technical re-review result: **suitable for v2.0 security-gate closure on the
-released baseline `v1.0.0` / `8230fec`, subject only to the separate
-independence-attestation requirement.**
+This report does **not** satisfy C5's independence requirement and therefore
+does not, by itself, authorize changing the roadmap Security checkbox to
+`[x]`.
 
-This report must **not** be used to state that current `main` has been
-independently reviewed, and it must **not** by itself change the Security
-checkbox to `[x]`.
-
-A reviewer who satisfies the package's independence rule may adopt or challenge
-this evidence, record their own conclusion, and then the docs-only closure PR
-can mark the v2.0 security item complete.
+A separate reviewer who meets the independence requirement may use this report
+and the linked evidence as input, but must reach and record their own
+conclusion.
