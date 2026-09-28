@@ -65,7 +65,7 @@ equivalent report.
 | [`reviewer-report-template.md`](reviewer-report-template.md) | Structure for the independent conclusion |
 | [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md) | Independent review at `5702aa7`; closure refused on F4 and C1 |
 | [`changes-since-review.md`](changes-since-review.md) | Re-review target `v1.0.0` / `8230fec`, the delta since `5702aa7`, and later changes excluded from v2.0 closure |
-| [`technical-re-review-2026-09-28.md`](technical-re-review-2026-09-28.md) | Technical re-review of F4/R11 and C1 against `v1.0.0`; technical blockers resolved, but this report is explicitly not the independent attestation required for closure |
+| [`technical-re-review-2026-09-28.md`](technical-re-review-2026-09-28.md) | Author-side technical re-review of F4/R11 and C1 against `v1.0.0` |\n| [`independent-re-review-2026-09-28.md`](independent-re-review-2026-09-28.md) | Independent closure re-review of `v1.0.0`; F4/R11 and C1 closed with no blocking findings remaining |
 
 ## Reviewer independence
 
@@ -82,8 +82,7 @@ PRs #87, #95–#106. The report states the basis for independence.
 - A finding is not accepted as a residual risk by the same person who
   implemented the control it concerns.
 
-The security item in `ROADMAP.md` stays `[ ]` until the independent report
-exists and states that no blocking findings remain.
+The independent closure report now exists in\n[`independent-re-review-2026-09-28.md`](independent-re-review-2026-09-28.md)\nand states that no blocking findings remain for the pinned `v1.0.0` baseline.\nThe corresponding security item in `ROADMAP.md` is closed for that baseline.
 
 ## Existing material this package builds on
 

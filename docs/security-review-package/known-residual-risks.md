@@ -22,7 +22,7 @@ blocks closure.
 | R8 | The `atlas propose --test` command runs as the caller without a sandbox. | `docs/security-review.md` |
 | R9 | `clean_head` checks HEAD and a clean worktree, not where `ref` points; each write use case must enforce the base itself. | `docs/safety-model.md` |
 | R10 | Rollback in `atlas propose` removes the branch only if it still points to Core's commit; process termination does not undo side effects already committed. | `atlas_core/patch_proposal.py`, `docs/safety-model.md` |
-| R11 | Remediated in #109 and technically re-reviewed against `v1.0.0` / `8230fec`: pseudo-terminal CLI reproduction stopped at `approval_required` without writing, while an external host callback could perform the approved write. The technical blocker is resolved; the separate independent-attestation condition is still pending. | [`technical-re-review-2026-09-28.md`](technical-re-review-2026-09-28.md), [`pre-review-findings.md`](pre-review-findings.md), `docs/safety-model.md`, `docs/api-contract.md` |
+| R11 | Closed for `v1.0.0` / `8230fec`: #109 removes in-band CLI grants; the pseudo-terminal regression stops at `approval_required` without writing, and the independent re-review accepts the external-host approval boundary. | [`independent-re-review-2026-09-28.md`](independent-re-review-2026-09-28.md), [`technical-re-review-2026-09-28.md`](technical-re-review-2026-09-28.md), `docs/safety-model.md`, `docs/api-contract.md` |
 | R12 | Git runs in observed and target repositories with only `core.fsmonitor` overridden. In `atlas propose`, the caller's own repository can still run a textconv driver during `git diff` and a `reference-transaction` hook during `update-ref`. | [`pre-review-findings.md`](pre-review-findings.md) (F1) |
 
 ## Hosting and process
@@ -45,7 +45,7 @@ baseline:
 | C2 | Verify that Dependabot update PRs are reviewed. | Verified for the reviewed update: PR #93 records maintainer review and passed exact-head CI. |
 | C3 | Re-check that branch protection still requires `python`. | Holds as of the observation at `6474f17` in [`hosting-controls.md`](hosting-controls.md). |
 | C4 | Secret scan runs on PRs and main; canary retained. | `test.yml` runs on `pull_request` and `push` to `main`; canary step present. |
-| C5 | Independent review of threat model, implementation and residual risks. | Initial independent review at `5702aa7` is recorded in [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md). A later technical re-review resolves F4/R11 and C1 on `v1.0.0` / `8230fec`, but that reviewer does not meet this package's independence rule. Independent attestation is still required before closure. |
+| C5 | Independent review of threat model, implementation and residual risks. | Done for the pinned `v1.0.0` / `8230fec` baseline. Initial findings are in [`independent-review-2026-09-27.md`](independent-review-2026-09-27.md); closure is recorded in [`independent-re-review-2026-09-28.md`](independent-re-review-2026-09-28.md). |
 
 The reviewer's report should say whether C1 and C2 must be met before the
 security item closes, or can be tracked separately.
