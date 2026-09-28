@@ -413,7 +413,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **Arbetsstatus 2026-09-27:** Ruta 1 och 3–6 är stängda med merge- och testbeviset ovan. #109 är mergad som `8230fecd` med grön exact-main-CI 36315653280. F4-fixen och C1-publiceringen är genomförda och dokumenterade. Ruta 2 väntar endast på oberoende återgranskning av F4-fixen.
 
-**Gate-status 2026-09-27: väntar på återgranskning.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). Mätresultat, release-integrity och hosting-evidence är länkade ovan. De två blockerarna är åtgärdade, men implementeraren av F4-fixen kan inte själv ge den oberoende återgranskning som krävs för closure.
+**Gate-status 2026-09-28: teknisk omgranskning klar; oberoende sign-off återstår.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). [`technical-re-review-2026-09-28.md`](docs/security-review-package/technical-re-review-2026-09-28.md) verifierar F4/R11-remedieringen och C1 mot `v1.0.0` / `8230fec` utan kvarvarande tekniska blockerare. Security-rutan förblir öppen eftersom den tekniska granskaren inte uppfyller paketets oberoendekrav; en separat oberoende sign-off krävs för closure.
 
 ## Exekveringsordning — första 6 PR:er
 
