@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from pathlib import Path
 
 from .claim_check import ClaimKind, TypedClaim
 from .evidence import FINDINGS_FENCE
@@ -23,6 +24,17 @@ _RELEASE_METADATA_PATHS = (
     "MANIFEST.json",
 )
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+
+_PARITY_GATE_PATH = "release-check.sh"
+_PARITY_POLICY_PATH = "scripts/check-gate-parity.py"
+_SETUP_PREFIXES = (
+    "uv pip install",
+    "uv sync",
+    "uv build",
+    "uv venv",
+    "pip install",
+)
+_WRAPPERS = ("uv", "run", "bash", "sh", "python", "python3", "./")
 
 
 def produce_repo_review(
@@ -46,6 +58,265 @@ def produce_repo_review(
         if output:
             return output
     return ""
+
+
+def _produce_ci_release_gate_parity(
+    task: str,
+    plan: AtlasPlan,
+    evidence_base: EvidenceBase,
+) -> str:
+    review = plan.review
+    if review is None or review.topic != "ci_gate_parity":
+        return ""
+
+    by_path = {observation.path: observation for observation in evidence_base.observations}
+    gate = by_path.get(_PARITY_GATE_PATH)
+    policy = by_path.get(_PARITY_POLICY_PATH)
+    if gate is None or policy is None or gate.read_in_full() is not True:
+        return ""
+
+    workflow_scope = _workflow_scope(policy)
+    exceptions = _parity_exceptions(policy)
+    if workflow_scope is None or exceptions is None:
+        return ""
+
+    in_scope: dict[str, Observation] = {}
+    for name, enabled in workflow_scope.items():
+        if not enabled:
+            continue
+        observation = by_path.get(f".github/workflows/{name}")
+        if observation is None or observation.read_in_full() is not True:
+            return ""
+        in_scope[name] = observation
+
+    local = _local_gate_checks(gate)
+    if not local:
+        return ""
+
+    ci: dict[str, str] = {}
+    for observation in in_scope.values():
+        for key, command in _workflow_checks(observation, local).items():
+            ci.setdefault(key, command)
+
+    drift: list[str] = []
+    for key in sorted(set(ci) - set(local)):
+        if key not in exceptions:
+            drift.append(f"CI-only check: {key}")
+    for key in sorted(set(local) - set(ci)):
+        if key not in exceptions:
+            drift.append(f"local-only check: {key}")
+    for key in sorted(set(local) & set(ci)):
+        local_targets = _targets(local[key], key)
+        ci_targets = _targets(ci[key], key)
+        if local_targets != ci_targets:
+            drift.append(
+                f"target drift for {key}: local={sorted(local_targets)} "
+                f"ci={sorted(ci_targets)}"
+            )
+
+    findings: list[dict[str, object]] = []
+    evidence_markers: list[tuple[Observation, str, str]] = [
+        (gate, "check-gate-parity.py",
+         "This establishes that the local release gate invokes its parity check."),
+        (policy, '"tests.yml": True',
+         "This establishes that tests.yml is declared in scope by the observed parity policy."),
+        (policy, '"markdownlint.yml": True',
+         "This establishes that markdownlint.yml is declared in scope by the observed parity policy."),
+        (policy, '"mq-stack-gate.yml": False',
+         "This establishes that the cross-repository stack gate is explicitly out of scope for local parity."),
+    ]
+    tests_workflow = in_scope.get("tests.yml")
+    if tests_workflow is not None:
+        evidence_markers.extend(
+            [
+                (tests_workflow, "scripts/check-gate-parity.py",
+                 "This establishes that CI invokes the parity checker directly."),
+                (tests_workflow, "./release-check.sh",
+                 "This establishes that one observed CI job delegates to the local release gate."),
+            ]
+        )
+
+    for observation, marker, limitation in evidence_markers:
+        finding = _finding_for_marker(observation, marker, limitation=limitation)
+        if finding is not None:
+            findings.append(finding)
+
+    if len(findings) < 3:
+        return ""
+
+    enabled_workflows = ", ".join(sorted(in_scope))
+    disabled = ", ".join(
+        sorted(name for name, is_enabled in workflow_scope.items() if not is_enabled)
+    ) or "none"
+    declared_exceptions = ", ".join(sorted(exceptions)) or "none"
+    if drift:
+        conclusion = (
+            "Den deterministiska gate-jämförelsen hittar odeklarerad drift: "
+            + "; ".join(drift)
+            + f". In-scope workflows: {enabled_workflows}. Out-of-scope: {disabled}. "
+            + f"Explicit exceptions: {declared_exceptions}."
+        )
+    else:
+        conclusion = (
+            "Den deterministiska gate-jämförelsen hittar ingen odeklarerad drift "
+            f"mellan {_PARITY_GATE_PATH} och observerade in-scope workflows "
+            f"({enabled_workflows}). Out-of-scope: {disabled}. Explicit exceptions: "
+            f"{declared_exceptions}. Detta jämför deklarerade checks och targets; "
+            "det säger inte att checks faktiskt passerar i CI."
+        )
+    return _render(
+        heading="CI/release gate parity",
+        conclusion=conclusion,
+        findings=findings,
+    )
+
+
+def _workflow_scope(observation: Observation) -> dict[str, bool] | None:
+    scope: dict[str, bool] = {}
+    in_scope = False
+    for line in observation.excerpt.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("WORKFLOW_SCOPE"):
+            in_scope = True
+            continue
+        if in_scope and stripped == "}":
+            break
+        if not in_scope:
+            continue
+        match = re.match(r'^"([^"]+\.yml)"\s*:\s*(True|False)\b', stripped)
+        if match:
+            scope[match.group(1)] = match.group(2) == "True"
+    return scope or None
+
+
+def _parity_exceptions(observation: Observation) -> set[str] | None:
+    exceptions: set[str] = set()
+    in_exceptions = False
+    for line in observation.excerpt.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("EXCEPTIONS"):
+            in_exceptions = True
+            continue
+        if in_exceptions and stripped == "}":
+            break
+        if not in_exceptions:
+            continue
+        match = re.match(r'^"([^"]+)"\s*:', stripped)
+        if match:
+            exceptions.add(match.group(1))
+    return exceptions
+
+
+def _local_gate_checks(observation: Observation) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for raw in observation.excerpt.splitlines():
+        line = raw.strip()
+        if not line.startswith("run_check "):
+            continue
+        rest = line[len("run_check "):]
+        if rest.startswith('"'):
+            try:
+                end = rest.index('"', 1)
+            except ValueError:
+                continue
+            command = rest[end + 1:]
+        else:
+            command = rest.split(maxsplit=1)[1] if " " in rest else ""
+        key = _check_key(command.replace('"$ROOT"/', "").replace("$ROOT/", ""))
+        if key:
+            found[key] = command.strip()
+    return found
+
+
+def _workflow_checks(
+    observation: Observation,
+    local: dict[str, str],
+) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for raw in observation.excerpt.splitlines():
+        stripped = raw.strip()
+        uses_match = re.match(r"^-?\s*uses:\s*(\S+)", stripped)
+        if uses_match:
+            uses = uses_match.group(1)
+            if "checkout" not in uses and "setup-uv" not in uses:
+                key = uses.split("@")[0].split("/")[-1]
+                found.setdefault(key, uses)
+            continue
+
+        run_match = re.match(r"^-?\s*run:\s*(.+)$", stripped)
+        if not run_match:
+            continue
+        command = run_match.group(1).strip()
+        if command in {"|", ">"}:
+            continue
+        key = _check_key(command)
+        if not key:
+            continue
+        if key == "release-check.sh":
+            for gate_key, gate_command in local.items():
+                found.setdefault(gate_key, gate_command)
+            continue
+        found.setdefault(key, command)
+    return found
+
+
+def _check_key(command: str) -> str | None:
+    command = command.strip().replace('"', "")
+    if not command or command.startswith("#"):
+        return None
+    if any(command.startswith(prefix) for prefix in _SETUP_PREFIXES):
+        return None
+
+    tokens = command.split()
+    while tokens:
+        head = tokens[0]
+        if head == "--extra":
+            if len(tokens) < 2:
+                return None
+            del tokens[:2]
+            continue
+        if head.startswith("-") or head in _WRAPPERS:
+            tokens.pop(0)
+            continue
+        break
+    if not tokens:
+        return None
+
+    name = tokens[0].lstrip("./").replace("$ROOT/", "")
+    return Path(name).name or None
+
+
+def _targets(command: str, key: str) -> set[str]:
+    tokens = [token.replace('"', "").replace("$ROOT/", "") for token in command.split()]
+    start = 0
+    for index, token in enumerate(tokens):
+        if Path(token).name == key:
+            start = index + 1
+            break
+    return {
+        token.lstrip("./").rstrip("/")
+        for token in tokens[start:]
+        if "/" in token and not token.startswith("-")
+    }
+
+
+def _finding_for_marker(
+    observation: Observation,
+    marker: str,
+    *,
+    limitation: str,
+) -> dict[str, object] | None:
+    for offset, line in enumerate(observation.excerpt.splitlines()):
+        if marker not in line:
+            continue
+        return _contains_finding(
+            observation,
+            marker,
+            observation.line_start + offset,
+            line,
+            limitation=limitation,
+        )
+    return None
 
 
 def _produce_ci_test_command_parity(
@@ -421,6 +692,7 @@ def _contains_finding(
 
 
 _PRODUCERS: tuple[Producer, ...] = (
+    _produce_ci_release_gate_parity,
     _produce_ci_test_command_parity,
     _produce_release_changelog_parity,
     _produce_release_metadata_parity,

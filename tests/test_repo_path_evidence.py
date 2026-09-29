@@ -234,6 +234,27 @@ class TestTheObserverRefuses(_Repo):
         self._run(host)
         self.assertIn("config.toml", [o.path for o in host.read])
 
+    def test_ds_store_never_becomes_repo_evidence(self) -> None:
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        (scripts / ".DS_Store").write_bytes(b"Finder metadata")
+        (scripts / "check.sh").write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+        snapshot = take_snapshot(self.root)
+        request = ObservationRequest(
+            snapshot=snapshot,
+            source_ids=[],
+            paths=[],
+            blocked_by=[],
+            patterns=["scripts/*"],
+            question="inspect scripts",
+        )
+
+        found = FilesystemRepoObserver(self.root).observe(
+            request, budget=RunBudget(LIMITS)
+        )
+
+        self.assertEqual([item.path for item in found], ["scripts/check.sh"])
+
     @unittest.skipIf(os.name != "posix" or os.geteuid() == 0, "needs a non-root POSIX user")
     def test_an_unreadable_file_is_skipped_not_fatal(self) -> None:
         locked = self.root / "locked.env"

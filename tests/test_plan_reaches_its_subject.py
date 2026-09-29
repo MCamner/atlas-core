@@ -38,7 +38,7 @@ class TestATaskThatNarrowsReachesAPlan(unittest.TestCase):
         self.assertEqual(route.name, "repo_review")
         self.assertIsNotNone(topic)
         assert topic is not None
-        self.assertEqual(topic.code, "ci")
+        self.assertEqual(topic.code, "ci_gate_parity")
 
     def test_the_weaker_signal_is_reported_as_weaker(self):
         """No keyword matched, and the confidence must not say one did."""
