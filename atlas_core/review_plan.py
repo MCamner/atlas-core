@@ -112,6 +112,25 @@ TOPICS: tuple[ReviewTopic, ...] = (
         ),
     ),
     ReviewTopic(
+        code="ci_gate_parity",
+        question=(
+            "Do the local release gate and the in-scope GitHub Actions workflows "
+            "declare the same checks and targets, apart from explicit exceptions?"
+        ),
+        keywords=(
+            "release-gates", "release gates", "release-gate", "release gate",
+            "gate parity", "gate-parity", "check-gate-parity", "paritet",
+            "drift mellan release-check",
+        ),
+        patterns=(
+            "release-check.sh",
+            ".github/workflows/tests.yml",
+            ".github/workflows/markdownlint.yml",
+            ".github/workflows/mq-stack-gate.yml",
+            "scripts/check-gate-parity.py",
+        ),
+    ),
+    ReviewTopic(
         code="ci",
         question="Does the CI configuration run the checks it claims to run?",
         keywords=("ci", "workflow", "actions", "pipeline", "bygge", "build"),
