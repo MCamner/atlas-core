@@ -40,6 +40,21 @@ Security fixes:
 - The GitHub reader refuses `.` and `..` as owner or repository name. They
   matched the allowed characters and were placed in the request path.
 
+
+Repo-review loop improvements:
+
+- Added a deterministic `ci_gate_parity` review topic and producer. It compares
+  `release-check.sh` against workflows declared in
+  `scripts/check-gate-parity.py`, expands CI delegation back to the local
+  release gate, honours explicit exceptions and reports command-target drift.
+  The relation is computed from observed source text; findings remain typed,
+  source-bound claims rather than free prose.
+- Exact review-plan paths receive a larger but still bounded 200-line excerpt,
+  so small gate/workflow files can be evaluated as complete sources without
+  widening wildcard discovery.
+- Finder metadata (`.DS_Store`) is ignored by local repository observation and
+  no longer consumes evidence or tool budget.
+
 Roadmap v1.5 write capability with approval:
 
 - `atlas_core.approval`: an `Operation` is one exact write (tool, arguments,
