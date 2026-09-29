@@ -58,6 +58,9 @@ jobs:
           print("iteration=", run["iteration"])
           print("evidence_gaps=", last["evidence_gaps"])
           PY
+      - name: Remove pinned E2E checkout
+        if: always()
+        run: rm -rf _e2e
       - run: uv run --locked --group ci mypy atlas_core tests scripts/pinned_repo_review.py scripts/secret_scan_smoke.py
       - run: uv run --locked --group ci pyright atlas_core tests scripts/pinned_repo_review.py scripts/secret_scan_smoke.py scripts/reproducible_build.py
       - run: uv run --locked --group ci pip-audit --strict
