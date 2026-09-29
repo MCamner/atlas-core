@@ -12,6 +12,7 @@ from .live_model import (
 )
 from .model import ModelAdapter, ModelResult
 from .mq import MQAgentAdapter, MQMCPAdapter, MQToolClient, MQToolContract
+from .mq_notebook import MQNotebookEvidenceWorkspace
 from .mqobsidian import MQObsidianMemoryAdapter
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "ModelResult",
     "MQAgentAdapter",
     "MQMCPAdapter",
+    "MQNotebookEvidenceWorkspace",
     "MQObsidianMemoryAdapter",
     "MQToolClient",
     "MQToolContract",
