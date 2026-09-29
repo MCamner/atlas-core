@@ -115,7 +115,7 @@ def _produce_ci_release_gate_parity(
             )
 
     findings: list[dict[str, object]] = []
-    evidence_markers = (
+    evidence_markers: list[tuple[Observation, str, str]] = [
         (gate, "check-gate-parity.py",
          "This establishes that the local release gate invokes its parity check."),
         (policy, '"tests.yml": True',
@@ -124,14 +124,16 @@ def _produce_ci_release_gate_parity(
          "This establishes that markdownlint.yml is declared in scope by the observed parity policy."),
         (policy, '"mq-stack-gate.yml": False',
          "This establishes that the cross-repository stack gate is explicitly out of scope for local parity."),
-    )
+    ]
     tests_workflow = in_scope.get("tests.yml")
     if tests_workflow is not None:
-        evidence_markers += (
-            (tests_workflow, "scripts/check-gate-parity.py",
-             "This establishes that CI invokes the parity checker directly."),
-            (tests_workflow, "./release-check.sh",
-             "This establishes that one observed CI job delegates to the local release gate."),
+        evidence_markers.extend(
+            [
+                (tests_workflow, "scripts/check-gate-parity.py",
+                 "This establishes that CI invokes the parity checker directly."),
+                (tests_workflow, "./release-check.sh",
+                 "This establishes that one observed CI job delegates to the local release gate."),
+            ]
         )
 
     for observation, marker, limitation in evidence_markers:
@@ -142,7 +144,7 @@ def _produce_ci_release_gate_parity(
     if len(findings) < 3:
         return ""
 
-    enabled = ", ".join(sorted(in_scope))
+    enabled_workflows = ", ".join(sorted(in_scope))
     disabled = ", ".join(
         sorted(name for name, is_enabled in workflow_scope.items() if not is_enabled)
     ) or "none"
@@ -158,7 +160,7 @@ def _produce_ci_release_gate_parity(
         conclusion = (
             "Den deterministiska gate-jämförelsen hittar ingen odeklarerad drift "
             f"mellan {_PARITY_GATE_PATH} och observerade in-scope workflows "
-            f"({enabled}). Out-of-scope: {disabled}. Explicit exceptions: "
+            f"({enabled_workflows}). Out-of-scope: {disabled}. Explicit exceptions: "
             f"{declared_exceptions}. Detta jämför deklarerade checks och targets; "
             "det säger inte att checks faktiskt passerar i CI."
         )
