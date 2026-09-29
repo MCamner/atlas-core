@@ -153,7 +153,7 @@ def _produce_ci_release_gate_parity(
         conclusion = (
             "Den deterministiska gate-jämförelsen hittar odeklarerad drift: "
             + "; ".join(drift)
-            + f". In-scope workflows: {enabled}. Out-of-scope: {disabled}. "
+            + f". In-scope workflows: {enabled_workflows}. Out-of-scope: {disabled}. "
             + f"Explicit exceptions: {declared_exceptions}."
         )
     else:
