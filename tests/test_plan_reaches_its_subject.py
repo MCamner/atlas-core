@@ -38,7 +38,24 @@ class TestATaskThatNarrowsReachesAPlan(unittest.TestCase):
         self.assertEqual(route.name, "repo_review")
         self.assertIsNotNone(topic)
         assert topic is not None
-        self.assertEqual(topic.code, "ci_gate_parity")
+        self.assertEqual(topic.code, "ci")
+
+    def test_gate_parity_needs_its_own_names(self):
+        """A generic release-gate question keeps the topic that can read it.
+
+        `ci_gate_parity` names five exact files. Reached by "release gate"
+        alone, a repository without them read nothing.
+        """
+        release = detect_topic("granska release gate i atlas-core")
+        assert release is not None
+        self.assertEqual(release.code, "release")
+
+        parity = detect_topic(
+            "Kontrollera om release-check.sh och GitHub Actions har samma "
+            "release-gates."
+        )
+        assert parity is not None
+        self.assertEqual(parity.code, "ci_gate_parity")
 
     def test_the_weaker_signal_is_reported_as_weaker(self):
         """No keyword matched, and the confidence must not say one did."""

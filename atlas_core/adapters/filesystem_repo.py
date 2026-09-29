@@ -8,6 +8,7 @@ from ..containment import PathRefused, SourceTooLarge, resolve_within
 from ..integrity import collect_observation_safely
 from ..observation import Observation
 from ..observer import LineWindow, ObservationRequest
+from ..review_plan import GATE_PARITY_PATHS
 
 CANDIDATE_FILES = [
     "README.md", "pyproject.toml", "package.json", "docs/architecture.md",
@@ -88,15 +89,7 @@ DEFAULT_MAX_FILES_PER_ROUND = 8
 #: to cover small gate/workflow files while wildcard discovery keeps the
 #: ordinary 80-line Observation.v1 excerpt bound.
 EXACT_PATTERN_MAX_LINES = 200
-_EXTENDED_EXACT_PATHS = frozenset(
-    {
-        "release-check.sh",
-        ".github/workflows/tests.yml",
-        ".github/workflows/markdownlint.yml",
-        ".github/workflows/mq-stack-gate.yml",
-        "scripts/check-gate-parity.py",
-    }
-)
+_EXTENDED_EXACT_PATHS = frozenset(GATE_PARITY_PATHS)
 
 
 class FilesystemRepoObserver:

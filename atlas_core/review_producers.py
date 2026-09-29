@@ -89,6 +89,11 @@ def _produce_ci_release_gate_parity(
             return ""
         in_scope[name] = observation
 
+    # Only one-line `run:` steps are read. A block scalar hides its commands
+    # from the comparison, so a verdict would be about a partial workflow.
+    if any(_has_block_scalar_run(observation) for observation in in_scope.values()):
+        return ""
+
     local = _local_gate_checks(gate)
     if not local:
         return ""
@@ -387,6 +392,13 @@ def _workflow_checks(
             continue
         found.setdefault(key, command)
     return found
+
+
+def _has_block_scalar_run(observation: Observation) -> bool:
+    return any(
+        re.match(r"^-?\s*run:\s*[|>][-+0-9]*\s*(?:#.*)?$", raw.strip())
+        for raw in observation.excerpt.splitlines()
+    )
 
 
 def _check_key(command: str) -> str | None:

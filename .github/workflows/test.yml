@@ -51,6 +51,8 @@ jobs:
           last = run["evaluations"][-1]
           assert "findings_are_on_topic" not in last["unmet_criteria"], last
           assert "no_on_topic_finding" not in last["evidence_gaps"], last
+          # mq-agent's own check-gate-parity.py passes at this commit.
+          assert "ingen odeklarerad drift" in run["outputs"][-1], run["outputs"][-1]
           print("E2E_PASS")
           print("route=", run["route"]["name"])
           print("topic=", run["plan"]["review"]["topic"])

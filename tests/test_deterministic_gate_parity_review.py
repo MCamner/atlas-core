@@ -184,6 +184,36 @@ EXCEPTIONS: dict[str, str] = {
         ledger = render_run_text(run).split("Claim ledger", 1)[1]
         self.assertIn(f"{FACT}  command \"ruff\" targets differ:", ledger)
 
+    def test_a_block_scalar_run_step_makes_the_producer_decline(self) -> None:
+        """The producer reads one-line `run:` steps only.
+
+        A check inside `run: |` was invisible: a CI-only check there was
+        reported as no drift, and a shared check there as local-only drift.
+        Both runs passed. Declining is the honest answer to a step it cannot
+        read.
+        """
+        self._write_release_gate()
+        for indicator in ("|", "|-", ">"):
+            with self.subTest(indicator=indicator):
+                (self.workflows / "tests.yml").write_text(
+                    "name: Tests\n"
+                    "jobs:\n"
+                    "  test:\n"
+                    "    steps:\n"
+                    "      - uses: actions/checkout@v4\n"
+                    "      - run: uv run pytest tests/\n"
+                    "      - run: uv run ruff check src/ tests/\n"
+                    "      - run: uv run python scripts/check-gate-parity.py\n"
+                    f"      - run: {indicator}\n"
+                    "          uv run mypy src/\n",
+                    encoding="utf-8",
+                )
+
+                run = self._run()
+
+                self.assertNotIn("gate-jämförelsen", run["outputs"][-1])
+                self.assertNotEqual(run["stop_reason"], "passed")
+
 
 if __name__ == "__main__":
     unittest.main()
