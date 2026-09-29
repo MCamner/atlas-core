@@ -43,6 +43,13 @@ Security fixes:
 
 Repo-review loop improvements:
 
+- Gate-parity exception parsing now starts only on the actual Python assignment,
+  so prose such as `EXCEPTIONS below...` cannot make workflow names masquerade
+  as declared exceptions. Target drift is emitted as the typed two-source
+  `command_targets_differ` claim and is re-derived from the exact cited command
+  lines before it can become a FACT. CI includes a pinned negative mq-agent E2E
+  that removes `tests/` from the CI ruff target and requires the drift relation
+  to verify without reporting the two declared CI-only exceptions as drift.
 - Added a deterministic `ci_gate_parity` review topic and producer. It compares
   `release-check.sh` against workflows declared in
   `scripts/check-gate-parity.py`, expands CI delegation back to the local
