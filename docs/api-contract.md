@@ -445,10 +445,26 @@ not the same run. Rounds past the recorded history are read normally.
 `--unsafe-legacy-unbounded` and `--repo` keep the prose channel.
 
 A task that narrows to a review topic is now graded as a review: its sources
-are evidence, so the plan's criteria apply. The rule-based executor asserts no
-findings, so without a model producer such a run ends `no_progress` with
-`no_on_topic_finding` where it used to pass on prose. That is the gate doing
-its job, not a failed read.
+are evidence, so the plan's criteria apply. Without a model, findings come
+only from the deterministic producers in `atlas_core/review_producers.py`,
+and each answers one narrow question shape:
+
+- topic `ci`, and the task asks whether a test command is the same
+  (`testkommando`/`test command` and `samma`/`same`);
+- topic `release_changelog`, and the task asks whether the changelog agrees
+  with the release;
+- topic `release_metadata`, and the task names `pyproject.toml`,
+  `manifest.json` or version metadata and asks whether they agree.
+
+A producer that does not recognise the question, or cannot find the sources
+it compares, returns nothing rather than guess. The rule-based output then asserts no findings, and the run fails
+`no_on_topic_finding` where it used to pass on prose. With an observer
+attached (`--repo-path`), the next action is `observe_again`; a round that
+adds nothing stops the run `blocked` with `metadata.blocked.reason`
+`no_new_material`. Observed sources and outputs share `--max-output-bytes`,
+so a run near the limit can stop `budget_exhausted` first; a larger limit
+then reaches the same `blocked` stop, not a pass. That is the gate doing its job,
+not a failed read.
 
 Known limits: the byte limit applies where a source is collected. The drift
 gate's re-verification and the citation reader re-read a source without one,
