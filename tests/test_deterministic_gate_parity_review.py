@@ -181,7 +181,8 @@ EXCEPTIONS: dict[str, str] = {
             relation_checks[0]["claim_check"]["checked"]["other_targets"],
             ["src"],
         )
-        self.assertIn(f"{FACT}  {relation}", render_run_text(run))
+        ledger = render_run_text(run).split("Claim ledger", 1)[1]
+        self.assertIn(f"{FACT}  command \"ruff\" targets differ:", ledger)
 
 
 if __name__ == "__main__":
