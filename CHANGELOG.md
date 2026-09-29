@@ -64,6 +64,10 @@ Repo-review loop improvements:
   producer decline instead of comparing a partial workflow, and the topic is
   reached only by `release-check` or gate parity, so a generic "release gate"
   question keeps the `ci` or `release` topic that can read the repository.
+- The generated `atlas-core-loop` skill tells the agent to check `Stop reason:`
+  and to report any stop other than `passed` instead of relaying the route
+  template as findings. `AGENTS.md` (with `CLAUDE.md` pointing to it) records
+  the checks and merge rules for agents that change this repository.
 
 Roadmap v1.5 write capability with approval:
 
