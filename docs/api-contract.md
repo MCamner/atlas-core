@@ -457,14 +457,15 @@ and each answers one narrow question shape:
   `manifest.json` or version metadata and asks whether they agree.
 
 A producer that does not recognise the question, or cannot find the sources
-it compares, returns nothing rather than guess. The rule-based output then asserts no findings, and the run fails
-`no_on_topic_finding` where it used to pass on prose. With an observer
+it compares, returns nothing rather than guess. The rule-based output then
+asserts no findings, and the run fails `no_on_topic_finding` where it used to
+pass on prose. With an observer
 attached (`--repo-path`), the next action is `observe_again`; a round that
 adds nothing stops the run `blocked` with `metadata.blocked.reason`
 `no_new_material`. Observed sources and outputs share `--max-output-bytes`,
 so a run near the limit can stop `budget_exhausted` first; a larger limit
-then reaches the same `blocked` stop, not a pass. That is the gate doing its job,
-not a failed read.
+then reaches the same `blocked` stop, not a pass. That is the gate doing its
+job, not a failed read.
 
 Known limits: the byte limit applies where a source is collected. The drift
 gate's re-verification and the citation reader re-read a source without one,
