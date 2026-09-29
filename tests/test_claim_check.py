@@ -488,9 +488,16 @@ class TestTheDeclaredForms(unittest.TestCase):
         self.assertIsNone(build_typed_claim(None))
         self.assertIsNone(build_condition(None))
 
-    def test_only_two_claim_kinds_exist(self):
+    def test_only_declared_claim_kinds_exist(self):
         self.assertEqual(
-            CLAIM_KINDS, frozenset({"source_contains_literal", "source_lacks_literal"})
+            CLAIM_KINDS,
+            frozenset(
+                {
+                    "source_contains_literal",
+                    "source_lacks_literal",
+                    "command_targets_differ",
+                }
+            ),
         )
 
     def test_regular_expressions_are_not_accepted(self):
