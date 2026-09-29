@@ -49,9 +49,9 @@ Repo-review loop improvements:
   release gate, honours explicit exceptions and reports command-target drift.
   The relation is computed from observed source text; findings remain typed,
   source-bound claims rather than free prose.
-- Exact review-plan paths receive a larger but still bounded 200-line excerpt,
-  so small gate/workflow files can be evaluated as complete sources without
-  widening wildcard discovery.
+- The gate-parity plan's five exact source paths receive a larger but still
+  bounded 200-line excerpt, so those small gate/workflow files can be evaluated
+  as complete sources without changing other review topics or wildcard discovery.
 - Finder metadata (`.DS_Store`) is ignored by local repository observation and
   no longer consumes evidence or tool budget.
 
