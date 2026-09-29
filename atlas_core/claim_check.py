@@ -24,8 +24,7 @@ producer-chosen predicate is not deciding the producer's claim.
 
 The only route to `verified` or `contradicted` is a **typed claim**, where the
 claim *is* the predicate. A producer does not supply a sentence and a separate
-test of it; it supplies `source_contains_literal` or `source_lacks_literal`
-over a cited source, and the human-readable text is **derived** from that. The
+test of it; it supplies a declared typed form — literal presence/absence over one cited\nsource, or the narrow deterministic command-target relation over two cited\nsources — and the human-readable text is **derived** from that. The
 producer's own `claim` string must equal the derivation, so the sentence a
 reader sees cannot say more than what was settled.
 
@@ -141,7 +140,10 @@ class TypedClaim:
 
     def __post_init__(self) -> None:
         if not self.text:
-            raise ValueError("a claim must name text to check")
+            raise ValueError(
+                "a claim must name text to look for; an empty string matches "
+                "everything and would settle nothing"
+            )
         if not self.source_id:
             raise ValueError("a claim must name the source it is about")
         if self.kind is ClaimKind.COMMAND_TARGETS_DIFFER:
