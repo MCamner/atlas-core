@@ -113,7 +113,7 @@
       },
       "typed_claim": {
         "type": "object",
-        "description": "A claim stated so that settling it settles the claim: text, source and scope are one object, not three independently chosen ones. This is the ONLY route to a verdict of verified or contradicted. The finding's `claim` string must equal the sentence derived from this object — 'PATH lines A-B contain \"TEXT\"' or '... do not contain ...' — so the sentence a reader sees cannot say more than what was tested. Settled against the lines the observation recorded, never the whole file. Mutually exclusive with claim_check: a typed claim is already its own test, and a second one beside it could only disagree.",
+        "description": "A claim stated so that settling it settles the claim. Literal claims bind text to one observed source. command_targets_differ is the narrow cross-source form used by deterministic gate-parity producers: it binds two cited sources, one command identity, and the exact target sets that must be re-derived from the cited command lines. Mutually exclusive with claim_check.",
         "additionalProperties": false,
         "required": [
           "kind",
@@ -125,7 +125,8 @@
             "type": "string",
             "enum": [
               "source_contains_literal",
-              "source_lacks_literal"
+              "source_lacks_literal",
+              "command_targets_differ"
             ]
           },
           "source_id": {
@@ -136,6 +137,27 @@
             "type": "string",
             "minLength": 1,
             "description": "Literal text. A producer-supplied regular expression is untrusted input that can hang the checker; a substring search cannot."
+          },
+          "other_source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Second cited source for command_targets_differ."
+          },
+          "source_targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Exact targets claimed for source_id; required by runtime validation for command_targets_differ."
+          },
+          "other_targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Exact targets claimed for other_source_id; required by runtime validation for command_targets_differ."
           }
         }
       }
