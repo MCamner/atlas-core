@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: MCamner/mq-agent
-          ref: aa7411d9a820239cf9163cf7afad818dfbcdaecf
+          ref: aa7411d9a820239cf9163cf7afad818dfbcdaecf # pragma: allowlist secret
           path: _e2e/mq-agent
           persist-credentials: false
       - name: Run Atlas gate-parity loop against real mq-agent
