@@ -84,6 +84,10 @@ DEFAULT_MAX_BYTES_PER_FILE = 256 * 1024
 #: take turns, in sorted order within each, so every pattern with a match gets
 #: a read before any gets a second; the round says each pattern was answered.
 DEFAULT_MAX_FILES_PER_ROUND = 8
+#: Exact plan targets are deliberate, narrow reads. Give them enough context
+#: to cover small gate/workflow files while wildcard discovery keeps the
+#: ordinary 80-line Observation.v1 excerpt bound.
+EXACT_PATTERN_MAX_LINES = 200
 
 
 class FilesystemRepoObserver:
@@ -135,8 +139,15 @@ class FilesystemRepoObserver:
             [path for path in request.paths if path not in windows],
         )
         by_pattern = [_present(root, _matching(root, p)) for p in request.patterns]
+        expanded_paths = {
+            path
+            for pattern, names in zip(request.patterns, by_pattern)
+            if _is_exact_pattern(pattern)
+            for path in names
+        }
         if not request.paths and not request.patterns and not request.line_windows:
             by_pattern = [_present(root, CANDIDATE_FILES)]
+            expanded_paths = set()
 
         wanted: list[tuple[str, LineWindow | None]] = [
             (window.path, window) for window in request.line_windows
@@ -162,11 +173,19 @@ class FilesystemRepoObserver:
             budget.reserve_tool()
             try:
                 if window is None:
-                    observation = collect_observation_safely(
-                        request.snapshot,
-                        relative,
-                        max_bytes=self.max_bytes_per_file,
-                    )
+                    if relative in expanded_paths:
+                        observation = collect_observation_safely(
+                            request.snapshot,
+                            relative,
+                            max_bytes=self.max_bytes_per_file,
+                            max_lines=EXACT_PATTERN_MAX_LINES,
+                        )
+                    else:
+                        observation = collect_observation_safely(
+                            request.snapshot,
+                            relative,
+                            max_bytes=self.max_bytes_per_file,
+                        )
                 else:
                     observation = collect_observation_safely(
                         request.snapshot,
@@ -205,6 +224,8 @@ def _present(root: Path, names: list[str]) -> list[str]:
     """
     present: list[str] = []
     for name in names:
+        if _ignored_repo_path(name):
+            continue
         try:
             if resolve_within(root, name).is_file():
                 present.append(name)
@@ -227,4 +248,17 @@ def _matching(root: Path, pattern: str) -> list[str]:
         path.relative_to(root).as_posix()
         for path in root.glob(pattern)
         if path.is_file()
+        and not _ignored_repo_path(path.relative_to(root).as_posix())
     )
+
+
+def _is_exact_pattern(pattern: str) -> bool:
+    """Whether a review plan named one concrete path rather than discovery."""
+
+    return not any(marker in pattern for marker in ("*", "?", "[", "]"))
+
+
+def _ignored_repo_path(name: str) -> bool:
+    """Host metadata is not repository evidence and must not spend run budget."""
+
+    return PurePosixPath(name).name == ".DS_Store"
