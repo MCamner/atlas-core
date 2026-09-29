@@ -99,6 +99,7 @@ def _produce_ci_release_gate_parity(
             ci.setdefault(key, command)
 
     drift: list[str] = []
+    drift_findings: list[dict[str, object]] = []
     for key in sorted(set(ci) - set(local)):
         if key not in exceptions:
             drift.append(f"CI-only check: {key}")
@@ -109,12 +110,24 @@ def _produce_ci_release_gate_parity(
         local_targets = _targets(local[key], key)
         ci_targets = _targets(ci[key], key)
         if local_targets != ci_targets:
+            relation = _target_drift_finding(
+                gate,
+                in_scope,
+                key,
+                local_targets,
+                ci_targets,
+            )
+            if relation is None:
+                # A drift conclusion without a checkable relation finding would
+                # recreate the exact evidence gap this producer is meant to close.
+                return ""
+            drift_findings.append(relation)
             drift.append(
                 f"target drift for {key}: local={sorted(local_targets)} "
                 f"ci={sorted(ci_targets)}"
             )
 
-    findings: list[dict[str, object]] = []
+    findings: list[dict[str, object]] = list(drift_findings)
     evidence_markers: list[tuple[Observation, str, str]] = [
         (gate, "check-gate-parity.py",
          "This establishes that the local release gate invokes its parity check."),
@@ -171,12 +184,128 @@ def _produce_ci_release_gate_parity(
     )
 
 
+def _target_drift_finding(
+    gate: Observation,
+    in_scope: dict[str, Observation],
+    key: str,
+    local_targets: set[str],
+    ci_targets: set[str],
+) -> dict[str, object] | None:
+    local_fact = _local_command_line(gate, key)
+    ci_fact = _workflow_command_line(in_scope, key)
+    if local_fact is None or ci_fact is None:
+        return None
+
+    local_line, local_quote = local_fact
+    ci_observation, ci_line, ci_quote = ci_fact
+    typed = TypedClaim(
+        kind=ClaimKind.COMMAND_TARGETS_DIFFER,
+        source_id=gate.source_id,
+        text=key,
+        other_source_id=ci_observation.source_id,
+        source_targets=tuple(sorted(local_targets)),
+        other_targets=tuple(sorted(ci_targets)),
+    )
+    claim = typed.render(
+        gate.path,
+        gate.line_start,
+        gate.line_end,
+        other_path=ci_observation.path,
+    )
+    return {
+        "claim": claim,
+        "scope": f"{gate.path} <-> {ci_observation.path}",
+        "severity": "unknown",
+        "severity_rationale": (
+            "Deterministic gate-parity relation; no defect severity is assigned."
+        ),
+        "evidence": [
+            {
+                "source_id": gate.source_id,
+                "content_sha256": gate.content_sha256,
+                "line_start": local_line,
+                "line_end": local_line,
+                "quoted": local_quote,
+            },
+            {
+                "source_id": ci_observation.source_id,
+                "content_sha256": ci_observation.content_sha256,
+                "line_start": ci_line,
+                "line_end": ci_line,
+                "quoted": ci_quote,
+            },
+        ],
+        "typed_claim": {
+            "kind": typed.kind.value,
+            "source_id": typed.source_id,
+            "other_source_id": typed.other_source_id,
+            "text": typed.text,
+            "source_targets": list(typed.source_targets),
+            "other_targets": list(typed.other_targets),
+        },
+        "limitations": [
+            (
+                "This establishes declared command-target drift between the two "
+                "observed command lines; it does not execute either command."
+            )
+        ],
+        "reproducible_command": "unknown",
+    }
+
+
+def _local_command_line(
+    observation: Observation,
+    key: str,
+) -> tuple[int, str] | None:
+    candidates: list[tuple[int, str]] = []
+    for offset, raw in enumerate(observation.excerpt.splitlines()):
+        line = raw.strip()
+        if not line.startswith("run_check "):
+            continue
+        rest = line[len("run_check "):]
+        if rest.startswith('"'):
+            try:
+                end = rest.index('"', 1)
+            except ValueError:
+                continue
+            command = rest[end + 1:]
+        else:
+            command = rest.split(maxsplit=1)[1] if " " in rest else ""
+        command_key = _check_key(
+            command.replace('"$ROOT"/', "").replace("$ROOT/", "")
+        )
+        if command_key == key:
+            candidates.append((observation.line_start + offset, raw))
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _workflow_command_line(
+    in_scope: dict[str, Observation],
+    key: str,
+) -> tuple[Observation, int, str] | None:
+    candidates: list[tuple[Observation, int, str]] = []
+    for observation in sorted(in_scope.values(), key=lambda item: item.path):
+        for offset, raw in enumerate(observation.excerpt.splitlines()):
+            stripped = raw.strip()
+            match = re.match(r"^-?\s*run:\s*(.+)$", stripped)
+            if not match:
+                continue
+            command = match.group(1).strip()
+            if command in {"|", ">"}:
+                continue
+            if _check_key(command) == key:
+                candidates.append(
+                    (observation, observation.line_start + offset, raw)
+                )
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _workflow_scope(observation: Observation) -> dict[str, bool] | None:
     scope: dict[str, bool] = {}
     in_scope = False
     for line in observation.excerpt.splitlines():
         stripped = line.strip()
-        if stripped.startswith("WORKFLOW_SCOPE"):
+        if re.match(r"^WORKFLOW_SCOPE\s*(?::[^=]+)?\s*=", stripped):
             in_scope = True
             continue
         if in_scope and stripped == "}":
@@ -194,7 +323,7 @@ def _parity_exceptions(observation: Observation) -> set[str] | None:
     in_exceptions = False
     for line in observation.excerpt.splitlines():
         stripped = line.strip()
-        if stripped.startswith("EXCEPTIONS"):
+        if re.match(r"^EXCEPTIONS\s*(?::[^=]+)?\s*=", stripped):
             in_exceptions = True
             continue
         if in_exceptions and stripped == "}":
