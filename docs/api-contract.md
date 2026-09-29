@@ -449,6 +449,10 @@ are evidence, so the plan's criteria apply. Without a model, findings come
 only from the deterministic producers in `atlas_core/review_producers.py`,
 and each answers one narrow question shape:
 
+- topic `ci_gate_parity`, reached only when the task names `release-check`
+  or gate parity: compares `release-check.sh` with the workflows declared in
+  `scripts/check-gate-parity.py`, and declines when an in-scope workflow has
+  a multi-line `run:` block, since it reads one-line steps only;
 - topic `ci`, and the task asks whether a test command is the same
   (`testkommando`/`test command` and `samma`/`same`);
 - topic `release_changelog`, and the task asks whether the changelog agrees

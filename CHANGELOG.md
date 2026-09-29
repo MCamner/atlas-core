@@ -40,7 +40,6 @@ Security fixes:
 - The GitHub reader refuses `.` and `..` as owner or repository name. They
   matched the allowed characters and were placed in the request path.
 
-
 Repo-review loop improvements:
 
 - Added a deterministic `ci_gate_parity` review topic and producer. It compares
@@ -54,6 +53,13 @@ Repo-review loop improvements:
   as complete sources without changing other review topics or wildcard discovery.
 - Finder metadata (`.DS_Store`) is ignored by local repository observation and
   no longer consumes evidence or tool budget.
+- `ci_gate_parity` fixes: the policy tables are found by their assignment, so a
+  docstring line starting with `EXCEPTIONS` no longer hides the declared
+  exceptions (mq-agent's own checker passed while Atlas reported both
+  exceptions as drift); a workflow with a multi-line `run:` block makes the
+  producer decline instead of comparing a partial workflow; and the topic is
+  reached only by `release-check` or gate parity, so a generic "release gate"
+  question keeps the `ci` or `release` topic that can read the repository.
 
 Roadmap v1.5 write capability with approval:
 

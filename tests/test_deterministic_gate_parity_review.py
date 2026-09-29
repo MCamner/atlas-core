@@ -142,6 +142,61 @@ EXCEPTIONS: dict[str, str] = {
         self.assertIn("target drift for ruff", run["outputs"][-1])
         self.assertIn("tests", run["outputs"][-1])
 
+    def test_prose_naming_the_policy_tables_is_not_a_table(self) -> None:
+        """Only the assignments open the tables.
+
+        mq-agent's parity checker has a docstring line that starts with
+        "EXCEPTIONS below". Read as the table, it ended at WORKFLOW_SCOPE's
+        brace and the real exceptions were never seen, so both declared
+        exceptions came back as drift while the checker itself passed.
+        """
+        policy = self.scripts / "check-gate-parity.py"
+        policy.write_text(
+            '"""Gate parity.\n\n'
+            "A check in only one place fails unless it is listed in\n"
+            "EXCEPTIONS below with a reason. Adding a workflow is listed in\n"
+            'WORKFLOW_SCOPE first.\n"""\n\n'
+            + policy.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        self._write_release_gate()
+        self._write_tests_workflow()
+
+        run = self._run()
+
+        self.assertEqual(run["stop_reason"], "passed")
+        self.assertIn("ingen odeklarerad drift", run["outputs"][-1])
+
+    def test_a_block_scalar_run_step_makes_the_producer_decline(self) -> None:
+        """The producer reads one-line `run:` steps only.
+
+        A check inside `run: |` was invisible: a CI-only check there was
+        reported as no drift, and a shared check there as local-only drift.
+        Both runs passed. Declining is the honest answer to a step it cannot
+        read.
+        """
+        self._write_release_gate()
+        for indicator in ("|", "|-", ">"):
+            with self.subTest(indicator=indicator):
+                (self.workflows / "tests.yml").write_text(
+                    "name: Tests\n"
+                    "jobs:\n"
+                    "  test:\n"
+                    "    steps:\n"
+                    "      - uses: actions/checkout@v4\n"
+                    "      - run: uv run pytest tests/\n"
+                    "      - run: uv run ruff check src/ tests/\n"
+                    "      - run: uv run python scripts/check-gate-parity.py\n"
+                    f"      - run: {indicator}\n"
+                    "          uv run mypy src/\n",
+                    encoding="utf-8",
+                )
+
+                run = self._run()
+
+                self.assertNotIn("gate-jämförelsen", run["outputs"][-1])
+                self.assertNotEqual(run["stop_reason"], "passed")
+
 
 if __name__ == "__main__":
     unittest.main()

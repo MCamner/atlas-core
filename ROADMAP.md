@@ -415,7 +415,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **Gate-status 2026-09-28: STÄNGD för `v1.0.0` / `8230fec`.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). [`independent-re-review-2026-09-28.md`](docs/security-review-package/independent-re-review-2026-09-28.md) återgranskar F4/R11 och C1 och finner inga kvarvarande blockerare. Senare runtimeändringar på `main` omfattas inte av denna sign-off.
 
-**Nästa release — säkerhetsgate:** före nästa release ska runtimeändringarna efter `v1.0.0` i #112, #114, #116 och #119 få en separat säkerhetsgranskning. Börja med `atlas_core/snapshot.py`, särskilt Git-härdningen kring `core.fsmonitor=false`, och följ därefter ändringarnas routing-, deterministic-review- och targeted-observation-gränser. Closure i #124 gäller endast `v1.0.0` / `8230fec` och får inte extrapoleras till senare `main`.
+**Nästa release — säkerhetsgate:** före nästa release ska runtimeändringarna efter `v1.0.0` i #112, #114, #116, #119 och #127 (inklusive dess E2E-steg i `.github/workflows/test.yml` som checkar ut mq-agent) få en separat säkerhetsgranskning. Börja med `atlas_core/snapshot.py`, särskilt Git-härdningen kring `core.fsmonitor=false`, och följ därefter ändringarnas routing-, deterministic-review- och targeted-observation-gränser. Closure i #124 gäller endast `v1.0.0` / `8230fec` och får inte extrapoleras till senare `main`.
 
 ## Exekveringsordning — första 6 PR:er
 

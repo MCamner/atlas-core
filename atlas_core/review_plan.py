@@ -81,6 +81,16 @@ class ReviewTopic:
     answering: tuple[str, ...] = ()
 
 
+#: The exact files the `ci_gate_parity` topic reads. The filesystem observer
+#: gives these a longer excerpt, so both sides use this one list.
+GATE_PARITY_PATHS: tuple[str, ...] = (
+    "release-check.sh",
+    ".github/workflows/tests.yml",
+    ".github/workflows/markdownlint.yml",
+    ".github/workflows/mq-stack-gate.yml",
+    "scripts/check-gate-parity.py",
+)
+
 #: Ordered: the first topic whose keywords appear in the task wins. Order is by
 #: specificity, not importance — "installationsinstruktioner" is a
 #: documentation question and also contains "instruktion", so the narrower
@@ -117,18 +127,12 @@ TOPICS: tuple[ReviewTopic, ...] = (
             "Do the local release gate and the in-scope GitHub Actions workflows "
             "declare the same checks and targets, apart from explicit exceptions?"
         ),
-        keywords=(
-            "release-gates", "release gates", "release-gate", "release gate",
-            "gate parity", "gate-parity", "check-gate-parity", "paritet",
-            "drift mellan release-check",
-        ),
-        patterns=(
-            "release-check.sh",
-            ".github/workflows/tests.yml",
-            ".github/workflows/markdownlint.yml",
-            ".github/workflows/mq-stack-gate.yml",
-            "scripts/check-gate-parity.py",
-        ),
+        # Only names this topic's files answer to. Its patterns are exact
+        # paths, so a generic "release gate" question reaching it read nothing
+        # in a repository without them; that question belongs to `ci` or
+        # `release`.
+        keywords=("release-check", "gate parity", "gate-parity"),
+        patterns=GATE_PARITY_PATHS,
     ),
     ReviewTopic(
         code="ci",

@@ -89,6 +89,11 @@ def _produce_ci_release_gate_parity(
             return ""
         in_scope[name] = observation
 
+    # Only one-line `run:` steps are read. A block scalar hides its commands
+    # from the comparison, so a verdict would be about a partial workflow.
+    if any(_has_block_scalar_run(observation) for observation in in_scope.values()):
+        return ""
+
     local = _local_gate_checks(gate)
     if not local:
         return ""
@@ -176,7 +181,7 @@ def _workflow_scope(observation: Observation) -> dict[str, bool] | None:
     in_scope = False
     for line in observation.excerpt.splitlines():
         stripped = line.strip()
-        if stripped.startswith("WORKFLOW_SCOPE"):
+        if _opens_table(stripped, "WORKFLOW_SCOPE"):
             in_scope = True
             continue
         if in_scope and stripped == "}":
@@ -194,7 +199,7 @@ def _parity_exceptions(observation: Observation) -> set[str] | None:
     in_exceptions = False
     for line in observation.excerpt.splitlines():
         stripped = line.strip()
-        if stripped.startswith("EXCEPTIONS"):
+        if _opens_table(stripped, "EXCEPTIONS"):
             in_exceptions = True
             continue
         if in_exceptions and stripped == "}":
@@ -205,6 +210,11 @@ def _parity_exceptions(observation: Observation) -> set[str] | None:
         if match:
             exceptions.add(match.group(1))
     return exceptions
+
+
+def _opens_table(line: str, name: str) -> bool:
+    """Whether `line` assigns the named dict, not prose that mentions it."""
+    return re.match(rf"^{name}\s*(?::[^=]*)?=\s*\{{", line) is not None
 
 
 def _local_gate_checks(observation: Observation) -> dict[str, str]:
@@ -258,6 +268,13 @@ def _workflow_checks(
             continue
         found.setdefault(key, command)
     return found
+
+
+def _has_block_scalar_run(observation: Observation) -> bool:
+    return any(
+        re.match(r"^-?\s*run:\s*[|>][-+0-9]*\s*(?:#.*)?$", raw.strip())
+        for raw in observation.excerpt.splitlines()
+    )
 
 
 def _check_key(command: str) -> str | None:
