@@ -51,8 +51,17 @@ git ls-files -z -- . ':!.secrets.baseline' | xargs -0 uv run --locked --group ci
   `tests/test_skill_generator.py` fails when they differ.
 - A deterministic producer must decline (return nothing) when it cannot read
   everything its verdict depends on. A wrong `passed` is worse than a stop.
-- A runtime change after `v1.0.0` is not covered by the v2.0 security review.
-  Name its PR in the next-release security gate in `ROADMAP.md`.
+- The v2.0 security review covers `v1.0.0` only. Name a PR in the
+  next-release security gate in `ROADMAP.md` when it changes what Atlas
+  reads, runs, writes or sends, or what CI trusts:
+  - code under `atlas_core/` that routes, observes, runs, evaluates,
+    approves or writes (for example the controller, adapters, snapshot,
+    producers, claim checks, approval, CLI);
+  - `.github/workflows/`, `pyproject.toml`, `uv.lock` or `scripts/` used by
+    CI or the release build.
+
+  Do not name a PR that changes only documentation, tests or generated text
+  (such as the skill template in `skill_generator.py`).
 
 ## Pull requests and merges
 
