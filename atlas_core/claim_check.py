@@ -78,6 +78,7 @@ class ClaimKind(str, Enum):
 
     CONTAINS = "source_contains_literal"
     LACKS = "source_lacks_literal"
+    COMMAND_TARGETS_DIFFER = "command_targets_differ"
 
 
 class ConditionKind(str, Enum):
@@ -125,31 +126,60 @@ DECISIVE: frozenset[ClaimResult] = frozenset(
 class TypedClaim:
     """A claim stated so that settling it settles the claim.
 
-    Text, source and scope are one object rather than three independently
-    chosen ones, which is what makes the predicate's relevance structural
-    instead of asserted.
+    Literal claims name one source. command_targets_differ is the narrow
+    cross-source form: it names two cited sources plus the exact target sets
+    the producer says differ. The checker re-derives both sets before granting
+    a verdict.
     """
 
     kind: ClaimKind
     source_id: str
     text: str
+    other_source_id: str | None = None
+    source_targets: tuple[str, ...] = ()
+    other_targets: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.text:
-            raise ValueError(
-                "a claim must name text to look for; an empty string matches "
-                "everything and would settle nothing"
-            )
+            raise ValueError("a claim must name text to check")
         if not self.source_id:
             raise ValueError("a claim must name the source it is about")
+        if self.kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+            if not self.other_source_id:
+                raise ValueError(
+                    "command_targets_differ must name the second cited source"
+                )
+            if self.other_source_id == self.source_id:
+                raise ValueError(
+                    "command_targets_differ requires two distinct source ids"
+                )
+        elif self.other_source_id is not None or self.source_targets or self.other_targets:
+            raise ValueError(
+                "literal claims cannot declare cross-source target fields"
+            )
 
-    def render(self, path: str, line_start: int, line_end: int) -> str:
-        """The sentence this claim means, for a human to read.
+    def render(
+        self,
+        path: str,
+        line_start: int,
+        line_end: int,
+        *,
+        other_path: str | None = None,
+    ) -> str:
+        """Return the exact human sentence this typed claim means."""
+        if self.kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+            if other_path is None:
+                raise ValueError(
+                    "command_targets_differ needs the second source path to render"
+                )
+            command = json.dumps(self.text, ensure_ascii=False)
+            left = json.dumps(list(self.source_targets), ensure_ascii=False)
+            right = json.dumps(list(self.other_targets), ensure_ascii=False)
+            return (
+                f"command {command} targets differ: {path}={left}; "
+                f"{other_path}={right}"
+            )
 
-        Derived rather than accepted from the producer, and it names the range
-        it was settled over — a claim about lines 1-5 must not read as a claim
-        about the file.
-        """
         quoted = json.dumps(self.text, ensure_ascii=False)
         verb = "contain" if self.kind is ClaimKind.CONTAINS else "do not contain"
         return f"{path} lines {line_start}-{line_end} {verb} {quoted}"
@@ -157,7 +187,9 @@ class TypedClaim:
     def holds_for(self, observed: str) -> bool:
         if self.kind is ClaimKind.CONTAINS:
             return self.text in observed
-        return self.text not in observed
+        if self.kind is ClaimKind.LACKS:
+            return self.text not in observed
+        raise ValueError("cross-source target claims are settled separately")
 
 
 @dataclass(frozen=True)
@@ -224,11 +256,29 @@ def build_typed_claim(payload: object) -> TypedClaim | None:
         raise ValueError(
             f"typed_claim kind must be one of {sorted(CLAIM_KINDS)}, got {kind!r}"
         )
+    claim_kind = ClaimKind(kind)
+    if claim_kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+        return TypedClaim(
+            kind=claim_kind,
+            source_id=str(payload["source_id"]),
+            text=str(payload["text"]),
+            other_source_id=str(payload["other_source_id"]),
+            source_targets=_string_tuple(payload.get("source_targets"), "source_targets"),
+            other_targets=_string_tuple(payload.get("other_targets"), "other_targets"),
+        )
     return TypedClaim(
-        kind=ClaimKind(kind),
+        kind=claim_kind,
         source_id=str(payload["source_id"]),
         text=str(payload["text"]),
     )
+
+
+def _string_tuple(value: object, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise TypeError(f"{field} must be a list of strings")
+    if not all(isinstance(item, str) and item for item in value):
+        raise ValueError(f"{field} must contain only non-empty strings")
+    return tuple(value)
 
 
 def build_condition(payload: object) -> ClaimCondition | None:
