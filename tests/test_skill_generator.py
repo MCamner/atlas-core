@@ -20,6 +20,10 @@ class TestSkillGenerator(unittest.TestCase):
         self.assertIn("atlas run", skill)
         self.assertIn("explicit approval", skill)
         self.assertIn("Execute the selected route", skill)
+        # A run that did not pass still prints the route template; the skill
+        # must make the agent report the stop reason, not relay the template.
+        self.assertIn("Stop reason:", skill)
+        self.assertIn("exit code 2", skill)
         for route_name, spec in list_routes().items():
             with self.subTest(route=route_name):
                 self.assertIn(f"`{route_name}`", routes)

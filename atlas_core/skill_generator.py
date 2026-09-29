@@ -41,6 +41,11 @@ loop from this document when the command is available.
    route-specific behavior needs inspection.
 4. Return the executed result, including its recommendation, next step, and
    confidence. Execute the selected route; do not merely name it.
+5. Check the last line, `Stop reason:`, before using the output. Only
+   `passed` (exit code 0) is an answer. Any other stop, such as `blocked`,
+   `no_progress` or `budget_exhausted` (exit code 2), means the run did not
+   support an answer: report the stop reason, and do not present the route
+   template above it as findings.
 
 For structured state, run:
 
