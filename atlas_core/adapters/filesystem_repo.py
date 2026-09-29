@@ -88,6 +88,15 @@ DEFAULT_MAX_FILES_PER_ROUND = 8
 #: to cover small gate/workflow files while wildcard discovery keeps the
 #: ordinary 80-line Observation.v1 excerpt bound.
 EXACT_PATTERN_MAX_LINES = 200
+_EXTENDED_EXACT_PATHS = frozenset(
+    {
+        "release-check.sh",
+        ".github/workflows/tests.yml",
+        ".github/workflows/markdownlint.yml",
+        ".github/workflows/mq-stack-gate.yml",
+        "scripts/check-gate-parity.py",
+    }
+)
 
 
 class FilesystemRepoObserver:
@@ -142,7 +151,7 @@ class FilesystemRepoObserver:
         expanded_paths = {
             path
             for pattern, names in zip(request.patterns, by_pattern)
-            if _is_exact_pattern(pattern)
+            if _is_exact_pattern(pattern) and path in _EXTENDED_EXACT_PATHS
             for path in names
         }
         if not request.paths and not request.patterns and not request.line_windows:
