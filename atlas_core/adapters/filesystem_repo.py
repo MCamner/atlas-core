@@ -151,8 +151,8 @@ class FilesystemRepoObserver:
         expanded_paths = {
             path
             for pattern, names in zip(request.patterns, by_pattern)
-            if _is_exact_pattern(pattern) and path in _EXTENDED_EXACT_PATHS
             for path in names
+            if _is_exact_pattern(pattern) and path in _EXTENDED_EXACT_PATHS
         }
         if not request.paths and not request.patterns and not request.line_windows:
             by_pattern = [_present(root, CANDIDATE_FILES)]
