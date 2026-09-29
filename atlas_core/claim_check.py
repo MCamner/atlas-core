@@ -24,8 +24,7 @@ producer-chosen predicate is not deciding the producer's claim.
 
 The only route to `verified` or `contradicted` is a **typed claim**, where the
 claim *is* the predicate. A producer does not supply a sentence and a separate
-test of it; it supplies `source_contains_literal` or `source_lacks_literal`
-over a cited source, and the human-readable text is **derived** from that. The
+test of it; it supplies a declared typed form — literal presence/absence over one cited\nsource, or the narrow deterministic command-target relation over two cited\nsources — and the human-readable text is **derived** from that. The
 producer's own `claim` string must equal the derivation, so the sentence a
 reader sees cannot say more than what was settled.
 
@@ -78,6 +77,7 @@ class ClaimKind(str, Enum):
 
     CONTAINS = "source_contains_literal"
     LACKS = "source_lacks_literal"
+    COMMAND_TARGETS_DIFFER = "command_targets_differ"
 
 
 class ConditionKind(str, Enum):
@@ -125,14 +125,18 @@ DECISIVE: frozenset[ClaimResult] = frozenset(
 class TypedClaim:
     """A claim stated so that settling it settles the claim.
 
-    Text, source and scope are one object rather than three independently
-    chosen ones, which is what makes the predicate's relevance structural
-    instead of asserted.
+    Literal claims name one source. command_targets_differ is the narrow
+    cross-source form: it names two cited sources plus the exact target sets
+    the producer says differ. The checker re-derives both sets before granting
+    a verdict.
     """
 
     kind: ClaimKind
     source_id: str
     text: str
+    other_source_id: str | None = None
+    source_targets: tuple[str, ...] = ()
+    other_targets: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.text:
@@ -142,14 +146,42 @@ class TypedClaim:
             )
         if not self.source_id:
             raise ValueError("a claim must name the source it is about")
+        if self.kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+            if not self.other_source_id:
+                raise ValueError(
+                    "command_targets_differ must name the second cited source"
+                )
+            if self.other_source_id == self.source_id:
+                raise ValueError(
+                    "command_targets_differ requires two distinct source ids"
+                )
+        elif self.other_source_id is not None or self.source_targets or self.other_targets:
+            raise ValueError(
+                "literal claims cannot declare cross-source target fields"
+            )
 
-    def render(self, path: str, line_start: int, line_end: int) -> str:
-        """The sentence this claim means, for a human to read.
+    def render(
+        self,
+        path: str,
+        line_start: int,
+        line_end: int,
+        *,
+        other_path: str | None = None,
+    ) -> str:
+        """Return the exact human sentence this typed claim means."""
+        if self.kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+            if other_path is None:
+                raise ValueError(
+                    "command_targets_differ needs the second source path to render"
+                )
+            command = json.dumps(self.text, ensure_ascii=False)
+            left = json.dumps(list(self.source_targets), ensure_ascii=False)
+            right = json.dumps(list(self.other_targets), ensure_ascii=False)
+            return (
+                f"command {command} targets differ: {path}={left}; "
+                f"{other_path}={right}"
+            )
 
-        Derived rather than accepted from the producer, and it names the range
-        it was settled over — a claim about lines 1-5 must not read as a claim
-        about the file.
-        """
         quoted = json.dumps(self.text, ensure_ascii=False)
         verb = "contain" if self.kind is ClaimKind.CONTAINS else "do not contain"
         return f"{path} lines {line_start}-{line_end} {verb} {quoted}"
@@ -157,7 +189,9 @@ class TypedClaim:
     def holds_for(self, observed: str) -> bool:
         if self.kind is ClaimKind.CONTAINS:
             return self.text in observed
-        return self.text not in observed
+        if self.kind is ClaimKind.LACKS:
+            return self.text not in observed
+        raise ValueError("cross-source target claims are settled separately")
 
 
 @dataclass(frozen=True)
@@ -224,11 +258,29 @@ def build_typed_claim(payload: object) -> TypedClaim | None:
         raise ValueError(
             f"typed_claim kind must be one of {sorted(CLAIM_KINDS)}, got {kind!r}"
         )
+    claim_kind = ClaimKind(kind)
+    if claim_kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+        return TypedClaim(
+            kind=claim_kind,
+            source_id=str(payload["source_id"]),
+            text=str(payload["text"]),
+            other_source_id=str(payload["other_source_id"]),
+            source_targets=_string_tuple(payload.get("source_targets"), "source_targets"),
+            other_targets=_string_tuple(payload.get("other_targets"), "other_targets"),
+        )
     return TypedClaim(
-        kind=ClaimKind(kind),
+        kind=claim_kind,
         source_id=str(payload["source_id"]),
         text=str(payload["text"]),
     )
+
+
+def _string_tuple(value: object, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise TypeError(f"{field} must be a list of strings")
+    if not all(isinstance(item, str) and item for item in value):
+        raise ValueError(f"{field} must contain only non-empty strings")
+    return tuple(value)
 
 
 def build_condition(payload: object) -> ClaimCondition | None:
@@ -351,6 +403,15 @@ def check_typed_claim(
             ),
         )
 
+    if claim.kind is ClaimKind.COMMAND_TARGETS_DIFFER:
+        return _check_command_targets_differ(
+            finding,
+            claim,
+            observations,
+            root,
+            readers,
+        )
+
     resolved = _observed_text(finding, claim.source_id, observations, root, readers)
     if isinstance(resolved, ClaimVerdict):
         return resolved
@@ -412,6 +473,153 @@ def check_typed_claim(
         reason=f"the source refutes the finding: {expected} is false",
         checked=checked,
     )
+
+
+def _check_command_targets_differ(
+    finding: Finding,
+    claim: TypedClaim,
+    observations: list[Observation],
+    root: str | Path,
+    readers: dict[str, SourceReader] | None,
+) -> ClaimVerdict:
+    """Settle one cross-source command-target drift claim."""
+    if claim.other_source_id is None:
+        return ClaimVerdict(
+            result=ClaimResult.UNSUPPORTED_KIND,
+            reason="command_targets_differ is missing the second source id",
+        )
+
+    left = _observed_text(finding, claim.source_id, observations, root, readers)
+    if isinstance(left, ClaimVerdict):
+        return left
+    right = _observed_text(
+        finding,
+        claim.other_source_id,
+        observations,
+        root,
+        readers,
+    )
+    if isinstance(right, ClaimVerdict):
+        return right
+    left_observation, _ = left
+    right_observation, _ = right
+
+    left_targets = _targets_from_cited_command(
+        finding,
+        claim.source_id,
+        claim.text,
+    )
+    right_targets = _targets_from_cited_command(
+        finding,
+        claim.other_source_id,
+        claim.text,
+    )
+    if left_targets is None or right_targets is None:
+        return ClaimVerdict(
+            result=ClaimResult.UNSUPPORTED_KIND,
+            reason=(
+                "command_targets_differ requires exactly one cited command line "
+                f"for {claim.text!r} in each source"
+            ),
+        )
+
+    expected = claim.render(
+        left_observation.path,
+        left_observation.line_start,
+        left_observation.line_end,
+        other_path=right_observation.path,
+    )
+    checked = {
+        "kind": claim.kind.value,
+        "source_id": claim.source_id,
+        "other_source_id": claim.other_source_id,
+        "text": claim.text,
+        "path": left_observation.path,
+        "other_path": right_observation.path,
+        "source_targets": list(left_targets),
+        "other_targets": list(right_targets),
+    }
+    if finding.claim.strip() != expected:
+        return ClaimVerdict(
+            result=ClaimResult.CLAIM_TEXT_MISMATCH,
+            reason=(
+                "the finding's text is not what its typed claim says. Expected "
+                f"exactly: {expected!r}"
+            ),
+            checked={"expected_claim": expected, **checked},
+        )
+
+    actual_left = tuple(sorted(left_targets))
+    actual_right = tuple(sorted(right_targets))
+    declared_left = tuple(sorted(claim.source_targets))
+    declared_right = tuple(sorted(claim.other_targets))
+    holds = (
+        actual_left == declared_left
+        and actual_right == declared_right
+        and actual_left != actual_right
+    )
+    if holds:
+        return ClaimVerdict(
+            result=ClaimResult.VERIFIED,
+            reason=(
+                f"{expected} — both target sets were re-derived from the exact "
+                "cited command lines"
+            ),
+            checked=checked,
+        )
+    return ClaimVerdict(
+        result=ClaimResult.CONTRADICTED,
+        reason=(
+            "the cited command lines refute the declared target drift: "
+            f"observed {left_observation.path}={list(actual_left)} and "
+            f"{right_observation.path}={list(actual_right)}"
+        ),
+        checked=checked,
+    )
+
+
+def _targets_from_cited_command(
+    finding: Finding,
+    source_id: str,
+    command: str,
+) -> tuple[str, ...] | None:
+    candidates = [
+        reference.quoted
+        for reference in finding.evidence
+        if reference.source_id == source_id
+        and _quote_names_command(reference.quoted, command)
+    ]
+    if len(candidates) != 1:
+        return None
+    return tuple(sorted(_command_targets(candidates[0], command)))
+
+
+def _quote_names_command(quoted: str, command: str) -> bool:
+    tokens = [
+        token.strip("'\"").lstrip("./").replace("$ROOT/", "")
+        for token in quoted.split()
+    ]
+    return any(Path(token).name == command for token in tokens)
+
+
+def _command_targets(quoted: str, command: str) -> set[str]:
+    tokens = [
+        token.strip("'\"").replace("$ROOT/", "")
+        for token in quoted.split()
+    ]
+    positions = [
+        index
+        for index, token in enumerate(tokens)
+        if Path(token.lstrip("./")).name == command
+    ]
+    if not positions:
+        return set()
+    start = positions[-1] + 1
+    return {
+        token.lstrip("./").rstrip("/")
+        for token in tokens[start:]
+        if "/" in token and not token.startswith("-")
+    }
 
 
 def check_condition(

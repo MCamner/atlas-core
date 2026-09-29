@@ -9,6 +9,7 @@ from atlas_core import AtlasController
 from atlas_core.adapters.filesystem_repo import FilesystemRepoObserver
 from atlas_core.budget import RunLimits
 from atlas_core.evidence_base import EvidenceBase
+from atlas_core.finalizer import FACT, render_run_text
 from atlas_core.snapshot import take_snapshot
 
 
@@ -39,7 +40,14 @@ class TestDeterministicGateParityReview(unittest.TestCase):
         self.workflows = workflows
         self.scripts = scripts
 
-        policy = """WORKFLOW_SCOPE: dict[str, str | bool] = {
+        policy = """#!/usr/bin/env python3
+\"\"\"Parity policy.
+
+Differences are allowed only when declared in
+EXCEPTIONS below with a reason. This prose must never start block parsing.
+\"\"\"
+
+WORKFLOW_SCOPE: dict[str, str | bool] = {
     "tests.yml": True,
     "markdownlint.yml": True,
     "mq-stack-gate.yml": False,
@@ -47,6 +55,9 @@ class TestDeterministicGateParityReview(unittest.TestCase):
 }
 
 EXCEPTIONS: dict[str, str] = {
+    "check-vendored-contracts.py": (
+        "CI only: compares against a canonical checkout."
+    ),
     "markdownlint-cli2-action": (
         "CI only action; local markdown style is not release blocking."
     ),
@@ -86,6 +97,7 @@ EXCEPTIONS: dict[str, str] = {
             "    steps:\n"
             "      - uses: actions/checkout@v4\n"
             "      - run: uv run pytest tests/\n"
+            "      - run: uv run python scripts/check-vendored-contracts.py --canonical-root .canonical-contracts\n"
             f"      - run: uv run ruff check {ruff_targets}\n"
             "      - run: uv run python scripts/check-gate-parity.py\n"
             + filler
@@ -116,6 +128,12 @@ EXCEPTIONS: dict[str, str] = {
         self.assertEqual(run["plan"]["review"]["topic"], "ci_gate_parity")
         self.assertEqual(run["stop_reason"], "passed")
         self.assertIn("ingen odeklarerad drift", run["outputs"][-1])
+        self.assertNotIn("CI-only check: check-vendored-contracts.py", run["outputs"][-1])
+        self.assertNotIn("CI-only check: markdownlint-cli2-action", run["outputs"][-1])
+        self.assertIn(
+            "Explicit exceptions: check-vendored-contracts.py, markdownlint-cli2-action",
+            run["outputs"][-1],
+        )
         self.assertNotIn(
             "findings_are_on_topic",
             run["evaluations"][-1]["unmet_criteria"],
@@ -141,31 +159,30 @@ EXCEPTIONS: dict[str, str] = {
         self.assertIn("odeklarerad drift", run["outputs"][-1])
         self.assertIn("target drift for ruff", run["outputs"][-1])
         self.assertIn("tests", run["outputs"][-1])
+        self.assertNotIn("CI-only check: check-vendored-contracts.py", run["outputs"][-1])
+        self.assertNotIn("CI-only check: markdownlint-cli2-action", run["outputs"][-1])
 
-    def test_prose_naming_the_policy_tables_is_not_a_table(self) -> None:
-        """Only the assignments open the tables.
-
-        mq-agent's parity checker has a docstring line that starts with
-        "EXCEPTIONS below". Read as the table, it ended at WORKFLOW_SCOPE's
-        brace and the real exceptions were never seen, so both declared
-        exceptions came back as drift while the checker itself passed.
-        """
-        policy = self.scripts / "check-gate-parity.py"
-        policy.write_text(
-            '"""Gate parity.\n\n'
-            "A check in only one place fails unless it is listed in\n"
-            "EXCEPTIONS below with a reason. Adding a workflow is listed in\n"
-            'WORKFLOW_SCOPE first.\n"""\n\n'
-            + policy.read_text(encoding="utf-8"),
-            encoding="utf-8",
+        relation = (
+            'command "ruff" targets differ: '
+            'release-check.sh=["src", "tests"]; '
+            '.github/workflows/tests.yml=["src"]'
         )
-        self._write_release_gate()
-        self._write_tests_workflow()
-
-        run = self._run()
-
-        self.assertEqual(run["stop_reason"], "passed")
-        self.assertIn("ingen odeklarerad drift", run["outputs"][-1])
+        checks = run["evaluations"][-1]["citation_checks"]
+        relation_checks = [
+            check for check in checks if check["claim"] == relation
+        ]
+        self.assertEqual(len(relation_checks), 1)
+        self.assertEqual(relation_checks[0]["verdict"], "verified")
+        self.assertEqual(
+            relation_checks[0]["claim_check"]["checked"]["source_targets"],
+            ["src", "tests"],
+        )
+        self.assertEqual(
+            relation_checks[0]["claim_check"]["checked"]["other_targets"],
+            ["src"],
+        )
+        ledger = render_run_text(run).split("Claim ledger", 1)[1]
+        self.assertIn(f"{FACT}  command \"ruff\" targets differ:", ledger)
 
     def test_a_block_scalar_run_step_makes_the_producer_decline(self) -> None:
         """The producer reads one-line `run:` steps only.
