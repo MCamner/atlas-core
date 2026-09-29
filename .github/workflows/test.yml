@@ -58,6 +58,53 @@ jobs:
           print("iteration=", run["iteration"])
           print("evidence_gaps=", last["evidence_gaps"])
           PY
+      - name: Run negative gate-parity E2E against real mq-agent
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("_e2e/mq-agent/.github/workflows/tests.yml")
+          text = path.read_text()
+          old = "uv run ruff check --select E4,E7,E9,F mq_agent/ tests/"
+          new = "uv run ruff check --select E4,E7,E9,F mq_agent/"
+          if old not in text:
+              raise SystemExit(f"negative E2E fixture drifted; missing: {old}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          uv run --locked --group ci atlas run \
+            "Kontrollera om release-check.sh och GitHub Actions har samma release-gates. Identifiera konkret drift mellan release-check.sh, tests.yml, markdownlint.yml och mq-stack-gate.yml. Rapportera endast fynd som kan styrkas med de lästa filerna." \
+            --repo-path _e2e/mq-agent \
+            --max-iterations 4 \
+            --wall-seconds 90 \
+            --max-tool-calls 48 \
+            --max-output-bytes 131072 \
+            --json > /tmp/mq-agent-gate-parity-negative.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          run = json.loads(
+              Path("/tmp/mq-agent-gate-parity-negative.json").read_text()
+          )
+          output = run["outputs"][-1]
+          assert run["stop_reason"] == "passed", run["stop_reason"]
+          assert "target drift for ruff" in output, output
+          assert "CI-only check: check-vendored-contracts.py" not in output, output
+          assert "CI-only check: markdownlint-cli2-action" not in output, output
+
+          relations = [
+              record
+              for record in run["evaluations"][-1]["citation_checks"]
+              if record["claim"].startswith('command "ruff" targets differ:')
+          ]
+          assert len(relations) == 1, relations
+          assert relations[0]["verdict"] == "verified", relations[0]
+          checked = relations[0]["claim_check"]["checked"]
+          assert checked["source_targets"] == ["mq_agent", "tests"], checked
+          assert checked["other_targets"] == ["mq_agent"], checked
+          print("NEGATIVE_E2E_PASS")
+          print("claim=", relations[0]["claim"])
+          PY
       - name: Remove pinned E2E checkout
         if: always()
         run: rm -rf _e2e
