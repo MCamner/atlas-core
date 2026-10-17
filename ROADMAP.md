@@ -179,7 +179,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 2. Ämnesvalet är nyckelordsmatchning mot fem deklarerade ämnen, och routern är en sjätte lista som inte är bunden till dem.
 3. Exitkriteriet ur frågan prövar *relevans* — vilken källa ett avgjort påstående handlar om — inte om påståendet besvarar frågan.
 4. Endast påståenden som går att uttrycka som ordagrann förekomst eller frånvaro över lästa rader kan avgöras. Allt annat stannar på `insufficient_evidence`, vilket är det ärliga utfallet och också fasens tak.
-5. Läsning är avgränsad till 80 rader per observation som standard.
+5. Läsning är avgränsad till 80 rader per observation som standard. Deterministiska producenter som behöver hela källan avstår därför på längre filer: CI-testkommandoparitet ger inget utslag på atlas-cores egen `test.yml` (136 rader). Gate-paritetens policy läses inte i sin helhet (pinnad mq-agent: 224 rader mot 200-radersfönstret); utslaget gäller de deklarerade `WORKFLOW_SCOPE`- och `EXCEPTIONS`-blocken, inte senare ändringar av dem i filen.
 6. Underlaget är tre defekter i ett litet facit plus en skrivskyddad körning mot ett publikt repo vid en pinad commit. Det fångar regressioner i grinden; det karakteriserar ingen prestanda.
 
 ### P1.2 Live modellprovider som valfri adapter
