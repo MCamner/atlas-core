@@ -311,7 +311,8 @@ def _workflow_command_line(
 
 _COMMENT = r"\s*(?:#.*)?"
 _STRING = r"""(?:"[^"]*"|'[^']*')"""
-_KEY = r"""(?:"([^"]+)"|'([^']+)')"""
+# No backslash: an escape would mean a different name than the text shows.
+_KEY = r"""(?:"([^"\\]+)"|'([^'\\]+)')"""
 
 
 def _policy_block(observation: Observation, name: str) -> list[str] | None:

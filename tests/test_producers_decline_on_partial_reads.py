@@ -270,6 +270,16 @@ class TestGateParityDeclines(_ProducerCase):
             output,
         )
 
+    def test_escaped_key_declines(self) -> None:
+        """`"a\\u002epy"` is `a.py` to Python; a verbatim read would miss it."""
+        for name, old, new in (
+            ("EXCEPTIONS", '"check-vendored-contracts.py"', '"check-vendored-contracts\\u002epy"'),
+            ("WORKFLOW_SCOPE", '"tests.yml": True', '"tests\\u002eyml": True'),
+        ):
+            with self.subTest(block=name):
+                self._write("scripts/check-gate-parity.py", POLICY.replace(old, new))
+                self.assertEqual(self._produce(self.paths), "")
+
     def test_no_local_checks_declines(self) -> None:
         self._write("release-check.sh", "#!/usr/bin/env bash\necho ok\n")
 
