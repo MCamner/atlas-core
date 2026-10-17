@@ -309,21 +309,28 @@ def _workflow_command_line(
     return candidates[0] if len(candidates) == 1 else None
 
 
+_COMMENT = r"\s*(?:#.*)?"
+_STRING = r"""(?:"[^"]*"|'[^']*')"""
+_KEY = r"""(?:"([^"]+)"|'([^']+)')"""
+
+
 def _policy_block(observation: Observation, name: str) -> list[str] | None:
     """The lines of one literal `NAME = {...}` block in the policy, or None.
 
-    None when the block is absent, defined more than once, or not closed in
-    the excerpt: a block cut by the read window can hide an entry.
+    None when the block is absent, assigned more than once, opens with
+    anything but `{` alone, or is not closed in the excerpt: a block cut by
+    the read window, or an entry beside the brace, can hide a declaration.
     """
-    lines = observation.excerpt.splitlines()
-    header = re.compile(rf"^{name}\s*(?::[^=]+)?\s*=")
-    starts = [index for index, line in enumerate(lines) if header.match(line.strip())]
+    lines = [line.strip() for line in observation.excerpt.splitlines()]
+    assignment = re.compile(rf"^{name}\s*(?::[^=]+)?\s*=")
+    starts = [index for index, line in enumerate(lines) if assignment.match(line)]
     if len(starts) != 1:
         return None
+    if not re.fullmatch(rf"{name}\s*(?::[^=]+)?\s*=\s*\{{{_COMMENT}", lines[starts[0]]):
+        return None
     body: list[str] = []
-    for line in lines[starts[0] + 1:]:
-        stripped = line.strip()
-        if stripped == "}":
+    for stripped in lines[starts[0] + 1:]:
+        if re.fullmatch(rf"\}}{_COMMENT}", stripped):
             return body
         body.append(stripped)
     return None
@@ -338,13 +345,14 @@ def _workflow_scope(observation: Observation) -> dict[str, bool] | None:
         if not stripped or stripped.startswith("#"):
             continue
         match = re.fullmatch(
-            r'"([^"]+\.yml)"\s*:\s*(True|False)\s*,?\s*(?:#.*)?',
+            rf"{_KEY}\s*:\s*(True|False)\s*,?{_COMMENT}",
             stripped,
         )
-        if not match:
+        key = match and (match.group(1) or match.group(2))
+        if not match or not key or not key.endswith(".yml"):
             # An entry the parser cannot read may enable a workflow.
             return None
-        scope[match.group(1)] = match.group(2) == "True"
+        scope[key] = match.group(3) == "True"
     return scope or None
 
 
@@ -358,21 +366,24 @@ def _parity_exceptions(observation: Observation) -> set[str] | None:
         if not stripped or stripped.startswith("#"):
             continue
         if in_value:
-            if re.fullmatch(r"\)\s*,?\s*(?:#.*)?", stripped):
+            if re.fullmatch(rf"\)\s*,?{_COMMENT}", stripped):
                 in_value = False
-            elif not re.fullmatch(r'"[^"]*"', stripped):
+            elif not re.fullmatch(rf"{_STRING}\s*,?{_COMMENT}", stripped):
                 return None
             continue
-        match = re.fullmatch(r'"([^"]+)"\s*:\s*(.*)', stripped)
+        match = re.fullmatch(rf"{_KEY}\s*:\s*(.*)", stripped)
         if not match:
             # `**OTHER` or a computed key: the declared set is not this block.
             return None
-        value = match.group(2)
-        if value == "(":
+        value = match.group(3)
+        if re.fullmatch(rf"\({_COMMENT}", value):
             in_value = True
-        elif not re.fullmatch(r'"[^"]*"\s*,?\s*(?:#.*)?', value):
+        elif not re.fullmatch(
+            rf"(?:{_STRING}|\(\s*{_STRING}\s*,?\s*\))\s*,?{_COMMENT}",
+            value,
+        ):
             return None
-        exceptions.add(match.group(1))
+        exceptions.add(match.group(1) or match.group(2))
     if in_value:
         return None
     return exceptions

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import unittest
@@ -226,6 +227,48 @@ class TestGateParityDeclines(_ProducerCase):
         )
 
         self.assertEqual(self._produce(self.paths), "")
+
+    def test_entry_on_the_opening_line_declines(self) -> None:
+        """An entry beside `{` would be skipped by a line-per-entry parser."""
+        for name in ("WORKFLOW_SCOPE", "EXCEPTIONS"):
+            with self.subTest(block=name):
+                self._write(
+                    "scripts/check-gate-parity.py",
+                    re.sub(
+                        rf"^{name}(.*)= \{{$",
+                        rf'{name}\1= {{"extra.yml": True,',
+                        POLICY,
+                        flags=re.MULTILINE,
+                    ),
+                )
+                self.assertEqual(self._produce(self.paths), "")
+
+    def test_literal_forms_the_policy_may_use_still_produce_a_verdict(self) -> None:
+        policy = (
+            "WORKFLOW_SCOPE = {  # which workflows\n"
+            "    'tests.yml': True,\n"
+            '    "markdownlint.yml": True,\n'
+            '    "mq-stack-gate.yml": False,\n'
+            "}  # end of scope\n"
+            "\n"
+            "EXCEPTIONS = {\n"
+            "    'markdownlint-cli2-action': ('CI only action.'),\n"
+            '    "check-vendored-contracts.py": (  # long reason\n'
+            "        'CI only.',\n"
+            "    ),\n"
+            '    "other.py": ("one",),\n'
+            "}  # end of exceptions\n"
+        )
+        self._write("scripts/check-gate-parity.py", policy)
+
+        output = self._produce(self.paths)
+
+        self.assertIn("ingen odeklarerad drift", output)
+        self.assertIn(
+            "Explicit exceptions: check-vendored-contracts.py, "
+            "markdownlint-cli2-action, other.py",
+            output,
+        )
 
     def test_no_local_checks_declines(self) -> None:
         self._write("release-check.sh", "#!/usr/bin/env bash\necho ok\n")
