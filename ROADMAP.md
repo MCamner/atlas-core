@@ -1,6 +1,6 @@
 # Atlas Core — roadmap för Atlas 2.0
 
-> Status: plan, inte leveransbevis. Uppdaterad 2026-10-20. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat. En closure-PR räknas som verifierad först när main-CI (push) har passerat på exakt merge-SHA.
+> Status: plan, inte leveransbevis. Uppdaterad 2026-10-21. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat. En closure-PR räknas som verifierad först när main-CI (push) har passerat på exakt merge-SHA.
 
 ## Mål och gränser
 
@@ -29,6 +29,8 @@ Bygg en **fristående, evidensgrundad och begränsad agentloop**: observera → 
 | P1 / v1.4 | Atlas One + MQ-adaptrar | Kopplar UI och befintlig stack utan omvänt beroende | Kontraktstester + separat integrationstest; Core kör ensam |
 | P2 / v1.5 | Godkända skrivflöden, observerbarhet och feedback | Utökar nyttan utan att bryta säkerhetsmodellen | Human approval, diff och rollback före mutation |
 | P2 / v2.0 | Stabil produktionsgräns | API/operativ driftsättning | Release-gates, migration, dokumenterad support och pilotresultat |
+| P1 / v2.1 | Granskad release av arbetet efter `v1.0.0` | Runtime på `main` är ogranskad sedan `v1.0.0` | Oberoende granskning av pinnad SHA och tagg från just den SHA:n; ingen ny runtime |
+| P2 / v2.2 | Läsfönster och live-provider | Begränsningar dokumenterade i P1.1 och P1.2 | Producenter avgör längre källor utan att gissa; `openai_compatible` prövad live |
 
 Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kontraktsbrist blockerar promotion oavsett antal ikryssade uppgifter.
 
@@ -415,7 +417,28 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **Gate-status 2026-09-28: STÄNGD för `v1.0.0` / `8230fec`.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). [`independent-re-review-2026-09-28.md`](docs/security-review-package/independent-re-review-2026-09-28.md) återgranskar F4/R11 och C1 och finner inga kvarvarande blockerare. Senare runtimeändringar på `main` omfattas inte av denna sign-off.
 
-**Nästa release — säkerhetsgate:** före nästa release ska runtimeändringarna efter `v1.0.0` i #112, #114, #116, #119, #127, #128, #129 och #134 (inklusive E2E-stegen i `.github/workflows/test.yml` som checkar ut mq-agent) få en separat säkerhetsgranskning. Börja med `atlas_core/snapshot.py`, särskilt Git-härdningen kring `core.fsmonitor=false`, och följ därefter ändringarnas routing-, deterministic-review- och targeted-observation-gränser. Closure i #124 gäller endast `v1.0.0` / `8230fec` och får inte extrapoleras till senare `main`.
+**Nästa release — säkerhetsgate:** före nästa release ska runtimeändringarna efter `v1.0.0` i #112, #114, #116, #119, #127, #128, #129 och #134 (inklusive E2E-stegen i `.github/workflows/test.yml` som checkar ut mq-agent) få en separat säkerhetsgranskning. Börja med `atlas_core/snapshot.py`, särskilt Git-härdningen kring `core.fsmonitor=false`, och följ därefter ändringarnas routing-, deterministic-review- och targeted-observation-gränser. Closure i #124 gäller endast `v1.0.0` / `8230fec` och får inte extrapoleras till senare `main`. Dependabot-PR:erna #132 (`actions/upload-artifact` 4.6.2 → 7.0.2, release-kedjan), #133 (`mypy`, `uv.lock`) och #135 (`astral-sh/setup-uv`) ändrar det CI litar på. De mergas inte förrän releaseinnehållet är valt i v2.1; samtliga som ingår namnges här och granskas med releasekandidaten.
+
+## P1 — v2.1 Granskad release av arbetet efter `v1.0.0`
+
+Fasen släpper det som redan finns på `main` efter `v1.0.0`, granskat. Den lägger inte till runtime: ny funktion väntar till v2.2, så att granskningen gäller en avgränsad mängd ändringar. Fasnamnet är roadmapens, inte paketets. `pyproject.toml` är `1.0.0`, och paketversionen avgörs av [`docs/api-contract.md`](docs/api-contract.md#stability-versioning-and-support), inte av rubriken. Rutorna stängs i den ordning de står.
+
+- [ ] **Välj releaseinnehåll.** Bestäm vilka öppna PR:er som ingår, inklusive Dependabot #132, #133 och #135, och namnge i säkerhetsgaten ovan varje inkluderad PR som enligt [`AGENTS.md`](AGENTS.md) ska namnges: runtimekod under `atlas_core/`, `.github/workflows/`, `pyproject.toml`, `uv.lock` och skript som CI eller releasebygget använder. En PR som inte ingår mergas först efter taggen.
+- [ ] **Rätta kontraktsdokumentationen mot koden.** [`docs/api-contract.md`](docs/api-contract.md) säger att `budget_exhausted` och `cancelled` inte produceras av någon kodväg; `controller.py` producerar båda. Stycket "Not yet" om strukturerat svar säger att inget schema skickas och att svar inte märks som icke-deterministiska; `atlas_core/adapters/live_model.py` skickar schemat som `atlas_core/adapters/output_contract.py` definierar och kontrollerar svaret mot lokalt, och [`docs/live-smoke.md`](docs/live-smoke.md) beskriver `metadata.non_deterministic`. Rätta texterna och lägg till test för observerat stoppbeteende för båda stop reasons.
+- [ ] **Verifiera Python 3.10-stödet.** Supportmatrisen skiljer redan deklarerat från CI-verifierat stöd: `requires-python` är `>=3.10`, CI kör 3.11.16. Lägg till 3.10 i CI. Att i stället höja `requires-python` tar bort deklarerad kompatibilitet och kräver ett uttryckligt versionsbeslut. PR:en ändrar det CI litar på och namnges i säkerhetsgaten.
+- [ ] **Färdigställ versionsmetadata och pinna release-SHA.** Version, `CHANGELOG.md` och release-metadata enligt [`docs/release-checklist.md`](docs/release-checklist.md), mergat på `main` med grön exact-main-CI. Den SHA:n är granskningens mål.
+- [ ] **Oberoende säkerhetsgranskning av den pinnade SHA:n**, med samma paket- och återgranskningsform som [`docs/security-review-package/`](docs/security-review-package/), och omfattande varje PR i säkerhetsgaten. Fynd som blockerar rättas, och rättelserna återgranskas mot en ny pinnad SHA. Ny funktion tas inte in i det här steget.
+- [ ] **Tagga och släpp den granskade SHA:n** enligt release-checklistan: reproducerbart bygge, release-SBOM, digestmanifest och integrity-bundle från exact-main-CI, med återhämtade assets kontrollerade mot manifestet. Ingår #132 (`actions/upload-artifact` 4.6.2 → 7.0.2) ska just den körningen visa att bundlen produceras och kan hämtas.
+
+**v2.1 exit gate:** taggen pekar på den SHA som den oberoende granskningen avslutades mot, utan kvarvarande blockerare; exact-main-CI på den SHA:n är grön; inget i säkerhetsgaten är ogranskat.
+
+## P2 — v2.2 Begränsningar som tidigare faser lämnade öppna
+
+Uppskjutet från v2.1. PR:er som ändrar runtime eller CI namnges i säkerhetsgaten för releasen efter v2.1; rena dokumentations- och teständringar undantas, enligt [`AGENTS.md`](AGENTS.md). Live-smoke och timeoututredning kan sluta utan kodändring.
+
+- [ ] **Läsfönster för deterministiska producenter.** Låt en producent läsa hela källan som dess utslag vilar på, upp till en deklarerad och loggad gräns, i stället för att ärva planens fönster på 80/200 rader. Acceptans: CI-testkommandoparitet ger utslag på atlas-cores egen `test.yml` (136 rader); gate-pariteten läser den pinnade mq-agent-policyn i sin helhet och har negativa tester för en omdefinition eller mutation av `WORKFLOW_SCOPE`/`EXCEPTIONS` senare i filen, med decline när policyn inte kan avgöras. Först då tas undantaget från #134 och P1.1-begränsning 5 bort. En fil över gränsen ger fortfarande decline, med negativt test.
+- [ ] **`openai_compatible` live.** Kör adaptern i opt-in-smoke och spara resultatet i [`docs/live-smoke.md`](docs/live-smoke.md). Providerkompatibiliteten med schemat i strict mode är inte prövad; ett avvisat schema rättas med test.
+- [ ] **Timeouter mot lokala tänkande modeller.** Reproducera och mät timeouten mot en tänkande modell i Ollama innan något ändras. Visar mätningen att orsaken är modellens tänkande, välj mellan ett opt-in-fält i förfrågan och dokumenterat höjt `ATLAS_MODEL_TIMEOUT`.
 
 ## Exekveringsordning — första 6 PR:er
 
