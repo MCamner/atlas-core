@@ -167,12 +167,16 @@ def _produce_ci_release_gate_parity(
         sorted(name for name, is_enabled in workflow_scope.items() if not is_enabled)
     ) or "none"
     declared_exceptions = ", ".join(sorted(exceptions)) or "none"
+    scope_note = (
+        f"Scope och undantag är WORKFLOW_SCOPE och EXCEPTIONS som de står deklarerade "
+        f"i {_PARITY_POLICY_PATH}; senare ändringar av dem i filen är inte kontrollerade."
+    )
     if drift:
         conclusion = (
             "Den deterministiska gate-jämförelsen hittar odeklarerad drift: "
             + "; ".join(drift)
             + f". In-scope workflows: {enabled_workflows}. Out-of-scope: {disabled}. "
-            + f"Explicit exceptions: {declared_exceptions}."
+            + f"Explicit exceptions: {declared_exceptions}. {scope_note}"
         )
     else:
         conclusion = (
@@ -180,7 +184,7 @@ def _produce_ci_release_gate_parity(
             f"mellan {_PARITY_GATE_PATH} och observerade in-scope workflows "
             f"({enabled_workflows}). Out-of-scope: {disabled}. Explicit exceptions: "
             f"{declared_exceptions}. Detta jämför deklarerade checks och targets; "
-            "det säger inte att checks faktiskt passerar i CI."
+            f"det säger inte att checks faktiskt passerar i CI. {scope_note}"
         )
     return _render(
         heading="CI/release gate parity",
@@ -305,39 +309,84 @@ def _workflow_command_line(
     return candidates[0] if len(candidates) == 1 else None
 
 
+_COMMENT = r"\s*(?:#.*)?"
+_STRING = r"""(?:"[^"]*"|'[^']*')"""
+# No backslash: an escape would mean a different name than the text shows.
+_KEY = r"""(?:"([^"\\]+)"|'([^'\\]+)')"""
+
+
+def _policy_block(observation: Observation, name: str) -> list[str] | None:
+    """The lines of one literal `NAME = {...}` block in the policy, or None.
+
+    None when the block is absent, assigned more than once, opens with
+    anything but `{` alone, or is not closed in the excerpt: a block cut by
+    the read window, or an entry beside the brace, can hide a declaration.
+    """
+    lines = [line.strip() for line in observation.excerpt.splitlines()]
+    assignment = re.compile(rf"^{name}\s*(?::[^=]+)?\s*=")
+    starts = [index for index, line in enumerate(lines) if assignment.match(line)]
+    if len(starts) != 1:
+        return None
+    if not re.fullmatch(rf"{name}\s*(?::[^=]+)?\s*=\s*\{{{_COMMENT}", lines[starts[0]]):
+        return None
+    body: list[str] = []
+    for stripped in lines[starts[0] + 1:]:
+        if re.fullmatch(rf"\}}{_COMMENT}", stripped):
+            return body
+        body.append(stripped)
+    return None
+
+
 def _workflow_scope(observation: Observation) -> dict[str, bool] | None:
+    body = _policy_block(observation, "WORKFLOW_SCOPE")
+    if body is None:
+        return None
     scope: dict[str, bool] = {}
-    in_scope = False
-    for line in observation.excerpt.splitlines():
-        stripped = line.strip()
-        if re.match(r"^WORKFLOW_SCOPE\s*(?::[^=]+)?\s*=", stripped):
-            in_scope = True
+    for stripped in body:
+        if not stripped or stripped.startswith("#"):
             continue
-        if in_scope and stripped == "}":
-            break
-        if not in_scope:
-            continue
-        match = re.match(r'^"([^"]+\.yml)"\s*:\s*(True|False)\b', stripped)
-        if match:
-            scope[match.group(1)] = match.group(2) == "True"
+        match = re.fullmatch(
+            rf"{_KEY}\s*:\s*(True|False)\s*,?{_COMMENT}",
+            stripped,
+        )
+        key = match and (match.group(1) or match.group(2))
+        if not match or not key or not key.endswith(".yml"):
+            # An entry the parser cannot read may enable a workflow.
+            return None
+        scope[key] = match.group(3) == "True"
     return scope or None
 
 
 def _parity_exceptions(observation: Observation) -> set[str] | None:
+    body = _policy_block(observation, "EXCEPTIONS")
+    if body is None:
+        return None
     exceptions: set[str] = set()
-    in_exceptions = False
-    for line in observation.excerpt.splitlines():
-        stripped = line.strip()
-        if re.match(r"^EXCEPTIONS\s*(?::[^=]+)?\s*=", stripped):
-            in_exceptions = True
+    in_value = False
+    for stripped in body:
+        if not stripped or stripped.startswith("#"):
             continue
-        if in_exceptions and stripped == "}":
-            break
-        if not in_exceptions:
+        if in_value:
+            if re.fullmatch(rf"\)\s*,?{_COMMENT}", stripped):
+                in_value = False
+            elif not re.fullmatch(rf"{_STRING}\s*,?{_COMMENT}", stripped):
+                return None
             continue
-        match = re.match(r'^"([^"]+)"\s*:', stripped)
-        if match:
-            exceptions.add(match.group(1))
+        match = re.fullmatch(rf"{_KEY}\s*:\s*(.*)", stripped)
+        if not match:
+            # `**OTHER` or a computed key: the declared set is not this block.
+            return None
+        value = match.group(3)
+        if re.fullmatch(rf"\({_COMMENT}", value):
+            in_value = True
+        elif not re.fullmatch(
+            rf"(?:{_STRING}|\(\s*{_STRING}\s*,?\s*\))\s*,?{_COMMENT}",
+            value,
+        ):
+            return None
+        exceptions.add(match.group(1) or match.group(2))
+    if in_value:
+        return None
     return exceptions
 
 
@@ -474,6 +523,9 @@ def _produce_ci_test_command_parity(
     manual = by_path.get(_MANUAL_RUN_PATH)
     if gate is None or manual is None:
         return ""
+    # A second test command outside the window would make "the one" a guess.
+    if gate.read_in_full() is not True or manual.read_in_full() is not True:
+        return ""
 
     gate_command = _single_test_command(gate)
     manual_command = _single_test_command(manual)
@@ -540,6 +592,10 @@ def _produce_release_changelog_parity(
     changelog = by_path.get("CHANGELOG.md")
     if pyproject is None or changelog is None:
         return ""
+    # The changelog claim is about the first visible release heading, so its
+    # window may be partial. The package version must be the only one.
+    if pyproject.read_in_full() is not True:
+        return ""
 
     package = _pyproject_version(pyproject)
     release = _changelog_version(changelog)
@@ -593,6 +649,8 @@ def _produce_release_metadata_parity(
 
     by_path = {observation.path: observation for observation in evidence_base.observations}
     if any(path not in by_path for path in _RELEASE_METADATA_PATHS):
+        return ""
+    if any(by_path[path].read_in_full() is not True for path in _RELEASE_METADATA_PATHS):
         return ""
 
     parsed = {

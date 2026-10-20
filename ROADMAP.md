@@ -1,6 +1,6 @@
 # Atlas Core — roadmap för Atlas 2.0
 
-> Status: plan, inte leveransbevis. Uppdaterad 2026-09-27. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat. En closure-PR räknas som verifierad först när main-CI (push) har passerat på exakt merge-SHA.
+> Status: plan, inte leveransbevis. Uppdaterad 2026-10-20. Ägare: Atlas Core. Prioritet: P0 blockerar säker/korrekt användning, P1 behövs för användbar end-to-end-loop, P2 för bredd och produktisering. Inga kalenderlöften. Varje ruta stängs endast med länkad PR, test och observerat resultat. En closure-PR räknas som verifierad först när main-CI (push) har passerat på exakt merge-SHA.
 
 ## Mål och gränser
 
@@ -179,7 +179,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 2. Ämnesvalet är nyckelordsmatchning mot fem deklarerade ämnen, och routern är en sjätte lista som inte är bunden till dem.
 3. Exitkriteriet ur frågan prövar *relevans* — vilken källa ett avgjort påstående handlar om — inte om påståendet besvarar frågan.
 4. Endast påståenden som går att uttrycka som ordagrann förekomst eller frånvaro över lästa rader kan avgöras. Allt annat stannar på `insufficient_evidence`, vilket är det ärliga utfallet och också fasens tak.
-5. Läsning är avgränsad till 80 rader per observation som standard.
+5. Läsning är avgränsad till 80 rader per observation som standard. Deterministiska producenter som behöver hela källan avstår därför på längre filer: CI-testkommandoparitet ger inget utslag på atlas-cores egen `test.yml` (136 rader). Gate-paritetens policy läses inte i sin helhet (pinnad mq-agent: 224 rader mot 200-radersfönstret); utslaget gäller de deklarerade `WORKFLOW_SCOPE`- och `EXCEPTIONS`-blocken, inte senare ändringar av dem i filen.
 6. Underlaget är tre defekter i ett litet facit plus en skrivskyddad körning mot ett publikt repo vid en pinad commit. Det fångar regressioner i grinden; det karakteriserar ingen prestanda.
 
 ### P1.2 Live modellprovider som valfri adapter
@@ -415,7 +415,7 @@ Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kon
 
 **Gate-status 2026-09-28: STÄNGD för `v1.0.0` / `8230fec`.** Read-only-fallet finns i [`examples/repo-review.md`](examples/repo-review.md); godkänt patchförslag i [`examples/approved-patch-proposal.md`](examples/approved-patch-proposal.md). [`independent-re-review-2026-09-28.md`](docs/security-review-package/independent-re-review-2026-09-28.md) återgranskar F4/R11 och C1 och finner inga kvarvarande blockerare. Senare runtimeändringar på `main` omfattas inte av denna sign-off.
 
-**Nästa release — säkerhetsgate:** före nästa release ska runtimeändringarna efter `v1.0.0` i #112, #114, #116, #119, #127, #128 och #129 (inklusive E2E-stegen i `.github/workflows/test.yml` som checkar ut mq-agent) få en separat säkerhetsgranskning. Börja med `atlas_core/snapshot.py`, särskilt Git-härdningen kring `core.fsmonitor=false`, och följ därefter ändringarnas routing-, deterministic-review- och targeted-observation-gränser. Closure i #124 gäller endast `v1.0.0` / `8230fec` och får inte extrapoleras till senare `main`.
+**Nästa release — säkerhetsgate:** före nästa release ska runtimeändringarna efter `v1.0.0` i #112, #114, #116, #119, #127, #128, #129 och #134 (inklusive E2E-stegen i `.github/workflows/test.yml` som checkar ut mq-agent) få en separat säkerhetsgranskning. Börja med `atlas_core/snapshot.py`, särskilt Git-härdningen kring `core.fsmonitor=false`, och följ därefter ändringarnas routing-, deterministic-review- och targeted-observation-gränser. Closure i #124 gäller endast `v1.0.0` / `8230fec` och får inte extrapoleras till senare `main`.
 
 ## Exekveringsordning — första 6 PR:er
 
