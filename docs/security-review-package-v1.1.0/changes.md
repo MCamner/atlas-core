@@ -1,9 +1,9 @@
 # Changes from `v1.0.0` to the pinned release SHA
 
-Range: `v1.0.0` (`8230fec`) to `83d7d2c12ddaf00454be2adfcb9ceb3a6223552d`, which
-is 31 squash-merged commits. The table is generated from `git log` and from
+Range: `v1.0.0` (`8230fec`) to `7d0d86c3ee88a8b2c62938d36d9fc77ae6fcfd58`, which
+is 35 squash-merged commits. The table is generated from `git log` and from
 the `test` workflow's push runs on `main`. **Verified by the authors:** each
-row's run is the push run on that exact merge SHA, and all 31 concluded
+row's run is the push run on that exact merge SHA, and all 35 concluded
 `success`.
 
 Class follows `AGENTS.md`. **gate: runtime** changes code under `atlas_core/`
@@ -45,6 +45,10 @@ release build. Every gate row is named in the next-release security gate in
 | 29 | [`d926d74`](https://github.com/MCamner/atlas-core/commit/d926d743a4b50faee72acf60f99f267329bc0548) | [#146](https://github.com/MCamner/atlas-core/pull/146) fix(ci): audit the locked dependencies, not the environment | gate: CI/build | [40214083754](https://github.com/MCamner/atlas-core/actions/runs/40214083754) success | `.github/workflows/test.yml`, `AGENTS.md`, `CHANGELOG.md`, `ROADMAP.md`, `docs/security-review.md` |
 | 30 | [`5bc7a98`](https://github.com/MCamner/atlas-core/commit/5bc7a9872b8a58099a6d89a9997bb99848f495e6) | [#148](https://github.com/MCamner/atlas-core/pull/148) fix(schema): move command_targets_differ to atlas-findings-block.v2 | gate: runtime | [40215328186](https://github.com/MCamner/atlas-core/actions/runs/40215328186) success | `CHANGELOG.md`, `ROADMAP.md`, `atlas_core/adapters/output_contract.py`, `atlas_core/evidence.py`, `atlas_core/review_producers.py`, `docs/api-contract.md`, `schemas/atlas-findings-block.v1.json`, `schemas/atlas-findings-block.v2.json`, `tests/test_deterministic_gate_parity_review.py`, `tests/test_findings_block_versions.py` |
 | 31 | [`83d7d2c`](https://github.com/MCamner/atlas-core/commit/83d7d2c12ddaf00454be2adfcb9ceb3a6223552d) | [#147](https://github.com/MCamner/atlas-core/pull/147) release: prepare v1.1.0 metadata | gate: CI/build | [40217200863](https://github.com/MCamner/atlas-core/actions/runs/40217200863) success | `CHANGELOG.md`, `MANIFEST.json`, `ROADMAP.md`, `VERSION`, `atlas_core/__init__.py`, `pyproject.toml`, `tests/test_release_metadata.py`, `uv.lock` |
+| 32 | [`e4a352b`](https://github.com/MCamner/atlas-core/commit/e4a352b03dcd6de676754b1d2bf5eba31ab45826) | [#149](https://github.com/MCamner/atlas-core/pull/149) docs(roadmap): close v2.1 box 4 and pin the release SHA | docs/tests/generated | [40218617975](https://github.com/MCamner/atlas-core/actions/runs/40218617975) success | `ROADMAP.md` |
+| 33 | [`c9945df`](https://github.com/MCamner/atlas-core/commit/c9945dfefb13b3da00d4042a1c9171449338c55b) | [#150](https://github.com/MCamner/atlas-core/pull/150) docs(security): add the v1.1.0 independent review package | docs/tests/generated | [40227964496](https://github.com/MCamner/atlas-core/actions/runs/40227964496) success | `ROADMAP.md`, `docs/security-review-package-v1.1.0/README.md`, `docs/security-review-package-v1.1.0/changes.md`, `docs/security-review-package-v1.1.0/evidence.md`, `docs/security-review-package-v1.1.0/residual-risks.md`, `docs/security-review-package-v1.1.0/review-commands.md`, `docs/security-review-package-v1.1.0/reviewer-report-template.md`, `docs/security-review-package-v1.1.0/scope.md`, `docs/security-review-package-v1.1.0/threat-model-delta.md` |
+| 34 | [`85e2a23`](https://github.com/MCamner/atlas-core/commit/85e2a23bfa9d359aaaafcaf8127adc4ce389e02c) | [#151](https://github.com/MCamner/atlas-core/pull/151) fix(evaluator): read findings only from what a producer wrote | gate: runtime | [40242236487](https://github.com/MCamner/atlas-core/actions/runs/40242236487) success | `.secrets.baseline`, `CHANGELOG.md`, `atlas_core/adapters/live_model.py`, `atlas_core/adapters/model.py`, `atlas_core/adapters/output_contract.py`, `atlas_core/controller.py`, `atlas_core/evaluator.py`, `atlas_core/executor.py`, `docs/api-contract.md`, `schemas/atlas-run.v1.json`, `tests/test_evidence_evaluator.py`, `tests/test_evidence_in_the_loop.py`, `tests/test_findings_trust_boundary.py`, `tests/test_loop.py`, `tests/test_structured_output.py` |
+| 35 | [`7d0d86c`](https://github.com/MCamner/atlas-core/commit/7d0d86c3ee88a8b2c62938d36d9fc77ae6fcfd58) | [#152](https://github.com/MCamner/atlas-core/pull/152) release: carry the SEC-01 fix into the v1.1.0 notes | docs/tests/generated | [40243597308](https://github.com/MCamner/atlas-core/actions/runs/40243597308) success | `CHANGELOG.md`, `ROADMAP.md` |
 
 ## Where to look, per gate PR
 
@@ -71,4 +75,5 @@ not conclusions.
 | #142 | `filelock` 4.2.1 (three CVEs), and `requires-python` for the CI group | CI environment |
 | #143 | `python310` job, and the `tomli` fallback in `scripts/reproducible_build.py` and in tests | The release build script imports differently on 3.10. Releases build on 3.11.16 |
 | #146 | The audit runs on `uv export --all-groups --no-emit-project` with `--require-hashes` instead of the environment | What "no known vulnerabilities" covers. PyPI's `atlas-core` is an unrelated project (see [`residual-risks.md`](residual-risks.md)) |
+| #151 | SEC-01 (GHSA-m8fx-mmrx-c449). `execute_plan_parts` returns the producer's section apart from the output. `ModelResult.findings_block` is new, `evaluate(findings_source=...)` is required, `LiveModelAdapter` is strict once the schema is sent, and `metadata.findings_sources` is recorded | The trust boundary between producer text and observed text. The deprecated `adapter_output` fallback. See [`threat-model-delta.md`](threat-model-delta.md#5-sec-01-repository-text-and-the-findings-channel) |
 | #147 | Version 1.1.0 in `VERSION`, `pyproject.toml`, `MANIFEST.json`, `__init__.py`, `uv.lock`; changelog | Metadata only. `tests/test_release_metadata.py` enforces equality |

@@ -1,6 +1,6 @@
 # Threat Model Delta since `v1.0.0`
 
-Pinned release SHA: `83d7d2c12ddaf00454be2adfcb9ceb3a6223552d`
+Pinned release SHA: `7d0d86c3ee88a8b2c62938d36d9fc77ae6fcfd58`
 
 The `v1.0.0` threat model (`../security-review-package/threat-model-map.md`)
 still describes the unchanged areas: prompt injection into tools and approval,
@@ -31,7 +31,7 @@ For the reviewer:
 | Claim | A window can start at an explicit line or at the first line that begins with a bounded static `anchor_prefix` (one line, at most 128 characters, no regex). It can never export more than the 80-line bound, and it targets only paths the review plan already selected. The full file is read through `read_within` as before, and its SHA-256 remains the content identity. A new excerpt of unchanged bytes is `reframed`, and a content change is still `superseded`. |
 | Code | `atlas_core/snapshot.py` (`collect_observation`, `_first_prefixed_line`, `_excerpt`), `atlas_core/observer.py` (`LineWindow`), `atlas_core/adapters/filesystem_repo.py` (`EXACT_PATTERN_MAX_LINES = 200` for `GATE_PARITY_PATHS`, window handling), `atlas_core/controller.py` (round merging) |
 | Tests | `tests/test_targeted_line_ranges.py`, `tests/test_eventlog.py`, `tests/test_repo_path_evidence.py`, `tests/test_plan_reaches_its_subject.py` |
-| Verified by the authors | `GIT_HARDENING` (`core.fsmonitor=false`) and `containment.py` are unchanged since `v1.0.0` (`git diff v1.0.0 83d7d2c -- atlas_core/containment.py` is empty, and the `snapshot.py` diff touches only windowing) |
+| Verified by the authors | `GIT_HARDENING` (`core.fsmonitor=false`) and `containment.py` are unchanged since `v1.0.0` (`git diff v1.0.0 7d0d86c -- atlas_core/containment.py` is empty, and the `snapshot.py` diff touches only windowing) |
 
 For the reviewer:
 
@@ -57,7 +57,7 @@ For the reviewer:
 | Claim | `atlas-findings-block.v1` is the `v1.0.0` shape. `command_targets_differ` exists only in `atlas-findings-block.v2`, carried in a ```` ```atlas-findings.v2 ```` fence that the `v1.0.0` reader pattern does not match. A v1 block that contains the relation is refused as malformed. The model output schema is the `v1.0.0` schema, so a model is offered only the literal kinds. |
 | Code | `atlas_core/evidence.py` (`FINDINGS_FENCE`, `FINDINGS_FENCE_V2`, `_FINDINGS_BLOCK`, `structured_findings`), `atlas_core/review_producers.py` (`_render`, `_is_relation`), `atlas_core/adapters/output_contract.py`, `schemas/atlas-findings-block.v1.json`, `schemas/atlas-findings-block.v2.json` |
 | Tests | `tests/test_findings_block_versions.py`, `tests/test_structured_output.py` (`TestTheSchemaMatchesTheRepositorysContract`), `tests/test_deterministic_gate_parity_review.py` |
-| Verified by the authors | `git diff v1.0.0 83d7d2c -- schemas/atlas-findings-block.v1.json atlas_core/adapters/output_contract.py` is empty |
+| Verified by the authors | `git diff v1.0.0 7d0d86c -- schemas/atlas-findings-block.v1.json` is empty. `output_contract.py` changed in #151 (`findings_block`, `render_findings_block`), but `output_schema()` and `_FINDING_ITEM` at the target equal those at `v1.0.0`, compared as values |
 | Known risk | A v1 reader skips a v2 block and therefore does not see the relation finding. This is deliberate, and it is not full functional backward compatibility |
 
 For the reviewer:
@@ -65,19 +65,42 @@ For the reviewer:
 6. Test the boundary explicitly. Does a v1 reader skip a v2 block? Is a relation in a v1 block refused? Can the model path state the relation by any route, including a provider that ignores the schema? (The reply is still parsed locally by `structured_findings`, and `output_contract.py` wraps model findings in the v1 fence.)
 7. `structured_findings` takes the first block of either fence. What happens when an output holds both a v1 and a v2 block, and who could cause that?
 
-## 5. Repository text can reach the findings parser
+## 5. SEC-01: repository text and the findings channel
 
-This was **reproduced by the authors**. It is **present at `v1.0.0` too**, so it was not introduced in this release.
+This was **found by the authors** in the preparatory work for this review, and
+it is fixed in #151. It is GHSA-m8fx-mmrx-c449, and it affects `v1.0.0`.
 
-Observations are rendered into the route output under `## Sources inspected` as `- <path>:\n<content>`. Only the first line gets the prefix, so a line in an observed file that starts with ```` ```atlas-findings ```` appears at the start of a line in the output, and `structured_findings` matches it.
+**What was wrong.** `structured_findings` took the first findings fence in the
+whole route output. The rule-based executor appends observed file content to
+that output under `## Sources inspected`, and the content is rendered so that a
+fence line in a file starts a line in the output. In a directory where git
+cannot resolve a commit, `snapshot_id` is `sha256(root, "unknown", "unknown")`.
+The cited `source_id` and `content_sha256` are then predictable from the
+absolute root path and the file content. The authors reproduced this at
+`83d7d2c` and at `v1.0.0`. A `README.md` block that cited `docs/install.md`
+turned a `documentation` review that otherwise stops at `max_iterations` into
+`passed` on iteration 1, with one verified finding written by the repository.
+In a committed git repository the citation was unsound, because the block
+changes its own commit. A producer's block precedes the sources, so producer
+findings were not displaced.
 
-The authors' probe is a throwaway repository whose `README.md` contains an empty ```` ```atlas-findings ```` block. For the task "Granska repot och dess README", the `documentation` topic parsed that block as present with 0 entries, at both `83d7d2c` and `v1.0.0`, and the run stopped at `max_iterations`. For the `release_metadata` topic, which does not read `README.md`, the producer's own block was the only one. The commands are in [`review-commands.md`](review-commands.md#repository-text-in-the-findings-parser).
+The regression tests found a second case. On the model path, `render_output`
+puts the model's `report` before the block rendered from `findings`, so a fence
+in the report took the place of the model's own findings.
 
-The authors have not shown that this can produce a wrong PASS. A verified citation needs the cited `source_id` and `content_sha256`. The `source_id` derives from the snapshot (root path, commit, worktree state), and the commit depends on the file that would contain the block. That limits the risk, but it has not been tested further.
+| | |
+| --- | --- |
+| Claim | The evaluator reads findings only from text a producer wrote. In the rule-based path, that text is the producer's section. On the model path, it is `ModelResult.findings_block` when the adapter sets it. `LiveModelAdapter` sets the block from the reply's `findings`. Once the schema has been sent, a non-conforming reply states no findings. `evaluate()` has no default `findings_source`. |
+| Code | `atlas_core/executor.py` (`execute_plan_parts`), `atlas_core/controller.py` (`findings_source`, `metadata.findings_sources`), `atlas_core/evaluator.py` (`evaluate`, `_grade_evidence`, `_grade_against_evidence`), `atlas_core/adapters/model.py` (`ModelResult.findings_block`), `atlas_core/adapters/output_contract.py` (`ReadEnvelope.findings_block`, `render_findings_block`), `atlas_core/adapters/live_model.py` |
+| Tests | `tests/test_findings_trust_boundary.py`: the injected finding is sound, so the tests are not vacuous; a directory git cannot describe; a working git repository; git failing to resolve; a v2 fence in observed text; producer precedence; the model's report; a required `findings_source`; the source recorded for each origin; a sent schema as the only channel. Also `tests/test_structured_output.py` |
+| Verified by the authors | At `7d0d86c`, the same probe stops at `max_iterations` with no citation checks, and `findings_sources` is `producer_section`. Both gate-parity E2Es pass in CI. Before the merge the fix had a technical review of `3fe0687`. No independent approval is documented |
+| Known risk | `adapter_output`. An adapter that does not set `findings_block`, `StubModelAdapter`, and `LiveModelAdapter` with `structured_output=False` all have their whole output read as findings. Atlas adds no observed text to that output, but its prose and findings are one text. It is deprecated for 2.0 and recorded in `metadata.findings_sources` |
 
 For the reviewer:
 
-8. Is this a finding, and how severe is it? Can injected repository text make a finding verify, satisfy a criterion such as structured output being present, or displace the producer's block? Is it blocking for v1.1.0 even though `v1.0.0` already had it?
+8. Does #151 close SEC-01? Can any text the run observed still be read as a producer's finding, on any route or adapter?
+9. Is the `adapter_output` fallback acceptable for 1.1, given the deprecation, the recorded source and the strict mode after a sent schema? The authors argue that it is outside SEC-01, because Atlas adds no observed text to adapter output. The technical patch review accepted that with documented residual risk.
+10. Is the changed behaviour acceptable: a hand-written fence in a reply to a sent schema is no longer read (`tests/test_structured_output.py`, `test_a_handwritten_block_after_a_sent_schema_is_a_missing_block`)?
 
 ## 6. Supply chain and CI
 
@@ -90,12 +113,12 @@ For the reviewer:
 
 For the reviewer:
 
-9. In the same `python` job, CI runs `atlas run` over the mq-agent checkout at pinned commit `aa7411d…`, with `persist-credentials: false` and `contents: read`. It then deletes the checkout and later builds and uploads the release-integrity bundle. Is that ordering acceptable, or should the release build run in a job that never processes another repository's content?
-10. Does the `uv export … --all-groups --no-emit-project` audit miss anything the environment audit covered? Is the PyPI name collision a release blocker, or does the statement in the release notes ("not published on PyPI") suffice?
-11. `upload-artifact` 7.0.2 (#132) uploads the bundle. Box 6 has to show that the bundle can be retrieved and matches. Is anything else in the new major version relevant?
+11. In the same `python` job, CI runs `atlas run` over the mq-agent checkout at pinned commit `aa7411d…`, with `persist-credentials: false` and `contents: read`. It then deletes the checkout and later builds and uploads the release-integrity bundle. Is that ordering acceptable, or should the release build run in a job that never processes another repository's content?
+12. Does the `uv export … --all-groups --no-emit-project` audit miss anything the environment audit covered? Is the PyPI name collision a release blocker, or does the statement in the release notes ("not published on PyPI") suffice?
+13. `upload-artifact` 7.0.2 (#132) uploads the bundle. Box 6 has to show that the bundle can be retrieved and matches. Is anything else in the new major version relevant?
 
 ## 7. Routing (#112)
 
 The claim is that the product name `atlas` no longer selects `prompt_improvement`, and that the remaining keywords are unchanged.
 
-12. Does any task now route to a topic with a broader read plan than it did at `v1.0.0`?
+14. Does any task now route to a topic with a broader read plan than it did at `v1.0.0`?
