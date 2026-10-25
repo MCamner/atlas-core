@@ -234,8 +234,9 @@ def read_envelope(text: str) -> ReadEnvelope:
 
     Never raises and never drops anything. A provider that ignored the schema
     and answered in markdown — including markdown that already carries its own
-    `atlas-findings` fence — passes through unchanged, which is the same reply
-    this adapter would have produced before a schema was ever sent.
+    `atlas-findings` fence — passes through unchanged as text. `findings_block`
+    is then `None`, and `LiveModelAdapter`, having sent the schema, states no
+    findings for it: a fence in the text is not a findings channel.
     """
     try:
         payload = json.loads(text)

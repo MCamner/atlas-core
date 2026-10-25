@@ -301,10 +301,11 @@ class TestTheRunSaysWhereEachFindingsBlockCameFrom(_ModelRun):
 
         self.assertEqual(self.sources(run), ["findings_block"])
 
-    def test_a_reply_that_is_not_json(self) -> None:
+    def test_a_reply_that_is_not_json_with_no_schema_sent(self) -> None:
         adapter = LiveModelAdapter(
             ProviderConfig(provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT),
             transport=_Fake("# Svar\n\nInte JSON.\n"),
+            structured_output=False,
         )
         run = AtlasController(max_iterations=1, model_adapter=adapter).run(
             "granska repo", evidence=self.base, json_mode=True
@@ -331,6 +332,45 @@ class TestTheRunSaysWhereEachFindingsBlockCameFrom(_ModelRun):
                 for n in range(len(run["evaluations"]))
             ],
         )
+
+
+class TestASentSchemaIsTheOnlyChannel(_ModelRun):
+    """Hybrid for 1.1: once `LiveModelAdapter` has sent the output schema, a
+    reply that does not match it states no findings. A fence found in its text
+    is not read, however sound its citations; the run gets the repairable
+    missing-block gap instead."""
+
+    def run_reply(self, reply: str) -> dict[str, Any]:
+        adapter = LiveModelAdapter(
+            ProviderConfig(provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT),
+            transport=_Fake(reply),
+        )
+        return AtlasController(max_iterations=1, model_adapter=adapter).run(
+            "granska repo", evidence=self.base, json_mode=True
+        )
+
+    def assert_nothing_graded(self, run: dict[str, Any]) -> None:
+        metadata = run["metadata"]["model_result"]["metadata"]
+        self.assertEqual(metadata["output_schema_sent"], "true")
+        self.assertEqual(metadata["output_conformed"], "false")
+        self.assertEqual(self.checks(run), [])
+        self.assertIn("malformed_findings", run["evaluations"][-1]["evidence_gaps"])
+        self.assertNotEqual(run["stop_reason"], "passed")
+        self.assertEqual(
+            [entry["source"] for entry in run["metadata"]["findings_sources"]],
+            ["findings_block"],
+        )
+
+    def test_markdown_with_a_sound_fence(self) -> None:
+        reply = "# Svar\n\nGranskning.\n\n" + fence(FINDINGS_FENCE, [self.finding("pip install")])
+
+        self.assert_nothing_graded(self.run_reply(reply))
+
+    def test_an_envelope_with_an_undeclared_field_and_a_fence_in_its_report(self) -> None:
+        report = "# Svar\n\n" + fence(FINDINGS_FENCE, [self.finding("pip install")])
+        reply = json.dumps({"report": report, "findings": [], "verdict": "verified"})
+
+        self.assert_nothing_graded(self.run_reply(reply))
 
 
 if __name__ == "__main__":

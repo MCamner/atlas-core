@@ -585,7 +585,10 @@ sound its citations are.
 When `findings_block` is `None`, the whole of `ModelResult.output` is read as
 the adapter's findings, as in 1.0. That happens for an adapter that does not
 set the field, for `StubModelAdapter`, and for a `LiveModelAdapter` reply that
-is not a JSON envelope. **This fallback is deprecated.** It stays for 1.x, and
+is not a JSON envelope when no schema was sent (`structured_output=False`).
+Once `LiveModelAdapter` has sent the schema, its `findings` field is the only
+channel. A reply that did not match the schema states no findings, and a fence
+in its text is not read. **This fallback is deprecated.** It stays for 1.x, and
 it is removed in 2.0, after which an adapter that does not set
 `findings_block` states no findings. It is not the SEC-01 defect. Atlas adds
 no observed text to an adapter's output, so everything in it was written by
@@ -594,6 +597,8 @@ equally put the same finding in `findings`. What the fallback lacks is the
 separation between prose and findings, so a fence quoted in the prose counts.
 `metadata.findings_sources` records, per iteration, which of
 `producer_section`, `findings_block` and `adapter_output` the evaluation read.
+`adapter_output` is not a channel that separates findings from prose, and
+nothing about it should be read as one.
 
 Only a finding whose citations are sound reaches this step: a refutation
 resting on a source the finding cannot point at would be an accusation about
@@ -906,7 +911,9 @@ A producer that was asked for a findings block and wrote none gets the same gap
 and the same next action. Nothing in the output distinguishes it from a review
 that honestly asserts nothing, so `evaluate()` takes
 `structured_output_required` and the controller sets it from what the adapter
-recorded about its own request. Without a schema on the wire nothing changes,
+recorded about its own request. A handwritten `atlas-findings` block in a
+reply to a sent schema is not read. The `findings` field is the only channel,
+so such a reply gets this gap too. Without a schema on the wire nothing changes,
 and neither a handwritten `atlas-findings` block nor an explicit empty
 `findings: []` counts as missing. `no_sources_observed` outranks it, because a
 run with nothing to read cannot be repaired by rewriting the answer.

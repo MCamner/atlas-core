@@ -27,9 +27,17 @@ Deprecated:
 - Reading a model adapter's whole `output` as its findings when
   `ModelResult.findings_block` is `None`. It applies to adapters that do not
   set the field, to `StubModelAdapter`, and to a `LiveModelAdapter` reply that
-  is not a JSON envelope, and it is recorded as `adapter_output` in
-  `metadata.findings_sources`. It is removed in 2.0. Set `findings_block` to
+  is not a JSON envelope when no schema was sent. It is recorded as
+  `adapter_output` in `metadata.findings_sources`, and it is not a channel that
+  separates findings from prose. It is removed in 2.0. Set `findings_block` to
   keep stating findings.
+
+Changed:
+
+- Once `LiveModelAdapter` has sent the output schema, a reply that does not
+  match it states no findings. A handwritten `atlas-findings` fence in such a
+  reply is no longer read. The run gets `malformed_findings` with
+  `repair_findings_block`, as it does for a missing block.
 
 ## v1.1.0 — 2026-10-25
 
