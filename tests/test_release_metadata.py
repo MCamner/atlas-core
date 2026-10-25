@@ -1,7 +1,12 @@
 import json
-import tomllib
 import unittest
+import sys
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 import atlas_core
 
