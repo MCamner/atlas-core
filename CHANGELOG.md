@@ -6,7 +6,7 @@
 
 Deterministic review topics and targeted observations added after `v1.0.0`.
 No public Python export, CLI option or stop reason is removed or changed.
-Two output schemas accept a new claim kind; see Schemas.
+One new schema, `atlas-findings-block.v2`; see Schemas.
 
 Not published on PyPI. The name `atlas-core` there belongs to an unrelated
 project, so `pip install atlas-core` installs that project. Install from a
@@ -85,12 +85,18 @@ Repo-review loop improvements:
 
 Schemas:
 
-- `atlas-findings-block.v1` and the model output schema in
-  `atlas_core/adapters/output_contract.py` accept a third `typed_claim.kind`,
-  `command_targets_differ`, with the optional properties `other_source_id`,
-  `source_targets` and `other_targets`. The schema identifier is unchanged.
-  A consumer that validates findings against the `v1.0.0` copy of the schema
-  rejects a finding of this kind; the two literal kinds are unchanged.
+- New `atlas-findings-block.v2`: `atlas-findings-block.v1` plus the relation
+  kind `command_targets_differ` (two cited command lines and their target
+  sets, with `other_source_id`, `source_targets` and `other_targets`). It
+  travels only in a ```` ```atlas-findings.v2 ```` block, which the gate-parity
+  producer emits when a block holds the relation. A v1 reader does not match
+  that fence, so it skips the block: it does not reject the kind, and it does
+  not see the relation finding either. A `command_targets_differ` in an
+  ```` ```atlas-findings ```` block is refused as malformed.
+- `atlas-findings-block.v1` and the model output schema are unchanged from
+  `v1.0.0`: a model can state only the two literal kinds. Between `v1.0.0`
+  and this release, `main` briefly carried the relation inside v1 (#128); #148
+  moved it to v2. Tests in `tests/test_findings_block_versions.py`.
 
 Python compatibility:
 

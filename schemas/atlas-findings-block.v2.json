@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas-findings-block.v2.json",
+  "title": "atlas-findings block, v2",
+  "description": "What a producer puts in the ```atlas-findings.v2 fenced block of a route output. Identical to atlas-findings-block.v1 except that typed_claim.kind may also be command_targets_differ, with other_source_id, source_targets and other_targets. Only deterministic producers emit this fence; the model output schema offers v1 only. A v1 reader does not match the v2 fence, so it skips the block rather than rejecting a finding it cannot settle. This is input to the checker, not an emitted atlas-finding.v1 document: a producer supplies neither finding_id, nor verdict, nor verification_method.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "claim",
+      "scope",
+      "severity_rationale",
+      "evidence"
+    ],
+    "properties": {
+      "claim": {
+        "type": "string",
+        "minLength": 1
+      },
+      "scope": {
+        "type": "string",
+        "minLength": 1
+      },
+      "severity": {
+        "type": "string",
+        "enum": [
+          "P0",
+          "P1",
+          "P2",
+          "unknown"
+        ]
+      },
+      "severity_rationale": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A severity without a reason is a number someone can quote back as though it were assessed."
+      },
+      "evidence": {
+        "type": "array",
+        "minItems": 1,
+        "description": "What the finding CLAIMS about its sources, checked against the run's observations rather than copied from them.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_id",
+            "content_sha256",
+            "line_start",
+            "line_end",
+            "quoted"
+          ],
+          "properties": {
+            "source_id": {
+              "type": "string"
+            },
+            "content_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "line_start": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "line_end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "quoted": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "claim_check": {
+        "type": "object",
+        "description": "A free-standing test of a free-text finding. Settling it settles the TEST, not the claim: nothing checks that the test is a fair test of the sentence, which is why its results are named condition_supported and condition_refuted and can never produce a verdict or reach PASS. A false claim beside a condition that holds stays insufficient_evidence, and a true claim beside a condition that fails is not called contradicted. For a strong verdict, use typed_claim instead.",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "source_id",
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present"
+            ],
+            "description": "Literal text only. A producer-supplied regular expression is untrusted input that can hang the checker; a substring search cannot."
+          },
+          "source_id": {
+            "type": "string",
+            "description": "Must be a source this finding cites, and one the run read."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Empty would match everything and settle nothing."
+          }
+        }
+      },
+      "limitations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "reproducible_command": {
+        "type": "string"
+      },
+      "typed_claim": {
+        "type": "object",
+        "description": "A claim stated so that settling it settles the claim. Literal claims bind text to one observed source. command_targets_differ is the narrow cross-source form used by deterministic gate-parity producers: it binds two cited sources, one command identity, and the exact target sets that must be re-derived from the cited command lines. Mutually exclusive with claim_check.",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "source_id",
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "source_contains_literal",
+              "source_lacks_literal",
+              "command_targets_differ"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "description": "Must be a source this finding cites, and one the run read."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Literal text. A producer-supplied regular expression is untrusted input that can hang the checker; a substring search cannot."
+          },
+          "other_source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Second cited source for command_targets_differ."
+          },
+          "source_targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Exact targets claimed for source_id; required by runtime validation for command_targets_differ."
+          },
+          "other_targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Exact targets claimed for other_source_id; required by runtime validation for command_targets_differ."
+          }
+        }
+      }
+    }
+  }
+}

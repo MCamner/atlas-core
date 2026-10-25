@@ -14,7 +14,13 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .claim_check import ClaimCondition, TypedClaim, build_condition, build_typed_claim
+from .claim_check import (
+    ClaimCondition,
+    ClaimKind,
+    TypedClaim,
+    build_condition,
+    build_typed_claim,
+)
 from .finding import EvidenceRef, Finding
 
 #: Where an output puts the machine-readable half of its findings. A fenced
@@ -22,8 +28,15 @@ from .finding import EvidenceRef, Finding
 #: an answer happens to contain.
 FINDINGS_FENCE = "atlas-findings"
 
+#: The fence for schemas/atlas-findings-block.v2.json, the only block that may
+#: carry `command_targets_differ`. A reader of the v1 fence does not match it,
+#: so a v1 consumer skips the block instead of rejecting a kind it never knew.
+FINDINGS_FENCE_V2 = "atlas-findings.v2"
+
 _FINDINGS_BLOCK = re.compile(
-    r"^```" + FINDINGS_FENCE + r"\s*\n(.*?)\n^```", re.DOTALL | re.MULTILINE
+    r"^```(" + re.escape(FINDINGS_FENCE) + r"|" + re.escape(FINDINGS_FENCE_V2)
+    + r")\s*\n(.*?)\n^```",
+    re.DOTALL | re.MULTILINE,
 )
 
 # Adapters emit observations as "<relative path>:\n<content head>". mqobsidian
@@ -114,7 +127,7 @@ class ParsedFindings:
 
 
 def structured_findings(output: str) -> ParsedFindings:
-    """Read the `atlas-findings` block, if the output carries one.
+    """Read the `atlas-findings` or `atlas-findings.v2` block, if the output carries one.
 
     A malformed block is reported, never skipped. Silently ignoring it would
     turn a producer's broken citation into "this route asserts nothing", which
@@ -124,8 +137,9 @@ def structured_findings(output: str) -> ParsedFindings:
     if match is None:
         return ParsedFindings()
 
+    fence, body = match.group(1), match.group(2)
     try:
-        payload = json.loads(match.group(1))
+        payload = json.loads(body)
     except json.JSONDecodeError as error:
         return ParsedFindings(malformed=f"block is not valid JSON: {error}", present=True)
 
@@ -138,9 +152,17 @@ def structured_findings(output: str) -> ParsedFindings:
     entries: list[tuple[Finding, TypedClaim | None, ClaimCondition | None]] = []
     for index, item in enumerate(payload):
         try:
-            entries.append(
-                (_build_finding(item), _build_typed(item), _build_condition(item))
-            )
+            typed = _build_typed(item)
+            if (
+                typed is not None
+                and typed.kind is ClaimKind.COMMAND_TARGETS_DIFFER
+                and fence != FINDINGS_FENCE_V2
+            ):
+                raise ValueError(
+                    f"command_targets_differ belongs in an `{FINDINGS_FENCE_V2}` "
+                    f"block; `{FINDINGS_FENCE}` is atlas-findings-block.v1"
+                )
+            entries.append((_build_finding(item), typed, _build_condition(item)))
         except (TypeError, KeyError, ValueError) as error:
             return ParsedFindings(
                 malformed=f"finding {index} is not usable: {error}", present=True

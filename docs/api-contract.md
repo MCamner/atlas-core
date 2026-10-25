@@ -563,6 +563,15 @@ has no `verdict`, `verification_method` or `finding_id` — those are assigned b
 whatever checked the finding. A block that supplies one is refused, not
 stripped.
 
+`schemas/atlas-findings-block.v2.json` is the same contract with one more
+`typed_claim.kind`, `command_targets_differ`: a relation between two cited
+command lines, used by the deterministic gate-parity producer. It travels only
+in a ```` ```atlas-findings.v2 ```` block. A v1 reader does not match that
+fence, so it skips the block instead of rejecting a kind it does not know. A
+`command_targets_differ` in an ```` ```atlas-findings ```` block is refused as
+malformed, and the model output schema offers only the two literal kinds, so a
+model cannot state the relation.
+
 Only a finding whose citations are sound reaches this step: a refutation
 resting on a source the finding cannot point at would be an accusation about
 the wrong file. A source that has moved settles nothing in either direction.
