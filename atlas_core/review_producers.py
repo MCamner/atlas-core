@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .claim_check import ClaimKind, TypedClaim
-from .evidence import FINDINGS_FENCE
+from .evidence import FINDINGS_FENCE, FINDINGS_FENCE_V2
 from .evidence_base import EvidenceBase
 from .observation import Observation
 from .state import AtlasPlan
@@ -707,16 +707,31 @@ def _render(
 ) -> str:
     bullets = "\n".join(f"- {finding['claim']}" for finding in findings)
     block = json.dumps(findings, ensure_ascii=False, indent=2)
+    # The relation claim exists only in atlas-findings-block.v2. A block of
+    # literal claims stays v1, which every reader since v1.0.0 can parse.
+    fence = (
+        FINDINGS_FENCE_V2
+        if any(_is_relation(finding) for finding in findings)
+        else FINDINGS_FENCE
+    )
     return (
         f"\n## {heading}\n"
         + conclusion
         + "\n\n## Findings\n"
         + bullets
         + "\n\n```"
-        + FINDINGS_FENCE
+        + fence
         + "\n"
         + block
         + "\n```\n"
+    )
+
+
+def _is_relation(finding: dict[str, object]) -> bool:
+    typed = finding.get("typed_claim")
+    return (
+        isinstance(typed, dict)
+        and typed.get("kind") == ClaimKind.COMMAND_TARGETS_DIFFER.value
     )
 
 

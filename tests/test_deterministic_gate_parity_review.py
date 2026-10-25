@@ -8,6 +8,7 @@ import unittest
 from atlas_core import AtlasController
 from atlas_core.adapters.filesystem_repo import FilesystemRepoObserver
 from atlas_core.budget import RunLimits
+from atlas_core.evidence import FINDINGS_FENCE, FINDINGS_FENCE_V2
 from atlas_core.evidence_base import EvidenceBase
 from atlas_core.finalizer import FACT, render_run_text
 from atlas_core.snapshot import take_snapshot
@@ -128,6 +129,7 @@ EXCEPTIONS: dict[str, str] = {
         self.assertEqual(run["plan"]["review"]["topic"], "ci_gate_parity")
         self.assertEqual(run["stop_reason"], "passed")
         self.assertIn("ingen odeklarerad drift", run["outputs"][-1])
+        self.assertIn("```" + FINDINGS_FENCE + "\n", run["outputs"][-1])
         self.assertNotIn("CI-only check: check-vendored-contracts.py", run["outputs"][-1])
         self.assertNotIn("CI-only check: markdownlint-cli2-action", run["outputs"][-1])
         self.assertIn(
@@ -183,6 +185,8 @@ EXCEPTIONS: dict[str, str] = {
         )
         ledger = render_run_text(run).split("Claim ledger", 1)[1]
         self.assertIn(f"{FACT}  command \"ruff\" targets differ:", ledger)
+        self.assertIn("```" + FINDINGS_FENCE_V2 + "\n", run["outputs"][-1])
+        self.assertNotIn("```" + FINDINGS_FENCE + "\n", run["outputs"][-1])
 
     def test_a_block_scalar_run_step_makes_the_producer_decline(self) -> None:
         """The producer reads one-line `run:` steps only.

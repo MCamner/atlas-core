@@ -110,11 +110,7 @@ _FINDING_ITEM: dict[str, Any] = {
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": [
-                        "source_contains_literal",
-                        "source_lacks_literal",
-                        "command_targets_differ",
-                    ],
+                    "enum": ["source_contains_literal", "source_lacks_literal"],
                 },
                 "source_id": {
                     "type": "string",
@@ -125,22 +121,7 @@ _FINDING_ITEM: dict[str, Any] = {
                 "text": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Literal text or deterministic command identity.",
-                },
-                "other_source_id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Second cited source for command_targets_differ.",
-                },
-                "source_targets": {
-                    "type": "array",
-                    "items": {"type": "string", "minLength": 1},
-                    "description": "Declared targets for source_id.",
-                },
-                "other_targets": {
-                    "type": "array",
-                    "items": {"type": "string", "minLength": 1},
-                    "description": "Declared targets for other_source_id.",
+                    "description": "Literal text. Not a regular expression.",
                 },
             },
         },
