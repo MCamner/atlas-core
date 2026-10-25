@@ -437,6 +437,7 @@ Fasen släpper det som redan finns på `main` efter `v1.0.0`, granskat. Den läg
   - **Release-information:** `atlas-core` på PyPI är ett annat projekt. Releasen beskrivs inte som installerbar från PyPI; `CHANGELOG.md` för v1.1.0 säger det.
 - [ ] **Oberoende säkerhetsgranskning av den pinnade SHA:n**, med samma paket- och återgranskningsform som [`docs/security-review-package/`](docs/security-review-package/), och omfattande varje PR i säkerhetsgaten. Fynd som blockerar rättas, och rättelserna återgranskas mot en ny pinnad SHA. Ny funktion tas inte in i det här steget.
   - Ska uttryckligen pröva v1/v2-gränsen för findings-blocket från #148: att en v1-läsare hoppar över ett ```` ```atlas-findings.v2 ````-block, att `command_targets_differ` i ett v1-block avvisas, och att modellvägen inte kan ange relationen.
+  - Granskningspaket mot den pinnade SHA:n `83d7d2c`: [`docs/security-review-package-v1.1.0/`](docs/security-review-package-v1.1.0/). Paketet är förberedelse, inte ett godkännande.
 - [ ] **Tagga och släpp den granskade SHA:n** enligt release-checklistan: reproducerbart bygge, release-SBOM, digestmanifest och integrity-bundle från exact-main-CI, med återhämtade assets kontrollerade mot manifestet. Ingår #132 (`actions/upload-artifact` 4.6.2 → 7.0.2) ska just den körningen visa att bundlen produceras och kan hämtas.
 
 **v2.1 exit gate:** taggen pekar på den SHA som den oberoende granskningen avslutades mot, utan kvarvarande blockerare; exact-main-CI på den SHA:n är grön; inget i säkerhetsgaten är ogranskat.
