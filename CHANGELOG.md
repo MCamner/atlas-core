@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Schemas:
+
+- `atlas-findings-block.v1` is back to its `v1.0.0` shape: `typed_claim.kind`
+  is `source_contains_literal` or `source_lacks_literal`. The relation kind
+  `command_targets_differ`, added inside v1 after `v1.0.0`, now has its own
+  schema, `atlas-findings-block.v2`, and its own fence, ```` ```atlas-findings.v2 ````,
+  which a v1 reader does not match. The gate-parity producer emits that fence
+  only when a block holds the relation. A `command_targets_differ` in a v1
+  block is refused as malformed. The model output schema is back to the
+  `v1.0.0` shape, so a model cannot state the relation. Tests in
+  `tests/test_findings_block_versions.py`.
+
 CI fixes:
 
 - `pip-audit --strict` audits every dependency group in `uv.lock`, exported
