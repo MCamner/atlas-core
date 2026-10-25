@@ -29,6 +29,10 @@ build = [
 	"wheel==0.48.0",
 ]
 
+# CI tooling requires Python 3.11; the package still supports Python 3.10.
+[tool.uv.dependency-groups]
+ci = {requires-python = ">=3.11"}
+
 [project.scripts]
 atlas = "atlas_core.cli:main"
 

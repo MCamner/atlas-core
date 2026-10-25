@@ -4,6 +4,11 @@
 
 Security fixes:
 
+- Updated CI's transitive `filelock` dependency to 4.2.1 for
+  CVE-2026-112940, CVE-2026-112913 and CVE-2026-112907. The CI dependency
+  group now requires Python 3.11; the package still declares Python 3.10
+  support and has no runtime dependencies.
+
 - `atlas propose` no longer accepts approval from its own terminal. The public
   CLI always stops at `approval_required`, including under a pseudo-terminal,
   so its controlling process cannot read and submit an in-band approval code.
@@ -64,6 +69,18 @@ Repo-review loop improvements:
   producer decline instead of comparing a partial workflow, and the topic is
   reached only by `release-check` or gate parity, so a generic "release gate"
   question keeps the `ci` or `release` topic that can read the repository.
+- Deterministic producers decline when they cannot read what their verdict
+  needs. CI test-command parity and release metadata parity require every
+  source to be read in full, and changelog parity requires it of
+  `pyproject.toml`; before this, a second test command or version outside the
+  80-line window could pass as the only one. Gate parity declines when
+  `WORKFLOW_SCOPE` or `EXCEPTIONS` is missing, defined twice, not closed in the
+  excerpt, or holds an entry the parser cannot read; before this, a missing
+  `EXCEPTIONS` block read as "no exceptions" and an unreadable scope entry was
+  skipped. Its conclusion now says scope and exceptions are the declared
+  blocks. CI test-command parity on a workflow longer than 80 lines, such as
+  this repository's own `test.yml`, now declines. Tests in
+  `tests/test_producers_decline_on_partial_reads.py`.
 - The generated `atlas-core-loop` skill tells the agent to check `Stop reason:`
   and to report any stop other than `passed` instead of relaying the route
   template as findings. `AGENTS.md` (with `CLAUDE.md` pointing to it) records
