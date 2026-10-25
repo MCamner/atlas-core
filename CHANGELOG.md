@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+CI fixes:
+
+- `pip-audit --strict` audits every dependency group in `uv.lock`, exported
+  with hashes and without the project, instead of the installed environment.
+  The name `atlas-core` on PyPI belongs to an unrelated project with a 1.0.0
+  release, so the environment audit looked up that project's 1.0.0 instead of
+  this package, and failed under `--strict` for a version PyPI does not have.
+  The audit now also covers the `build` and `test` groups.
+
 Python compatibility:
 
 - Added the full unittest suite on Python 3.10.22 to CI. Test and build

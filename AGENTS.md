@@ -25,13 +25,17 @@ uv sync --locked --group ci
 uv run --locked --group ci python -m unittest discover -s tests
 uv run --locked --group ci mypy atlas_core tests scripts/pinned_repo_review.py scripts/secret_scan_smoke.py
 uv run --locked --group ci pyright atlas_core tests scripts/pinned_repo_review.py scripts/secret_scan_smoke.py scripts/reproducible_build.py
-uv run --locked --group ci pip-audit --strict
+uv export --locked --all-groups --no-emit-project --format requirements-txt -o "${TMPDIR:-/tmp}/atlas-locked-requirements.txt"
+uv run --locked --group ci pip-audit --strict --disable-pip --require-hashes -r "${TMPDIR:-/tmp}/atlas-locked-requirements.txt"
 git ls-files -z -- . ':!.secrets.baseline' | xargs -0 uv run --locked --group ci detect-secrets-hook --baseline .secrets.baseline
 ```
 
 - Use `unittest` like CI. Plain `pytest` stops at collection on the
   `scripts` import, and `python -m pytest` runs but skips more tests.
 - Run both mypy and pyright. Each finds errors the other does not.
+- Audit the exported lock, not the environment. PyPI's `atlas-core` is an
+  unrelated project, so auditing the installed environment checks that
+  project's release instead of this one.
 - The secrets hook refuses an unstaged `.secrets.baseline`. Stage it first
   if you changed it.
 - CI also runs an end-to-end review against a pinned mq-agent commit and a

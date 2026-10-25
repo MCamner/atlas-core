@@ -112,7 +112,10 @@ jobs:
         run: rm -rf _e2e
       - run: uv run --locked --group ci mypy atlas_core tests scripts/pinned_repo_review.py scripts/secret_scan_smoke.py
       - run: uv run --locked --group ci pyright atlas_core tests scripts/pinned_repo_review.py scripts/secret_scan_smoke.py scripts/reproducible_build.py
-      - run: uv run --locked --group ci pip-audit --strict
+      - name: Audit locked dependencies
+        run: |
+          uv export --locked --all-groups --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/locked-requirements.txt"
+          uv run --locked --group ci pip-audit --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/locked-requirements.txt"
       - run: uv run --locked --group ci python scripts/secret_scan_smoke.py
       - name: Scan tracked files for secrets
         run: git ls-files -z -- . ':!.secrets.baseline' | xargs -0 uv run --locked --group ci detect-secrets-hook --baseline .secrets.baseline
