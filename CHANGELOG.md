@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Documentation fixes:
+
+- Corrected the API contract and live-model module description to reflect
+  produced control stops, structured output checks and non-deterministic live
+  results. Updated the v2.1 release-selection guidance and references to
+  existing regression tests; roadmap checkboxes remain open.
+
 Security fixes:
 
 - Updated CI's transitive `filelock` dependency to 4.2.1 for

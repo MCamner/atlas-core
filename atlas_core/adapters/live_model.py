@@ -48,12 +48,9 @@ another attempt is worth it.
 
 ## What this module deliberately does not do
 
-- It does not validate structured output against a schema, or tell a provider
-  what shape to produce. That is the rest of box two.
-- It does not mark its results non-deterministic. That is box three.
-- It does not offer the model any tool. The controller passes a gateway when it
-  has one; this adapter ignores it, which is the honest state until box four
-  declares a capability list.
+- It does not ask the model to use tools. It declares capabilities and checks
+  explicit `invoke_tool` calls through the controller-provided gateway, but
+  `execute` does not invoke tools or request model tool calls.
 
 ## Secrets
 

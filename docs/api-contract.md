@@ -614,10 +614,11 @@ Terminal runs expose `status`, `stop_reason` and `stop_class`:
   carries is provisional: the loop stopped before it was finished, not because
   it was.
 
-`budget_exhausted` and `cancelled` are declared and **not yet produced** by any
-code path; they are reserved by the remaining P0.3 work so the vocabulary a
-consumer codes against does not grow every time a limit lands. A test names
-them, so the gap is recorded rather than implied.
+`budget_exhausted` is produced when a runtime budget is exhausted; `cancelled`
+is produced at cancellation checkpoints or when the isolated CLI run is
+interrupted. Both are control stops, not evaluation verdicts. Existing coverage
+in `tests/test_p03_controller.py` and `tests/test_budget_controller.py` exercises
+these paths; `tests/test_state_machine.py` records no unproduced stop reasons.
 
 `no_progress` has three forms, and `metadata.no_progress.reason` says which:
 
@@ -912,9 +913,12 @@ daemon without parsing prose. **None of them retry inside the adapter**: that
 would spend wall-clock the `RunBudget` cannot see, and the loop owns whether
 another attempt is worth it.
 
-Not yet, and stated so a caller does not assume otherwise: structured output is
-not validated against a schema and no schema is sent to the provider, results
-are not marked non-deterministic, and the adapter offers the model no tool.
+The adapter sends the output schema by default and checks replies locally, as
+described above. Live results carry the adapter-level `determinism` marker and
+the run-level `metadata.non_deterministic` marker. These contracts are covered
+by `tests/test_live_provider.py`. The adapter still does not ask the model to
+use tools; capability declarations and gateway checks do not constitute model
+tool use.
 
 ### What another pass rests on (P1.1)
 
