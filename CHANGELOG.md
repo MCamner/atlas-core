@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v1.1.0 — 2026-10-25
+
+Deterministic review topics and targeted observations added after `v1.0.0`.
+No public Python export, CLI option or stop reason is removed or changed.
+One new schema, `atlas-findings-block.v2`; see Schemas. Fixes
+GHSA-m8fx-mmrx-c449, which affects `v1.0.0`; see Security fixes.
+
+Not published on PyPI. The name `atlas-core` there belongs to an unrelated
+project, so `pip install atlas-core` installs that project. Install from a
+checkout or from the wheel attached to this release's tag.
+
 Security fixes:
 
 - Findings are read only from text a producer wrote, never from the assembled
@@ -21,35 +32,6 @@ Security fixes:
   `atlas-run.v1`) records per iteration whether findings came from
   `producer_section`, `findings_block` or `adapter_output`. Regression tests
   in `tests/test_findings_trust_boundary.py`.
-
-Deprecated:
-
-- Reading a model adapter's whole `output` as its findings when
-  `ModelResult.findings_block` is `None`. It applies to adapters that do not
-  set the field, to `StubModelAdapter`, and to a `LiveModelAdapter` reply that
-  is not a JSON envelope when no schema was sent. It is recorded as
-  `adapter_output` in `metadata.findings_sources`, and it is not a channel that
-  separates findings from prose. It is removed in 2.0. Set `findings_block` to
-  keep stating findings.
-
-Changed:
-
-- Once `LiveModelAdapter` has sent the output schema, a reply that does not
-  match it states no findings. A handwritten `atlas-findings` fence in such a
-  reply is no longer read. The run gets `malformed_findings` with
-  `repair_findings_block`, as it does for a missing block.
-
-## v1.1.0 — 2026-10-25
-
-Deterministic review topics and targeted observations added after `v1.0.0`.
-No public Python export, CLI option or stop reason is removed or changed.
-One new schema, `atlas-findings-block.v2`; see Schemas.
-
-Not published on PyPI. The name `atlas-core` there belongs to an unrelated
-project, so `pip install atlas-core` installs that project. Install from a
-checkout or from the wheel attached to this release's tag.
-
-Security fixes:
 
 - Updated CI's transitive `filelock` dependency to 4.2.1 for
   CVE-2026-112940, CVE-2026-112913 and CVE-2026-112907. The CI dependency
@@ -120,8 +102,27 @@ Repo-review loop improvements:
   template as findings. `AGENTS.md` (with `CLAUDE.md` pointing to it) records
   the checks and merge rules for agents that change this repository.
 
+Deprecated:
+
+- Reading a model adapter's whole `output` as its findings when
+  `ModelResult.findings_block` is `None`. It applies to adapters that do not
+  set the field, to `StubModelAdapter`, and to a `LiveModelAdapter` reply that
+  is not a JSON envelope when no schema was sent. It is recorded as
+  `adapter_output` in `metadata.findings_sources`, and it is not a channel that
+  separates findings from prose. It is removed in 2.0. Set `findings_block` to
+  keep stating findings.
+
+Changed:
+
+- Once `LiveModelAdapter` has sent the output schema, a reply that does not
+  match it states no findings. A handwritten `atlas-findings` fence in such a
+  reply is no longer read. The run gets `malformed_findings` with
+  `repair_findings_block`, as it does for a missing block.
+
 Schemas:
 
+- `atlas-run.v1` declares the optional `metadata.findings_sources`, which
+  records per iteration where the evaluation read its findings from.
 - New `atlas-findings-block.v2`: `atlas-findings-block.v1` plus the relation
   kind `command_targets_differ` (two cited command lines and their target
   sets, with `other_source_id`, `source_targets` and `other_targets`). It
