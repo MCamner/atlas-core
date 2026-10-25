@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Python compatibility:
+
+- Added the full unittest suite on Python 3.10.22 to CI. Test and build
+  metadata readers use `tomli` on Python 3.10 and `tomllib` on Python 3.11+;
+  the package retains its Python >=3.10 support declaration.
+
 Documentation fixes:
 
 - Corrected the API contract and live-model module description to reflect

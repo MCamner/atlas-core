@@ -12,12 +12,16 @@ import subprocess
 import sys
 import tempfile
 import tarfile
-import tomllib
 import tarfile
 import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 from pathlib import PurePosixPath
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 
 class ReleaseIntegrityError(ValueError):

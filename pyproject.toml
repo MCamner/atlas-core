@@ -16,6 +16,7 @@ dependencies = []
 dev = []
 
 [dependency-groups]
+test = ["tomli==2.4.1; python_version < '3.11'"]
 ci = [
 	"detect-secrets==1.5.0",
 	"mypy==2.4.0",
