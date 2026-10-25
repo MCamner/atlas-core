@@ -2,39 +2,15 @@
 
 ## Unreleased
 
-Schemas:
+## v1.1.0 — 2026-10-25
 
-- `atlas-findings-block.v1` is back to its `v1.0.0` shape: `typed_claim.kind`
-  is `source_contains_literal` or `source_lacks_literal`. The relation kind
-  `command_targets_differ`, added inside v1 after `v1.0.0`, now has its own
-  schema, `atlas-findings-block.v2`, and its own fence, ```` ```atlas-findings.v2 ````,
-  which a v1 reader does not match. The gate-parity producer emits that fence
-  only when a block holds the relation. A `command_targets_differ` in a v1
-  block is refused as malformed. The model output schema is back to the
-  `v1.0.0` shape, so a model cannot state the relation. Tests in
-  `tests/test_findings_block_versions.py`.
+Deterministic review topics and targeted observations added after `v1.0.0`.
+No public Python export, CLI option or stop reason is removed or changed.
+One new schema, `atlas-findings-block.v2`; see Schemas.
 
-CI fixes:
-
-- `pip-audit --strict` audits every dependency group in `uv.lock`, exported
-  with hashes and without the project, instead of the installed environment.
-  The name `atlas-core` on PyPI belongs to an unrelated project with a 1.0.0
-  release, so the environment audit looked up that project's 1.0.0 instead of
-  this package, and failed under `--strict` for a version PyPI does not have.
-  The audit now also covers the `build` and `test` groups.
-
-Python compatibility:
-
-- Added the full unittest suite on Python 3.10.22 to CI. Test and build
-  metadata readers use `tomli` on Python 3.10 and `tomllib` on Python 3.11+;
-  the package retains its Python >=3.10 support declaration.
-
-Documentation fixes:
-
-- Corrected the API contract and live-model module description to reflect
-  produced control stops, structured output checks and non-deterministic live
-  results. Updated the v2.1 release-selection guidance and references to
-  existing regression tests; roadmap checkboxes remain open.
+Not published on PyPI. The name `atlas-core` there belongs to an unrelated
+project, so `pip install atlas-core` installs that project. Install from a
+checkout or from the wheel attached to this release's tag.
 
 Security fixes:
 
@@ -42,45 +18,32 @@ Security fixes:
   CVE-2026-112940, CVE-2026-112913 and CVE-2026-112907. The CI dependency
   group now requires Python 3.11; the package still declares Python 3.10
   support and has no runtime dependencies.
-
-- `atlas propose` no longer accepts approval from its own terminal. The public
-  CLI always stops at `approval_required`, including under a pseudo-terminal,
-  so its controlling process cannot read and submit an in-band approval code.
-  A write-capable host must hold `ApprovalAuthority` and use an approval
-  channel outside the proposing process. Regression test in
-  `tests/test_patch_proposal.py`.
-- Git commands Core runs in an observed or target repository pass
-  `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
-  could name a command that `git status` ran during `atlas run --repo-path`
-  and `atlas propose`. Regression test in `tests/test_snapshot.py`.
-- `atlas propose` shows the diff and test output with control and format
-  characters (Unicode Cc/Cf, including escape sequences, carriage returns and
-  bidirectional overrides) spelled out. Before this, a patch could carry
-  terminal sequences that erased lines from the approval screen, so a person
-  could approve a diff different from the one written. The written branch and
-  the diff digest are unchanged. Regression test in
-  `tests/test_patch_proposal.py`.
-- The GitHub reader and the live model transport drop `Authorization` when a
-  redirect changes scheme, host or port. urllib's default handler copied it
-  to wherever `Location` pointed, so a redirect could hand the GitHub token or
-  the model API key to another host. Same-origin redirects keep it.
-  Regression tests in `tests/test_redirect_credentials.py`.
-- Before the later CLI fix above, `docs/safety-model.md` and
-  `docs/api-contract.md` were corrected to admit that terminal control did not
-  prove a human approval.
-- The live model transport reads a provider's reply up to 16 MiB and stops
-  with `ProviderBadResponse` beyond that, instead of reading the body to its
-  end. Regression tests in `tests/test_provider_response_bound.py`.
-- Redaction also masks OpenAI keys with a type prefix (`sk-proj-`,
-  `sk-svcacct-`, `sk-admin-`), Google API keys (`AIza…`), AWS secret access
-  keys after their variable name, and opaque `Bearer` credentials of 20+
-  characters. Prose such as "a Bearer token" and hex digests stay unmasked.
-  Tests in `tests/test_redaction.py`.
-- The GitHub reader refuses `.` and `..` as owner or repository name. They
-  matched the allowed characters and were placed in the request path.
+- Updated CI's `certifi` to 2026.10.19 for GHSA-6q48-6c7w-9gw2.
 
 Repo-review loop improvements:
 
+- The router no longer reads the name `atlas` as a `prompt_improvement`
+  signal. A review question about an Atlas repository, such as a CI review of
+  atlas-core, routes to `repo_review`. Regression test in
+  `tests/test_router.py`.
+- Added a deterministic CI test-command parity producer for the `ci` review
+  topic. It compares the test command in the manual Run Atlas workflow with
+  the one in the test workflow, derives citations and typed claims from
+  `Observation.v1`, and emits nothing when a workflow is missing or a source
+  has zero or several test-command candidates. Tests in
+  `tests/test_deterministic_ci_review.py`.
+- Deterministic producers are registered in `atlas_core/review_producers.py`.
+  A new `release_metadata` topic compares the package version in `VERSION`,
+  `pyproject.toml` and `MANIFEST.json`, and declines on a missing or ambiguous
+  value. Tests in `tests/test_deterministic_release_review.py`.
+- Targeted line-range observations. A local observation can start at an
+  explicit line or at a bounded static `anchor_prefix`, within the existing
+  80-line bound and only for paths the review plan selected. The full-file
+  SHA-256 stays the content identity: a new excerpt of unchanged bytes is
+  recorded as `reframed`, a content change still as `superseded`. A
+  `release_changelog` producer compares `[project].version` with the first
+  `## v` heading in the targeted `CHANGELOG.md` window. Tests in
+  `tests/test_targeted_line_ranges.py`.
 - Gate-parity exception parsing now starts only on the actual Python assignment,
   so prose such as `EXCEPTIONS below...` cannot make workflow names masquerade
   as declared exceptions. Target drift is emitted as the typed two-source
@@ -119,6 +82,128 @@ Repo-review loop improvements:
   and to report any stop other than `passed` instead of relaying the route
   template as findings. `AGENTS.md` (with `CLAUDE.md` pointing to it) records
   the checks and merge rules for agents that change this repository.
+
+Schemas:
+
+- New `atlas-findings-block.v2`: `atlas-findings-block.v1` plus the relation
+  kind `command_targets_differ` (two cited command lines and their target
+  sets, with `other_source_id`, `source_targets` and `other_targets`). It
+  travels only in a ```` ```atlas-findings.v2 ```` block, which the gate-parity
+  producer emits when a block holds the relation. A v1 reader does not match
+  that fence, so it skips the block: it does not reject the kind, and it does
+  not see the relation finding either. A `command_targets_differ` in an
+  ```` ```atlas-findings ```` block is refused as malformed.
+- `atlas-findings-block.v1` and the model output schema are unchanged from
+  `v1.0.0`: a model can state only the two literal kinds. Between `v1.0.0`
+  and this release, `main` briefly carried the relation inside v1 (#128); #148
+  moved it to v2. Tests in `tests/test_findings_block_versions.py`.
+
+Python compatibility:
+
+- Added the full unittest suite on Python 3.10.22 to CI. Test and build
+  metadata readers use `tomli` on Python 3.10 and `tomllib` on Python 3.11+;
+  the package retains its Python >=3.10 support declaration.
+
+Documentation fixes:
+
+- Corrected the API contract and live-model module description to reflect
+  produced control stops, structured output checks and non-deterministic live
+  results.
+
+CI fixes:
+
+- `pip-audit --strict` audits every dependency group in `uv.lock`, exported
+  with hashes and without the project, instead of the installed environment.
+  The name `atlas-core` on PyPI belongs to an unrelated project with a 1.0.0
+  release, so the environment audit looked up that project's 1.0.0 instead of
+  this package, and failed under `--strict` for a version PyPI does not have.
+  The audit now also covers the `build` and `test` groups.
+
+Dependencies and CI:
+
+- Pinned CI actions and tools: `actions/upload-artifact` 4.6.2 → 7.0.2,
+  `astral-sh/setup-uv` 10.2.0 → 10.3.2, `actions/setup-python` 7.0.0 → 7.1.0
+  and `mypy` 2.3.1 → 2.4.0. The build backend `setuptools` is 84.2.1
+  (was 84.0.0). The package has no runtime dependencies.
+
+## v1.0.0 — 2026-09-19
+
+First stable release. Makes the engine do what the README describes.
+
+- Retry is now a replan: the previous evaluation is passed into the executor,
+  which closes the specific sections the evaluator named as missing. The
+  unconditional "Loop improvement" note that claimed an improvement no
+  iteration had made is gone.
+- Evaluation retries only when a gap is actionable. A deterministic rerun with
+  identical input no longer burns an iteration.
+- `repo_review` and `learning` now emit the `Recommendation` and `Next step`
+  sections the evaluator grades them on; `root_cause` gained `Next step`. Every
+  shipped route can now pass its own quality gate on the first iteration.
+- Observations reach every route, not just `repo_review`, and are rendered under
+  `## Sources inspected`.
+- `AtlasEvaluation` gained `missing_sections`: machine-readable gap codes shared
+  by the evaluator and the executor.
+- `--json` output carries `"schema": "atlas-run.v1"`, and `schemas/` now
+  describes the documents the engine actually emits. `tests/test_schemas.py`
+  checks them against each other.
+- The write-action notice moved from the observation list to
+  `metadata.safety_notice`; a warning is not a source.
+- `AtlasController.run` no longer appends to the caller's `observations` list.
+- `docs/safety-model.md` now states where the read-only boundary is enforced and
+  where it is only advisory, as the README claims it does.
+- Added the v0.3 model adapter scaffold: optional `ModelAdapter`,
+  provider-neutral `ModelResult`, rule-based fallback, and tests for model
+  output plus write-approval gating.
+- Added the v0.4 mqobsidian adapter scaffold: bounded compact-context reads,
+  explicit durable-memory labelling, candidate-only writes, and optional
+  controller/CLI integration without an MQ package dependency.
+- Added the v0.5 ChatGPT Skill package generator with live route summaries,
+  CLI examples, safety boundaries, overwrite protection, and drift tests for
+  the checked-in integration package.
+- Stabilized the v1.0 loop API with public type exports, explicit stop reasons,
+  positive iteration bounds, closed versioned schemas, and a documented 1.x
+  adapter and write-boundary contract.
+
+The entries below were listed under `Unreleased` when the `v1.0.0` tag was
+created on `8230fec`, and ship in that tag.
+
+Security fixes:
+
+- `atlas propose` no longer accepts approval from its own terminal. The public
+  CLI always stops at `approval_required`, including under a pseudo-terminal,
+  so its controlling process cannot read and submit an in-band approval code.
+  A write-capable host must hold `ApprovalAuthority` and use an approval
+  channel outside the proposing process. Regression test in
+  `tests/test_patch_proposal.py`.
+- Git commands Core runs in an observed or target repository pass
+  `-c core.fsmonitor=false`. Before this, a repository's own `.git/config`
+  could name a command that `git status` ran during `atlas run --repo-path`
+  and `atlas propose`. Regression test in `tests/test_snapshot.py`.
+- `atlas propose` shows the diff and test output with control and format
+  characters (Unicode Cc/Cf, including escape sequences, carriage returns and
+  bidirectional overrides) spelled out. Before this, a patch could carry
+  terminal sequences that erased lines from the approval screen, so a person
+  could approve a diff different from the one written. The written branch and
+  the diff digest are unchanged. Regression test in
+  `tests/test_patch_proposal.py`.
+- The GitHub reader and the live model transport drop `Authorization` when a
+  redirect changes scheme, host or port. urllib's default handler copied it
+  to wherever `Location` pointed, so a redirect could hand the GitHub token or
+  the model API key to another host. Same-origin redirects keep it.
+  Regression tests in `tests/test_redirect_credentials.py`.
+- Before the later CLI fix above, `docs/safety-model.md` and
+  `docs/api-contract.md` were corrected to admit that terminal control did not
+  prove a human approval.
+- The live model transport reads a provider's reply up to 16 MiB and stops
+  with `ProviderBadResponse` beyond that, instead of reading the body to its
+  end. Regression tests in `tests/test_provider_response_bound.py`.
+- Redaction also masks OpenAI keys with a type prefix (`sk-proj-`,
+  `sk-svcacct-`, `sk-admin-`), Google API keys (`AIza…`), AWS secret access
+  keys after their variable name, and opaque `Bearer` credentials of 20+
+  characters. Prose such as "a Bearer token" and hex digests stay unmasked.
+  Tests in `tests/test_redaction.py`.
+- The GitHub reader refuses `.` and `..` as owner or repository name. They
+  matched the allowed characters and were placed in the request path.
 
 Roadmap v1.5 write capability with approval:
 
@@ -1378,44 +1463,6 @@ Roadmap phase P1: the evaluator grades evidence, not formatting.
   the end-to-end second-iteration test the loop never had: a run that scores
   0.71, names an actionable gap, and reaches 0.95 on the second pass with new
   evidence.
-
-## v1.0.0 — 2026-09-19
-
-First stable release. Makes the engine do what the README describes.
-
-- Retry is now a replan: the previous evaluation is passed into the executor,
-  which closes the specific sections the evaluator named as missing. The
-  unconditional "Loop improvement" note that claimed an improvement no
-  iteration had made is gone.
-- Evaluation retries only when a gap is actionable. A deterministic rerun with
-  identical input no longer burns an iteration.
-- `repo_review` and `learning` now emit the `Recommendation` and `Next step`
-  sections the evaluator grades them on; `root_cause` gained `Next step`. Every
-  shipped route can now pass its own quality gate on the first iteration.
-- Observations reach every route, not just `repo_review`, and are rendered under
-  `## Sources inspected`.
-- `AtlasEvaluation` gained `missing_sections`: machine-readable gap codes shared
-  by the evaluator and the executor.
-- `--json` output carries `"schema": "atlas-run.v1"`, and `schemas/` now
-  describes the documents the engine actually emits. `tests/test_schemas.py`
-  checks them against each other.
-- The write-action notice moved from the observation list to
-  `metadata.safety_notice`; a warning is not a source.
-- `AtlasController.run` no longer appends to the caller's `observations` list.
-- `docs/safety-model.md` now states where the read-only boundary is enforced and
-  where it is only advisory, as the README claims it does.
-- Added the v0.3 model adapter scaffold: optional `ModelAdapter`,
-  provider-neutral `ModelResult`, rule-based fallback, and tests for model
-  output plus write-approval gating.
-- Added the v0.4 mqobsidian adapter scaffold: bounded compact-context reads,
-  explicit durable-memory labelling, candidate-only writes, and optional
-  controller/CLI integration without an MQ package dependency.
-- Added the v0.5 ChatGPT Skill package generator with live route summaries,
-  CLI examples, safety boundaries, overwrite protection, and drift tests for
-  the checked-in integration package.
-- Stabilized the v1.0 loop API with public type exports, explicit stop reasons,
-  positive iteration bounds, closed versioned schemas, and a documented 1.x
-  adapter and write-boundary contract.
 
 ## v0.2.0 — 2026-07-31
 
