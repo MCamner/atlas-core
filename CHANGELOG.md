@@ -4,6 +4,11 @@
 
 Security fixes:
 
+- Updated CI's transitive `filelock` dependency to 4.2.1 for
+  CVE-2026-112940, CVE-2026-112913 and CVE-2026-112907. The CI dependency
+  group now requires Python 3.11; the package still declares Python 3.10
+  support and has no runtime dependencies.
+
 - `atlas propose` no longer accepts approval from its own terminal. The public
   CLI always stops at `approval_required`, including under a pseudo-terminal,
   so its controlling process cannot read and submit an in-band approval code.
