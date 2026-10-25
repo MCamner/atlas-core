@@ -8,6 +8,10 @@ Deterministic review topics and targeted observations added after `v1.0.0`.
 No public Python export, CLI option or stop reason is removed or changed.
 Two output schemas accept a new claim kind; see Schemas.
 
+Not published on PyPI. The name `atlas-core` there belongs to an unrelated
+project, so `pip install atlas-core` installs that project. Install from a
+checkout or from the wheel attached to this release's tag.
+
 Security fixes:
 
 - Updated CI's transitive `filelock` dependency to 4.2.1 for
