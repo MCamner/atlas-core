@@ -14,6 +14,11 @@ class ModelResult:
     model: str | None = None
     provider: str | None = None
     metadata: dict[str, str] = field(default_factory=dict)
+    #: The findings block alone, when the adapter received its findings apart
+    #: from its prose. The evaluator then reads findings from this and never
+    #: from `output`, so a fence in the prose cannot stand in for them. `None`
+    #: keeps the 1.0 contract: the whole of `output` is the adapter's statement.
+    findings_block: str | None = None
 
 
 class ModelAdapter(Protocol):

@@ -16,16 +16,38 @@ def execute_plan(
 ) -> str:
     """Render the route body, then the observations it was given, then any
     sections a previous evaluation found missing."""
+    output, _ = execute_plan_parts(
+        task, plan, observations, feedback=feedback, evidence_base=evidence_base
+    )
+    return output
+
+
+def execute_plan_parts(
+    task: str,
+    plan: AtlasPlan,
+    observations: list[str] | None = None,
+    feedback: AtlasEvaluation | None = None,
+    evidence_base: EvidenceBase | None = None,
+) -> tuple[str, str]:
+    """The output, and the part of it a producer wrote.
+
+    The output carries observed file content under `## Sources inspected`, and
+    that content is the repository's text, not a finding. The second value is
+    the producer's section alone, which is the only text the evaluator may read
+    findings from.
+    """
     observations = observations or []
     build = _ROUTE_BODIES.get(plan.route_name, _general)
     output = build(task)
+    produced = ""
     if evidence_base is not None:
-        output += produce_repo_review(task, plan, evidence_base)
+        produced = produce_repo_review(task, plan, evidence_base)
+        output += produced
     if observations:
         output += _sources_section(observations)
     if feedback is not None:
         output += _refinement_section(plan, feedback, observations)
-    return output
+    return output, produced
 
 
 def _sources_section(observations: list[str]) -> str:

@@ -367,7 +367,15 @@ def evaluate(
     review: ReviewPlan | None = None,
     resolved_patterns: list[str] | None = None,
     structured_output_required: bool = False,
+    findings_source: str | None = None,
 ) -> AtlasEvaluation:
+    """Grade one output.
+
+    `findings_source` is the text findings are read from: what a producer
+    wrote, apart from the observed text the output also carries. The
+    controller always passes it. `None` reads them from `output`, which is
+    right only for an output that holds nothing but a producer's own text.
+    """
     reasons: list[str] = []
     missing: list[str] = []
 
@@ -418,6 +426,7 @@ def evaluate(
         sources,
         evidence_base,
         structured_output_required=structured_output_required,
+        findings_source=output if findings_source is None else findings_source,
     )
     reasons.extend(evidence.reasons)
     missing.extend(EVIDENCE_PROSE[code] for code in evidence.gaps)
@@ -547,6 +556,7 @@ def _grade_evidence(
     base: EvidenceBase | None = None,
     *,
     structured_output_required: bool = False,
+    findings_source: str,
 ) -> _Evidence:
     """Grade support for the claims, or stay silent when the route makes none.
 
@@ -573,7 +583,11 @@ def _grade_evidence(
 
     if base is not None:
         return _grade_against_evidence(
-            contract, output, base, structured_output_required=structured_output_required
+            contract,
+            output,
+            base,
+            structured_output_required=structured_output_required,
+            findings_source=findings_source,
         )
 
     if contract.requires_sources and not sources:
@@ -587,7 +601,7 @@ def _grade_evidence(
             actionable=False,
         )
 
-    if structured_output_required and not structured_findings(output).present:
+    if structured_output_required and not structured_findings(findings_source).present:
         return _missing_block()
     findings = findings_in(output, contract.finding_headings)
     if findings:
@@ -661,6 +675,7 @@ def _grade_against_evidence(
     base: EvidenceBase,
     *,
     structured_output_required: bool = False,
+    findings_source: str,
 ) -> _Evidence:
     """Grade findings against observations that can actually be re-read.
 
@@ -677,7 +692,7 @@ def _grade_against_evidence(
             actionable=False,
         )
 
-    parsed = structured_findings(output)
+    parsed = structured_findings(findings_source)
     # Two ways to owe a block and not have one. Unreadable is the old case.
     # Absent is only a failure when one was asked for — otherwise it is a
     # review that honestly claims nothing, which is not a defect and must not

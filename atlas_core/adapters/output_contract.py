@@ -217,6 +217,9 @@ class ReadEnvelope:
     #: Why the reply did not match the schema, in a form a person reading the
     #: run document can act on. `None` exactly when it did.
     reason: str | None = None
+    #: The block rendered from `findings` alone, when the envelope held. The
+    #: `report` is prose the model wrote, and may carry a fence of its own.
+    findings_block: str | None = None
 
     @property
     def conformed(self) -> bool:
@@ -265,16 +268,19 @@ def read_envelope(text: str) -> ReadEnvelope:
         missing = "findings is missing" if findings is None else "findings is not a list"
         return ReadEnvelope(text, False, f"reply {missing}")
 
+    block = render_findings_block(findings)
     rendered = render_output(report, findings)
-    # Judged by the module that owns the question, on the text it will itself
-    # read. Restating the finding rules here would be a second authority that
-    # could only drift from the first — and the entries still reach the
-    # evaluator, because `rendered` is what the caller gets either way.
-    parsed = structured_findings(rendered)
+    # Judged by the module that owns the question, on the block the evaluator
+    # will read. Restating the finding rules here would be a second authority
+    # that could only drift from the first — and the entries still reach the
+    # evaluator, because `block` is what the caller gets either way.
+    parsed = structured_findings(block)
     if parsed.malformed is not None:
-        return ReadEnvelope(rendered, True, f"findings are not usable: {parsed.malformed}")
+        return ReadEnvelope(
+            rendered, True, f"findings are not usable: {parsed.malformed}", block
+        )
 
-    return ReadEnvelope(rendered, True)
+    return ReadEnvelope(rendered, True, findings_block=block)
 
 
 def render_output(report: str, findings: list[Any]) -> str:
@@ -284,5 +290,10 @@ def render_output(report: str, findings: list[Any]) -> str:
     does not judge them, and `structured_findings` reads the fence, so what is
     written here is what that reader will parse.
     """
+    return f"{report.rstrip()}\n\n{render_findings_block(findings)}"
+
+
+def render_findings_block(findings: list[Any]) -> str:
+    """The fenced block on its own: what the evaluator reads as findings."""
     block = json.dumps(findings, ensure_ascii=False, indent=2)
-    return f"{report.rstrip()}\n\n```{FINDINGS_FENCE}\n{block}\n```"
+    return f"```{FINDINGS_FENCE}\n{block}\n```"

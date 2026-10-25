@@ -572,6 +572,17 @@ fence, so it skips the block instead of rejecting a kind it does not know. A
 malformed, and the model output schema offers only the two literal kinds, so a
 model cannot state the relation.
 
+**Where findings are read from.** The evaluator reads findings only from text a
+producer wrote. It never reads them from the assembled output, which also
+carries observed repository text under `## Sources inspected`, nor from a
+model's `report`. In the rule-based executor, that text is the deterministic
+producer's section. For a model adapter it is `ModelResult.findings_block`
+when the adapter sets it. `LiveModelAdapter` sets it to the block rendered from
+the reply's `findings` field. When the field is `None`, the whole of
+`ModelResult.output` is the adapter's statement, as in 1.0. A fence that
+arrives in observed text, or in a model's prose next to its `findings`, is
+therefore not a finding, however sound its citations are.
+
 Only a finding whose citations are sound reaches this step: a refutation
 resting on a source the finding cannot point at would be an accusation about
 the wrong file. A source that has moved settles nothing in either direction.
@@ -698,7 +709,10 @@ will page someone for an honest `insufficient_evidence`.
 ## Adapter Boundary
 
 Model adapters receive task, route, plan, observations, and optional evaluation
-feedback, and return `ModelResult`. Memory adapters expose `read` and `write`.
+feedback, and return `ModelResult`. `ModelResult.findings_block` is optional.
+An adapter that receives findings apart from its prose sets it to that block
+alone, and the evaluator then ignores any fence in `output`. Memory adapters
+expose `read` and `write`.
 The core remains functional when neither is configured.
 
 A model adapter that raises, or returns anything other than a `ModelResult`

@@ -641,6 +641,7 @@ class LiveModelAdapter:
             provider=self.config.provider,
             model=self.config.model,
             metadata=metadata,
+            findings_block=envelope.findings_block,
         )
 
     def invoke_tool(
