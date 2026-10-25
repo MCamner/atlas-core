@@ -578,10 +578,22 @@ carries observed repository text under `## Sources inspected`, nor from a
 model's `report`. In the rule-based executor, that text is the deterministic
 producer's section. For a model adapter it is `ModelResult.findings_block`
 when the adapter sets it. `LiveModelAdapter` sets it to the block rendered from
-the reply's `findings` field. When the field is `None`, the whole of
-`ModelResult.output` is the adapter's statement, as in 1.0. A fence that
-arrives in observed text, or in a model's prose next to its `findings`, is
-therefore not a finding, however sound its citations are.
+the reply's `findings` field. A fence that arrives in observed text, or in a
+model's prose next to its `findings`, is therefore not a finding, however
+sound its citations are.
+
+When `findings_block` is `None`, the whole of `ModelResult.output` is read as
+the adapter's findings, as in 1.0. That happens for an adapter that does not
+set the field, for `StubModelAdapter`, and for a `LiveModelAdapter` reply that
+is not a JSON envelope. **This fallback is deprecated.** It stays for 1.x, and
+it is removed in 2.0, after which an adapter that does not set
+`findings_block` states no findings. It is not the SEC-01 defect. Atlas adds
+no observed text to an adapter's output, so everything in it was written by
+the adapter or its model, and a model that can put a fence in its prose can
+equally put the same finding in `findings`. What the fallback lacks is the
+separation between prose and findings, so a fence quoted in the prose counts.
+`metadata.findings_sources` records, per iteration, which of
+`producer_section`, `findings_block` and `adapter_output` the evaluation read.
 
 Only a finding whose citations are sound reaches this step: a refutation
 resting on a source the finding cannot point at would be an accusation about

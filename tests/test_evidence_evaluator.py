@@ -57,6 +57,7 @@ def _evaluate(output, observations, iteration=1, max_iterations=2):
         max_iterations,
         route_name=plan.route_name,
         observations=observations,
+        findings_source=output,
     )
 
 

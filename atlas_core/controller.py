@@ -1148,11 +1148,17 @@ class AtlasController:
                 # What the adapter stated as findings. A structured reply keeps
                 # them apart from its prose; any other reply is its statement
                 # as a whole, as in the 1.0 contract.
-                findings_source = (
-                    model_result.findings_block
-                    if model_result.findings_block is not None
-                    else model_result.output
-                )
+                if model_result.findings_block is not None:
+                    findings_source = model_result.findings_block
+                    findings_origin = "findings_block"
+                else:
+                    # Deprecated, kept for the 1.x adapter contract: an
+                    # adapter that does not separate its findings has the
+                    # whole of its output read as them. Atlas adds no observed
+                    # text to that output, so it is still the adapter's own
+                    # statement, but its prose and its findings are one text.
+                    findings_source = model_result.output
+                    findings_origin = "adapter_output"
                 state.metadata["model_result"] = {
                     "provider": model_result.provider,
                     "model": model_result.model,
@@ -1168,6 +1174,7 @@ class AtlasController:
                         "reason": "live_model_provider"
                     }
             else:
+                findings_origin = "producer_section"
                 output, findings_source = execute_plan_parts(
                     task,
                     plan,
@@ -1186,6 +1193,9 @@ class AtlasController:
                     state.stop("budget_exhausted")
                     break
             state.outputs.append(output)
+            state.metadata.setdefault("findings_sources", []).append(
+                {"iteration": state.iteration, "source": findings_origin}
+            )
             state.enter("evaluating")
             if expired():
                 break

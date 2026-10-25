@@ -25,7 +25,7 @@ import tempfile
 from typing import Any
 import unittest
 
-from atlas_core import AtlasController, EvidenceBase
+from atlas_core import AtlasController, EvidenceBase, StubModelAdapter
 from atlas_core.adapters.filesystem_repo import FilesystemRepoObserver
 from atlas_core.adapters.live_model import (
     DEFAULT_OLLAMA_ENDPOINT,
@@ -34,6 +34,7 @@ from atlas_core.adapters.live_model import (
 )
 from atlas_core.budget import RunLimits
 from atlas_core.claim_check import ClaimKind, TypedClaim
+from atlas_core.evaluator import evaluate
 from atlas_core.evidence import FINDINGS_FENCE, FINDINGS_FENCE_V2, structured_findings
 from atlas_core.finding import check_finding
 from atlas_core.observation import derive_source_id
@@ -211,10 +212,7 @@ class _Fake:
         return {"response": self.text}
 
 
-class TestTheModelsReportIsNotAFinding(unittest.TestCase):
-    """The rendered output puts the model's `report` before its findings
-    block, so a fence the model wrote into its prose came first."""
-
+class _ModelRun(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -237,6 +235,11 @@ class TestTheModelsReportIsNotAFinding(unittest.TestCase):
 
     def checks(self, run: dict[str, Any]) -> list[dict[str, Any]]:
         return run["evaluations"][-1]["citation_checks"]
+
+
+class TestTheModelsReportIsNotAFinding(_ModelRun):
+    """The rendered output puts the model's `report` before its findings
+    block, so a fence the model wrote into its prose came first."""
 
     def test_the_findings_field_is_graded(self) -> None:
         legit = self.finding("pip install")
@@ -263,6 +266,71 @@ class TestTheModelsReportIsNotAFinding(unittest.TestCase):
 
         self.assertEqual(self.checks(run), [])
         self.assertNotEqual(run["stop_reason"], "passed")
+
+
+class TestEvaluateIsToldWhereFindingsAre(_ModelRun):
+    """SEC-01-F2. The evaluator has no default: a caller that forgot to say
+    where findings are must fail, not fall back to searching the output."""
+
+    def test_omitting_the_source_is_an_error(self) -> None:
+        with self.assertRaises(TypeError):
+            evaluate("granska repo", "# Svar\n", [], 1, 1)  # type: ignore[call-arg]
+
+    def test_an_empty_source_reads_nothing_from_the_output(self) -> None:
+        output = "# Svar\n\nGranskning.\n\n" + fence(FINDINGS_FENCE, [self.finding("pip install")])
+
+        evaluation = evaluate(
+            "granska repo", output, [], 1, 1,
+            route_name="repo_review",
+            evidence_base=self.base,
+            findings_source="",
+        )
+
+        self.assertEqual(evaluation.citation_checks, [])
+
+
+class TestTheRunSaysWhereEachFindingsBlockCameFrom(_ModelRun):
+    """The fallback for an adapter that does not set `findings_block` is kept
+    for 1.x and deprecated. A reader of the run must be able to tell it apart."""
+
+    def sources(self, run: dict[str, Any]) -> list[str]:
+        return [entry["source"] for entry in run["metadata"]["findings_sources"]]
+
+    def test_a_structured_reply(self) -> None:
+        run = self.run_model("# Svar\n", [self.finding("pip install")])
+
+        self.assertEqual(self.sources(run), ["findings_block"])
+
+    def test_a_reply_that_is_not_json(self) -> None:
+        adapter = LiveModelAdapter(
+            ProviderConfig(provider="ollama", model="llama3", endpoint=DEFAULT_OLLAMA_ENDPOINT),
+            transport=_Fake("# Svar\n\nInte JSON.\n"),
+        )
+        run = AtlasController(max_iterations=1, model_adapter=adapter).run(
+            "granska repo", evidence=self.base, json_mode=True
+        )
+
+        self.assertEqual(self.sources(run), ["adapter_output"])
+
+    def test_an_adapter_that_does_not_set_the_block(self) -> None:
+        run = AtlasController(
+            max_iterations=1, model_adapter=StubModelAdapter("# Svar\n\nHej.\n")
+        ).run("granska repo", evidence=self.base, json_mode=True)
+
+        self.assertEqual(self.sources(run), ["adapter_output"])
+
+    def test_the_rule_based_executor(self) -> None:
+        run = AtlasController(max_iterations=2).run(
+            "granska repo", evidence=self.base, json_mode=True
+        )
+
+        self.assertEqual(
+            run["metadata"]["findings_sources"],
+            [
+                {"iteration": n + 1, "source": "producer_section"}
+                for n in range(len(run["evaluations"]))
+            ],
+        )
 
 
 if __name__ == "__main__":

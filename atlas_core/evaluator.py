@@ -367,14 +367,14 @@ def evaluate(
     review: ReviewPlan | None = None,
     resolved_patterns: list[str] | None = None,
     structured_output_required: bool = False,
-    findings_source: str | None = None,
+    findings_source: str,
 ) -> AtlasEvaluation:
     """Grade one output.
 
     `findings_source` is the text findings are read from: what a producer
-    wrote, apart from the observed text the output also carries. The
-    controller always passes it. `None` reads them from `output`, which is
-    right only for an output that holds nothing but a producer's own text.
+    wrote, apart from the observed text the output also carries. It has no
+    default. A caller that does not know where findings are must not fall
+    back to searching `output`; `""` means there are none.
     """
     reasons: list[str] = []
     missing: list[str] = []
@@ -426,7 +426,7 @@ def evaluate(
         sources,
         evidence_base,
         structured_output_required=structured_output_required,
-        findings_source=output if findings_source is None else findings_source,
+        findings_source=findings_source,
     )
     reasons.extend(evidence.reasons)
     missing.extend(EVIDENCE_PROSE[code] for code in evidence.gaps)

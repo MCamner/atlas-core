@@ -16,8 +16,20 @@ Security fixes:
   took the place of the model's own `findings` block. Affects `v1.0.0`.
   `execute_plan_parts` returns the producer's section apart from the output.
   `ModelResult` gains an optional `findings_block`, and `LiveModelAdapter`
-  sets it from the reply's `findings`. `evaluate` takes `findings_source`.
-  Regression tests in `tests/test_findings_trust_boundary.py`.
+  sets it from the reply's `findings`. The internal `evaluate` requires
+  `findings_source`, with no default. `metadata.findings_sources` (declared in
+  `atlas-run.v1`) records per iteration whether findings came from
+  `producer_section`, `findings_block` or `adapter_output`. Regression tests
+  in `tests/test_findings_trust_boundary.py`.
+
+Deprecated:
+
+- Reading a model adapter's whole `output` as its findings when
+  `ModelResult.findings_block` is `None`. It applies to adapters that do not
+  set the field, to `StubModelAdapter`, and to a `LiveModelAdapter` reply that
+  is not a JSON envelope, and it is recorded as `adapter_output` in
+  `metadata.findings_sources`. It is removed in 2.0. Set `findings_block` to
+  keep stating findings.
 
 ## v1.1.0 — 2026-10-25
 

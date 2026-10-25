@@ -346,6 +346,31 @@
               ]
             }
           }
+        },
+        "findings_sources": {
+          "type": "array",
+          "description": "Where each evaluation read its findings from, one entry per iteration. producer_section: the rule-based executor's producer, apart from observed text. findings_block: a model adapter that returned its findings apart from its prose. adapter_output: an adapter that did not, so its whole output was read as its findings; deprecated, kept for the 1.x adapter contract.",
+          "items": {
+            "type": "object",
+            "required": [
+              "iteration",
+              "source"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "iteration": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "source": {
+                "enum": [
+                  "producer_section",
+                  "findings_block",
+                  "adapter_output"
+                ]
+              }
+            }
+          }
         }
       }
     },

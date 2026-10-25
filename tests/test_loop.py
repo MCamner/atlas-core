@@ -107,13 +107,18 @@ class TestRetry(unittest.TestCase):
 
     def test_retry_only_when_a_gap_is_actionable(self):
         complete_but_short = "## Recommendation\nx\n\n## Next step\ny\n\n## Confidence\nLow.\n"
-        evaluation = evaluate("uppgift", complete_but_short, ["answers_task"], 1, 2)
+        evaluation = evaluate(
+            "uppgift", complete_but_short, ["answers_task"], 1, 2,
+            findings_source=complete_but_short,
+        )
         self.assertFalse(evaluation.passed)
         self.assertEqual(evaluation.missing_sections, [])
         self.assertFalse(evaluation.should_retry)
 
     def test_retry_when_a_section_is_missing(self):
-        evaluation = evaluate("uppgift", "x" * 400, ["answers_task"], 1, 2)
+        evaluation = evaluate(
+            "uppgift", "x" * 400, ["answers_task"], 1, 2, findings_source="x" * 400
+        )
         self.assertTrue(evaluation.should_retry)
         self.assertIn("recommendation", evaluation.missing_sections)
 
