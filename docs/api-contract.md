@@ -31,7 +31,7 @@ covered by the compatibility promise.
 
 | Surface | Declared or observed support | Release qualification |
 | --- | --- | --- |
-| Python | `requires-python >=3.10`; CI runs Python 3.11.16 | 3.10 is declared, not yet CI-certified; 3.11.16 is the pinned tested baseline |
+| Python | `requires-python >=3.10`; CI runs Python 3.10.22 and 3.11.16 | The full unittest suite runs on both; CI audit/type tooling and release builds run on 3.11.16 |
 | OS, core library | Core imports and deterministic/document-processing paths have no mandatory OS-specific dependency | Ubuntu 24.04 is the pinned CI runner; lock-backed host operations and hard worker isolation are platform-qualified separately below |
 | POSIX bounded CLI / `run_isolated` | Supported with parent-enforced deadline and process-group termination | Linux CI path on Ubuntu 24.04; macOS is not a CI release target |
 | Windows bounded CLI / `run_isolated` | Unsupported; these paths fail closed | No hard process-tree termination guarantee |

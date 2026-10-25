@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Python compatibility:
+
+- Added the full unittest suite on Python 3.10.22 to CI. Test and build
+  metadata readers use `tomli` on Python 3.10 and `tomllib` on Python 3.11+;
+  the package retains its Python >=3.10 support declaration.
+
 Security fixes:
 
 - Updated CI's transitive `filelock` dependency to 4.2.1 for

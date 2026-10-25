@@ -89,6 +89,9 @@ ci = [
     { name = "pyright", marker = "python_full_version >= '3.11'" },
     { name = "pytest", marker = "python_full_version >= '3.11'" },
 ]
+test = [
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
 
 [package.metadata]
 provides-extras = ["dev"]
@@ -106,6 +109,7 @@ ci = [
     { name = "pyright", marker = "python_full_version >= '3.11'", specifier = "==1.1.414" },
     { name = "pytest", marker = "python_full_version >= '3.11'", specifier = "==9.1.1" },
 ]
+test = [{ name = "tomli", marker = "python_full_version < '3.11'", specifier = "==2.4.1" }]
 
 [[package]]
 name = "boolean-py"
