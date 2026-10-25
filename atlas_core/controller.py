@@ -9,7 +9,7 @@ from pathlib import Path
 from .state import AtlasEvaluation, AtlasRunState, retry_class
 from .router import select_route
 from .planner import build_plan
-from .executor import execute_plan
+from .executor import execute_plan_parts
 from .evaluator import evaluate
 from .finalizer import finalize
 from .memory import build_memory_candidate, save_local_memory
@@ -1145,6 +1145,20 @@ class AtlasController:
                     }
                     break
                 output = model_result.output
+                # What the adapter stated as findings. A structured reply keeps
+                # them apart from its prose; any other reply is its statement
+                # as a whole, as in the 1.0 contract.
+                if model_result.findings_block is not None:
+                    findings_source = model_result.findings_block
+                    findings_origin = "findings_block"
+                else:
+                    # Deprecated, kept for the 1.x adapter contract: an
+                    # adapter that does not separate its findings has the
+                    # whole of its output read as them. Atlas adds no observed
+                    # text to that output, so it is still the adapter's own
+                    # statement, but its prose and its findings are one text.
+                    findings_source = model_result.output
+                    findings_origin = "adapter_output"
                 state.metadata["model_result"] = {
                     "provider": model_result.provider,
                     "model": model_result.model,
@@ -1160,7 +1174,8 @@ class AtlasController:
                         "reason": "live_model_provider"
                     }
             else:
-                output = execute_plan(
+                findings_origin = "producer_section"
+                output, findings_source = execute_plan_parts(
                     task,
                     plan,
                     state.observations,
@@ -1178,6 +1193,9 @@ class AtlasController:
                     state.stop("budget_exhausted")
                     break
             state.outputs.append(output)
+            state.metadata.setdefault("findings_sources", []).append(
+                {"iteration": state.iteration, "source": findings_origin}
+            )
             state.enter("evaluating")
             if expired():
                 break
@@ -1190,6 +1208,10 @@ class AtlasController:
                 route_name=route.name,
                 observations=state.observations,
                 evidence_base=state.evidence_base,
+                # Findings are read from what a producer wrote, never from the
+                # assembled output: that output carries observed repository
+                # text, and a fence in it is the repository's, not a finding.
+                findings_source=findings_source,
                 review=plan.review,
                 resolved_patterns=[
                     pattern

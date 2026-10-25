@@ -636,11 +636,19 @@ class LiveModelAdapter:
         if envelope.reason is not None:
             metadata["output_schema_gap"] = envelope.reason
 
+        # Once the schema was sent, its `findings` field is the only channel
+        # for findings. A reply that did not match it states none: a fence in
+        # its text is not read, and the run gets the repairable missing-block
+        # gap. With no schema sent, the 1.x fallback (`None`) still applies.
+        findings_block = envelope.findings_block
+        if findings_block is None and schema is not None:
+            findings_block = ""
         return ModelResult(
             output=envelope.text,
             provider=self.config.provider,
             model=self.config.model,
             metadata=metadata,
+            findings_block=findings_block,
         )
 
     def invoke_tool(

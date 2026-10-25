@@ -572,6 +572,34 @@ fence, so it skips the block instead of rejecting a kind it does not know. A
 malformed, and the model output schema offers only the two literal kinds, so a
 model cannot state the relation.
 
+**Where findings are read from.** The evaluator reads findings only from text a
+producer wrote. It never reads them from the assembled output, which also
+carries observed repository text under `## Sources inspected`, nor from a
+model's `report`. In the rule-based executor, that text is the deterministic
+producer's section. For a model adapter it is `ModelResult.findings_block`
+when the adapter sets it. `LiveModelAdapter` sets it to the block rendered from
+the reply's `findings` field. A fence that arrives in observed text, or in a
+model's prose next to its `findings`, is therefore not a finding, however
+sound its citations are.
+
+When `findings_block` is `None`, the whole of `ModelResult.output` is read as
+the adapter's findings, as in 1.0. That happens for an adapter that does not
+set the field, for `StubModelAdapter`, and for a `LiveModelAdapter` reply that
+is not a JSON envelope when no schema was sent (`structured_output=False`).
+Once `LiveModelAdapter` has sent the schema, its `findings` field is the only
+channel. A reply that did not match the schema states no findings, and a fence
+in its text is not read. **This fallback is deprecated.** It stays for 1.x, and
+it is removed in 2.0, after which an adapter that does not set
+`findings_block` states no findings. It is not the SEC-01 defect. Atlas adds
+no observed text to an adapter's output, so everything in it was written by
+the adapter or its model, and a model that can put a fence in its prose can
+equally put the same finding in `findings`. What the fallback lacks is the
+separation between prose and findings, so a fence quoted in the prose counts.
+`metadata.findings_sources` records, per iteration, which of
+`producer_section`, `findings_block` and `adapter_output` the evaluation read.
+`adapter_output` is not a channel that separates findings from prose, and
+nothing about it should be read as one.
+
 Only a finding whose citations are sound reaches this step: a refutation
 resting on a source the finding cannot point at would be an accusation about
 the wrong file. A source that has moved settles nothing in either direction.
@@ -698,7 +726,10 @@ will page someone for an honest `insufficient_evidence`.
 ## Adapter Boundary
 
 Model adapters receive task, route, plan, observations, and optional evaluation
-feedback, and return `ModelResult`. Memory adapters expose `read` and `write`.
+feedback, and return `ModelResult`. `ModelResult.findings_block` is optional.
+An adapter that receives findings apart from its prose sets it to that block
+alone, and the evaluator then ignores any fence in `output`. Memory adapters
+expose `read` and `write`.
 The core remains functional when neither is configured.
 
 A model adapter that raises, or returns anything other than a `ModelResult`
@@ -880,7 +911,9 @@ A producer that was asked for a findings block and wrote none gets the same gap
 and the same next action. Nothing in the output distinguishes it from a review
 that honestly asserts nothing, so `evaluate()` takes
 `structured_output_required` and the controller sets it from what the adapter
-recorded about its own request. Without a schema on the wire nothing changes,
+recorded about its own request. A handwritten `atlas-findings` block in a
+reply to a sent schema is not read. The `findings` field is the only channel,
+so such a reply gets this gap too. Without a schema on the wire nothing changes,
 and neither a handwritten `atlas-findings` block nor an explicit empty
 `findings: []` counts as missing. `no_sources_observed` outranks it, because a
 run with nothing to read cannot be repaired by rewriting the answer.

@@ -269,13 +269,15 @@ class TestWhatCannotContributeToPass(_Loop):
         """The observation lies about its own line range; the file is untouched."""
         lying = replace(self.observation, excerpt="HELT PÅHITTAT")
         base = EvidenceBase(snapshot=self.snapshot, observations=[lying])
+        output = self._output()
         evaluation = evaluate(
             "granska repo",
-            self._output(),
+            output,
             [],
             1,
             1,
             route_name="repo_review",
+            findings_source=output,
             observations=self.context,
             evidence_base=base,
         )
@@ -299,13 +301,15 @@ class TestWhatCannotContributeToPass(_Loop):
     def test_a_missing_observation_cannot_contribute(self):
         """An evidence base that holds nothing supports nothing."""
         empty = EvidenceBase(snapshot=self.snapshot, observations=[])
+        output = self._output()
         evaluation = evaluate(
             "granska repo",
-            self._output(),
+            output,
             [],
             1,
             1,
             route_name="repo_review",
+            findings_source=output,
             observations=self.context,
             evidence_base=empty,
         )
@@ -380,13 +384,15 @@ class TestActionableOrStop(_Loop):
 
     def test_a_miscited_finding_is_worth_another_pass(self):
         """A wrong quote can be rewritten from sources the run already holds."""
+        output = self._output(citations=[self._citation(quoted="FEL")])
         evaluation = evaluate(
             "granska repo",
-            self._output(citations=[self._citation(quoted="FEL")]),
+            output,
             [],
             1,
             2,
             route_name="repo_review",
+            findings_source=output,
             observations=self.context,
             evidence_base=self.base,
         )
@@ -399,13 +405,15 @@ class TestActionableOrStop(_Loop):
         """Re-wording cannot fix a file that moved; that needs a new snapshot."""
         (self.root / "README.md").write_text(README + "ändrad\n", encoding="utf-8")
 
+        output = self._output()
         evaluation = evaluate(
             "granska repo",
-            self._output(),
+            output,
             [],
             1,
             2,
             route_name="repo_review",
+            findings_source=output,
             observations=self.context,
             evidence_base=self.base,
         )
@@ -414,13 +422,15 @@ class TestActionableOrStop(_Loop):
         self.assertIsNone(evaluation.suggested_adjustment)
 
     def test_the_adjustment_names_the_available_source_ids(self):
+        output = self._output(block=False)
         evaluation = evaluate(
             "granska repo",
-            self._output(block=False),
+            output,
             [],
             1,
             2,
             route_name="repo_review",
+            findings_source=output,
             observations=self.context,
             evidence_base=self.base,
         )

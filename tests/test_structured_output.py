@@ -426,9 +426,13 @@ class TestAWrongShapeIsRepairableAndNotAFailedRun(unittest.TestCase):
 
         self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
 
-    def test_a_valid_handwritten_block_is_not_a_missing_block(self):
-        """A provider that ignored the schema and answered correctly anyway.
-        The rule must not punish it for the form it arrived in."""
+    def test_a_handwritten_block_after_a_sent_schema_is_a_missing_block(self):
+        """A provider that ignored the schema and wrote its own fence. This
+        used to be accepted for the form it arrived in. Since SEC-01
+        (GHSA-m8fx-mmrx-c449) the schema's `findings` field is the only channel
+        once the schema was sent, so the fence is not read and the gap is the
+        repairable missing block. `tests/test_findings_trust_boundary.py` has
+        the case where the fence carries a finding with sound citations."""
         run = self._run(
             REPORT.format(claim="inget")
             + "\n```"
@@ -437,7 +441,7 @@ class TestAWrongShapeIsRepairableAndNotAFailedRun(unittest.TestCase):
         )
         evaluation = run["evaluations"][-1]
 
-        self.assertNotIn("malformed_findings", evaluation["evidence_gaps"])
+        self.assertIn("malformed_findings", evaluation["evidence_gaps"])
 
     def test_nothing_observed_outranks_a_missing_block(self):
         """A run with no sources cannot be repaired by rewriting the answer, so
