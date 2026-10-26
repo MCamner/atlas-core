@@ -1,6 +1,6 @@
 # Residual Risks and Open Conditions
 
-Pinned release SHA: `83d7d2c12ddaf00454be2adfcb9ceb3a6223552d`
+Pinned release SHA: `7d0d86c3ee88a8b2c62938d36d9fc77ae6fcfd58`
 
 Listing a risk here does not accept it. For each item, the reviewer decides
 whether it is acceptable, needs a fix, or blocks the release.
@@ -11,7 +11,7 @@ R1 to R12 and H1 to H2 in `../security-review-package/known-residual-risks.md`
 concern code and settings that this release does not change. The exception is
 R12, below. They are restated so that their state at the target is explicit:
 
-| # | Limit | State at `83d7d2c` |
+| # | Limit | State at `7d0d86c` |
 | --- | --- | --- |
 | R1 | Core cannot make an external model ignore malicious text | Unchanged |
 | R2 | A process boundary is not an OS sandbox | Unchanged |
@@ -34,12 +34,14 @@ R12, below. They are restated so that their state at the target is explicit:
 | --- | --- | --- |
 | N1 | PyPI's `atlas-core` is an unrelated project (releases 1.0.0 and 1.2.0). `pip install atlas-core` installs that project. Before #146, CI's audit looked up that project's release instead of this package | #146, `CHANGELOG.md` v1.1.0 |
 | N2 | A v1 findings reader skips an `atlas-findings.v2` block and does not see the relation finding. This is deliberate, and it is not full functional compatibility | #148, [`threat-model-delta.md`](threat-model-delta.md#4-the-findings-block-v1-and-v2-128-148) |
-| N3 | Repository text that starts a line with a findings fence reaches `structured_findings` through `## Sources inspected`. Reproduced at both `83d7d2c` and `v1.0.0`. Not shown to cause a wrong PASS | [`threat-model-delta.md`](threat-model-delta.md#5-repository-text-can-reach-the-findings-parser) |
+| N3 | SEC-01 (GHSA-m8fx-mmrx-c449). Repository text in the route output was read as findings and could make a run pass. Reproduced at `83d7d2c` and `v1.0.0`; fixed in #151. Residual: `v1.0.0` stays affected, and the advisory is still a draft | [`threat-model-delta.md`](threat-model-delta.md#5-sec-01-repository-text-and-the-findings-channel) |
 | N4 | Deterministic producers use line-based parsing. Whether they engage depends on keywords in the task. Other wording stops without passing | #114, #116, #119, #127 |
 | N5 | CI processes a second repository (mq-agent at a pinned commit) in the same job that later builds and uploads the release bundle | #127, `test.yml` |
 | N6 | `docs/api-contract.md` ("only optional additive properties") and `contracts.COMPATIBILITY` ("add an enum member to a field whose absent value is already meaningful") state the compatibility rule differently. Neither allowed #128's change, and the texts have not been reconciled | #148 PR description |
 | N7 | No PR in the gate has a GitHub-recorded review. Reviews were done outside GitHub, by the maintainer with AI assistants, and the same assistants merged several PRs | [`README.md`](README.md#reviewer-independence) |
 | N8 | The release SBOM is not byte-reproducible across environments (timestamp, serial number, tool version). Wheel and sdist are | [`evidence.md`](evidence.md#release-bundle) |
+| N10 | `adapter_output` fallback. When `ModelResult.findings_block` is `None`, the adapter's whole output is read as findings, so prose and findings are one text. This covers adapters that do not set it, `StubModelAdapter`, and `LiveModelAdapter` with `structured_output=False`. It is deprecated for 2.0 and recorded in `metadata.findings_sources` | #151, `docs/api-contract.md` |
+| N11 | The SEC-01 fix had a documented technical review only. No independent approval is on record | [`README.md`](README.md#sec-01) |
 | N9 | The `python310` job runs the unit tests only. Type checks, the audit and the release build run on 3.11.16 | #143, `docs/api-contract.md` support matrix |
 
 ## Open conditions for box 6 (after a PASS)
