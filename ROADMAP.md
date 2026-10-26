@@ -442,6 +442,7 @@ Fasen släpper det som redan finns på `main` efter `v1.0.0`, granskat. Den läg
   - Granskningspaket mot den pinnade SHA:n `7d0d86c`: [`docs/security-review-package-v1.1.0/`](docs/security-review-package-v1.1.0/), ombyggt efter SEC-01. Paketet är förberedelse, inte ett godkännande.
   - Ska uttryckligen pröva SEC-01-rättelsen från #151 (GHSA-m8fx-mmrx-c449), inklusive den deprecated `adapter_output`-fallbacken. Rättelsen har bara dokumenterad teknisk granskning.
 - [ ] **Tagga och släpp den granskade SHA:n** enligt release-checklistan: reproducerbart bygge, release-SBOM, digestmanifest och integrity-bundle från exact-main-CI, med återhämtade assets kontrollerade mot manifestet. Ingår #132 (`actions/upload-artifact` 4.6.2 → 7.0.2) ska just den körningen visa att bundlen produceras och kan hämtas.
+  - När taggen `v1.1.0` finns: sätt `patched_versions` till `1.1.0` i [GHSA-m8fx-mmrx-c449](https://github.com/MCamner/atlas-core/security/advisories/GHSA-m8fx-mmrx-c449). Fältet är tomt tills dess, eftersom ingen release med rättelsen ännu finns.
 
 **v2.1 exit gate:** taggen pekar på den SHA som den oberoende granskningen avslutades mot, utan kvarvarande blockerare; exact-main-CI på den SHA:n är grön; inget i säkerhetsgaten är ogranskat.
 
