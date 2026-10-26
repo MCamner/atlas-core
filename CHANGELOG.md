@@ -2,43 +2,6 @@
 
 ## Unreleased
 
-Security fixes:
-
-- Findings are read only from text a producer wrote, never from the assembled
-  route output (GHSA-m8fx-mmrx-c449). Before this, the evaluator searched the
-  whole output for a findings fence. That output carries observed file content
-  under `## Sources inspected`, and a model's `report` comes before the block
-  rendered from its `findings`. A fence in a reviewed file, or in a model's
-  prose, could therefore be graded as a finding. A finding from a reviewed
-  file with sound citations verified, and could make a `repo_review` run
-  pass. That required a directory in which git cannot resolve a commit, so
-  that the cited `source_id` was predictable. A fence in a model's `report`
-  took the place of the model's own `findings` block. Affects `v1.0.0`.
-  `execute_plan_parts` returns the producer's section apart from the output.
-  `ModelResult` gains an optional `findings_block`, and `LiveModelAdapter`
-  sets it from the reply's `findings`. The internal `evaluate` requires
-  `findings_source`, with no default. `metadata.findings_sources` (declared in
-  `atlas-run.v1`) records per iteration whether findings came from
-  `producer_section`, `findings_block` or `adapter_output`. Regression tests
-  in `tests/test_findings_trust_boundary.py`.
-
-Deprecated:
-
-- Reading a model adapter's whole `output` as its findings when
-  `ModelResult.findings_block` is `None`. It applies to adapters that do not
-  set the field, to `StubModelAdapter`, and to a `LiveModelAdapter` reply that
-  is not a JSON envelope when no schema was sent. It is recorded as
-  `adapter_output` in `metadata.findings_sources`, and it is not a channel that
-  separates findings from prose. It is removed in 2.0. Set `findings_block` to
-  keep stating findings.
-
-Changed:
-
-- Once `LiveModelAdapter` has sent the output schema, a reply that does not
-  match it states no findings. A handwritten `atlas-findings` fence in such a
-  reply is no longer read. The run gets `malformed_findings` with
-  `repair_findings_block`, as it does for a missing block.
-
 ## v1.1.0 — 2026-10-25
 
 Deterministic review topics and targeted observations added after `v1.0.0`.
