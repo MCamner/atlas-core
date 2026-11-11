@@ -8,7 +8,7 @@ are as valid as PASS.
 
 - Name:
 - Organisation or role:
-- Independence basis: your relation to the authors, and whether you implemented, reviewed or merged any PR in the gate (#112, #114, #116, #119, #127, #128, #129, #132, #133, #137, #138, #139, #140, #142, #143, #146, #147, #148, #151):
+- Independence basis: your relation to the authors, and whether you implemented, reviewed or merged any PR in the gate (#112, #114, #116, #119, #127, #128, #129, #132, #133, #134, #137, #138, #139, #140, #142, #143, #146, #147, #148, #151):
 - Review dates:
 - Reviewed SHA (must be `7d0d86c3ee88a8b2c62938d36d9fc77ae6fcfd58` unless a re-review names a new one):
 - How the SHA was verified:
@@ -24,6 +24,7 @@ are as valid as PASS.
 ## Findings
 
 For each finding, give:
+
 - ID, title and severity
 - affected files or settings
 - description
@@ -86,6 +87,7 @@ For each item in [`residual-risks.md`](residual-risks.md) (R1–R12, H1–H2, N1
 ## Accepted residual risks
 
 For each, give:
+
 - the risk
 - the rationale
 - the recommended owner

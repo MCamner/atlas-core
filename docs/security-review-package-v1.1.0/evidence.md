@@ -95,7 +95,7 @@ No other field changes, and no entry is added.
 
 ## Hosting controls
 
-Read through the GitHub REST API on 2026-10-26:
+Read through the GitHub REST API on 2026-10-26. The advisory row was read again after it was published:
 
 | Setting | Observed |
 | --- | --- |
@@ -105,7 +105,7 @@ Read through the GitHub REST API on 2026-10-26:
 | Secret scanning / push protection | Enabled / enabled |
 | Non-provider patterns, validity checks | Disabled |
 | Dependabot security updates | Disabled |
-| GHSA-m8fx-mmrx-c449 | `draft`, not published |
+| GHSA-m8fx-mmrx-c449 | Published 2026-10-26 00:47:52 UTC, severity low, ecosystem `other` / `MCamner/atlas-core`, vulnerable `<= 1.0.0`, no patched version yet (set to `1.1.0` when the tag exists) |
 
 **PR reviews.** GitHub records no review on any PR in the security gate,
 including #151. Each was merged through `MCamner`. Reviews took place outside
