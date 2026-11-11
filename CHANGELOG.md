@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Documentation:
+
+- `docs/live-smoke.md` records two measurements from 2026-11-11, with their
+  rows under `docs/evidence/`. A thinking model in Ollama took 172 to 266
+  seconds on the smoke request, nearly all of it thinking, and timed out at
+  60 and 170 seconds; the page now recommends `ATLAS_MODEL_TIMEOUT=600` for
+  such a model, and Atlas sends no `think` field. The `openai_compatible`
+  adapter ran live for the first time, against a local compatible endpoint:
+  the request was accepted, usage was metered, and one reply of three
+  conformed. `scripts/thinking_timeout_measure.py` produces both.
+
 ## v1.1.0 — 2026-10-25
 
 Deterministic review topics and targeted observations added after `v1.0.0`.
