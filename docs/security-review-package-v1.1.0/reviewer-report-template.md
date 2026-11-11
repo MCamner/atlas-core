@@ -24,6 +24,7 @@ are as valid as PASS.
 ## Findings
 
 For each finding, give:
+
 - ID, title and severity
 - affected files or settings
 - description
@@ -86,6 +87,7 @@ For each item in [`residual-risks.md`](residual-risks.md) (R1–R12, H1–H2, N1
 ## Accepted residual risks
 
 For each, give:
+
 - the risk
 - the rationale
 - the recommended owner
