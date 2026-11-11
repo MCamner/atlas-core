@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 
@@ -74,10 +76,15 @@ def _produce_ci_release_gate_parity(
     policy = by_path.get(_PARITY_POLICY_PATH)
     if gate is None or policy is None or gate.read_in_full() is not True:
         return ""
+    # Lines outside the read could redefine either table.
+    if policy.read_in_full() is not True:
+        return ""
 
     workflow_scope = _workflow_scope(policy)
     exceptions = _parity_exceptions(policy)
     if workflow_scope is None or exceptions is None:
+        return ""
+    if not _policy_tables_are_fixed(policy, workflow_scope, exceptions):
         return ""
 
     in_scope: dict[str, Observation] = {}
@@ -168,8 +175,9 @@ def _produce_ci_release_gate_parity(
     ) or "none"
     declared_exceptions = ", ".join(sorted(exceptions)) or "none"
     scope_note = (
-        f"Scope och undantag är WORKFLOW_SCOPE och EXCEPTIONS som de står deklarerade "
-        f"i {_PARITY_POLICY_PATH}; senare ändringar av dem i filen är inte kontrollerade."
+        f"{_PARITY_POLICY_PATH} är läst i sin helhet: WORKFLOW_SCOPE och EXCEPTIONS "
+        "tilldelas en gång och används därefter bara för läsning. Omfattas inte: "
+        "namn som byggs vid körning och kod utanför filen."
     )
     if drift:
         conclusion = (
@@ -335,6 +343,127 @@ def _policy_block(observation: Observation, name: str) -> list[str] | None:
             return body
         body.append(stripped)
     return None
+
+
+_POLICY_TABLES = frozenset({"WORKFLOW_SCOPE", "EXCEPTIONS"})
+_TABLE_READS = frozenset({"items", "keys", "values", "get"})
+# Ways to reach a module variable without spelling its identifier. Not a
+# complete list: a name built at run time is outside a static read.
+_DYNAMIC_ACCESS = frozenset({
+    "globals", "locals", "vars", "exec", "eval", "compile", "getattr",
+    "setattr", "delattr", "__import__", "__builtins__", "__dict__",
+    "__globals__", "f_globals", "f_locals", "modules",
+})
+
+
+def _policy_tables_are_fixed(
+    observation: Observation,
+    workflow_scope: dict[str, bool],
+    exceptions: set[str],
+) -> bool:
+    """Whether the declared blocks are the tables the policy ends up using.
+
+    The caller has read the policy in full. Each table must be bound once, at
+    module level, to a literal the line parser read the same way, and every
+    other use must only read it. Anything else may change the table, or hand
+    it to code that does, so the declared block is not the verdict's basis:
+    a second binding of any kind, a store, a delete, a mutating method, an
+    alias, an argument, the name as a string, `import *`, or a call that
+    reaches module variables by name. A policy this interpreter cannot parse
+    is undecided as well.
+    """
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tree = ast.parse(observation.excerpt)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return False
+
+    declared: dict[str, ast.Name] = {}
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+            target: ast.expr = statement.targets[0]
+        elif isinstance(statement, ast.AnnAssign):
+            target = statement.target
+        else:
+            continue
+        if not isinstance(target, ast.Name) or target.id not in _POLICY_TABLES:
+            continue
+        value = statement.value
+        if target.id in declared or not isinstance(value, ast.Dict):
+            return False
+        keys = [
+            key.value
+            for key in value.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        ]
+        if len(keys) != len(value.keys):
+            return False
+        if target.id == "EXCEPTIONS":
+            if set(keys) != exceptions:
+                return False
+        else:
+            flags = [
+                item.value
+                for item in value.values
+                if isinstance(item, ast.Constant) and isinstance(item.value, bool)
+            ]
+            if len(flags) != len(keys) or dict(zip(keys, flags)) != workflow_scope:
+                return False
+        declared[target.id] = target
+    if set(declared) != _POLICY_TABLES:
+        return False
+
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            if node.id in _DYNAMIC_ACCESS:
+                return False
+            if node.id in _POLICY_TABLES and node is not declared[node.id]:
+                if not _only_reads_table(node, parents):
+                    return False
+            continue
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str) and node.value in _POLICY_TABLES:
+                return False
+            continue
+        # Every other place an identifier can stand: a definition, a
+        # parameter, an import, an attribute, a keyword, `global`.
+        for _, field in ast.iter_fields(node):
+            for text in field if isinstance(field, list) else [field]:
+                if not isinstance(text, str):
+                    continue
+                parts = set(text.split("."))
+                if "*" in parts or parts & (_POLICY_TABLES | _DYNAMIC_ACCESS):
+                    return False
+    return True
+
+
+def _only_reads_table(node: ast.Name, parents: dict[ast.AST, ast.AST]) -> bool:
+    if not isinstance(node.ctx, ast.Load):
+        return False
+    parent = parents.get(node)
+    if isinstance(parent, ast.Attribute):
+        call = parents.get(parent)
+        return (
+            parent.attr in _TABLE_READS
+            and isinstance(call, ast.Call)
+            and call.func is parent
+        )
+    if isinstance(parent, ast.Compare):
+        return any(
+            comparator is node and isinstance(op, (ast.In, ast.NotIn))
+            for op, comparator in zip(parent.ops, parent.comparators)
+        )
+    if isinstance(parent, ast.Subscript):
+        return parent.value is node and isinstance(parent.ctx, ast.Load)
+    if isinstance(parent, (ast.For, ast.comprehension)):
+        return parent.iter is node
+    return False
 
 
 def _workflow_scope(observation: Observation) -> dict[str, bool] | None:

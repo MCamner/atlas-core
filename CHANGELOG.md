@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Changed:
+
+- Deterministic producers read their sources whole, up to a declared limit.
+  The filesystem observer reads every path in
+  `review_plan.PRODUCER_SOURCE_PATHS` up to `PRODUCER_SOURCE_MAX_LINES` (400)
+  lines, however the path was reached: an exact pattern, a wildcard match or
+  a re-read. Before this, a source was read to 80 lines, or to 200 for a
+  gate-parity path named by an exact pattern. A longer source is cut at the
+  limit, its observation records `read_in_full: false`, and the producer
+  declines. CI test-command parity now decides a workflow longer than 80
+  lines. It still declines on a gate with more than one test command, which
+  atlas-core's own `test.yml` has since the Python 3.10 job was added.
+- Gate parity requires the policy to be read in full. It declines when
+  `WORKFLOW_SCOPE` or `EXCEPTIONS` is bound a second time, stored to, deleted
+  from, changed through a method, aliased, passed as an argument or named as
+  a string, and when the policy uses `import *`, calls something that reaches
+  module variables by name, or does not parse. The conclusion no longer says
+  that later changes are unchecked. It names what a static read does not
+  cover: names built at run time and code outside the file.
+
 ## v1.1.0 — 2026-10-25
 
 Deterministic review topics and targeted observations added after `v1.0.0`.

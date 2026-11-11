@@ -285,13 +285,80 @@ class TestGateParityDeclines(_ProducerCase):
 
         self.assertEqual(self._produce(self.paths), "")
 
-    def test_conclusion_names_the_observed_declaration_blocks(self) -> None:
+    def test_partial_or_uncounted_policy_declines(self) -> None:
+        """Lines outside the read could redefine either table."""
+        for total in (999, None):
+            with self.subTest(total_lines=total):
+                self.assertEqual(
+                    self._produce(
+                        self.paths,
+                        partial={"scripts/check-gate-parity.py": total},
+                    ),
+                    "",
+                )
+
+    def test_later_change_to_a_policy_table_declines(self) -> None:
+        """The declared block is not the table the policy ends up using."""
+        tails = (
+            'WORKFLOW_SCOPE["mq-stack-gate.yml"] = True',
+            'WORKFLOW_SCOPE.update({"tests.yml": False})',
+            'WORKFLOW_SCOPE.pop("tests.yml")',
+            'WORKFLOW_SCOPE |= {"tests.yml": False}',
+            'del WORKFLOW_SCOPE["tests.yml"]',
+            'EXCEPTIONS["pytest"] = "not compared"',
+            'EXCEPTIONS.setdefault("pytest", "not compared")',
+            'del EXCEPTIONS["check-vendored-contracts.py"]',
+            # A second binding the line parser does not see as an assignment.
+            'if True:\n    WORKFLOW_SCOPE = {"tests.yml": False}',
+            "EXCEPTIONS, other = {}, 1",
+            "for EXCEPTIONS in ({},):\n    pass",
+            "def WORKFLOW_SCOPE():\n    pass",
+            "from elsewhere import tables as EXCEPTIONS",
+            "from elsewhere import *",
+            # The table reaches code this file does not show.
+            "scope = WORKFLOW_SCOPE",
+            "adjust(EXCEPTIONS)",
+            # Reached by name instead of by identifier.
+            'globals()["WORKFLOW_SCOPE"] = {}',
+            'vars()["EXCEPTIONS"].clear()',
+            'setattr(module, "WORKFLOW_SCOPE", {})',
+            'key = "EXCEPTIONS"',
+        )
+        for tail in tails:
+            with self.subTest(tail=tail):
+                self._write(
+                    "scripts/check-gate-parity.py", POLICY + "\n" + tail + "\n"
+                )
+                self.assertEqual(self._produce(self.paths), "")
+
+    def test_reading_a_policy_table_still_produces_a_verdict(self) -> None:
+        """The forms the pinned mq-agent policy uses to read its tables."""
+        self._write(
+            "scripts/check-gate-parity.py",
+            '"""Differences are declared in EXCEPTIONS and WORKFLOW_SCOPE."""\n'
+            + POLICY
+            + "\n"
+            "def main(names, key):\n"
+            "    unlisted = [name for name in names if name not in WORKFLOW_SCOPE]\n"
+            "    for name, in_scope in WORKFLOW_SCOPE.items():\n"
+            '        print(f"WORKFLOW_SCOPE lists {name}: {in_scope}")\n'
+            "    if key in EXCEPTIONS:\n"
+            '        print(f"SKIP: {key} -- {EXCEPTIONS[key]}")\n'
+            "    return unlisted\n",
+        )
+
+        self.assertIn("ingen odeklarerad drift", self._produce(self.paths))
+
+    def test_policy_that_does_not_parse_declines(self) -> None:
+        self._write("scripts/check-gate-parity.py", POLICY + "\ndef broken(:\n")
+
+        self.assertEqual(self._produce(self.paths), "")
+
+    def test_conclusion_says_what_was_checked_about_the_policy(self) -> None:
         output = self._produce(self.paths)
 
-        self.assertIn(
-            "WORKFLOW_SCOPE och EXCEPTIONS som de står deklarerade",
-            output,
-        )
+        self.assertIn("scripts/check-gate-parity.py är läst i sin helhet", output)
+        self.assertNotIn("är inte kontrollerade", output)
 
 
 class TestCiTestCommandParityDeclines(_ProducerCase):
