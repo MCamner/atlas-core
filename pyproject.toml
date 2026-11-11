@@ -19,7 +19,7 @@ dev = []
 test = ["tomli==2.4.1; python_version < '3.11'"]
 ci = [
 	"detect-secrets==1.5.0",
-	"mypy==2.4.0",
+	"mypy==2.4.1",
 	"pip-audit==2.10.1",
 	"pyright==1.1.414",
 	"pytest==9.1.1",
