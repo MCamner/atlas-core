@@ -21,7 +21,7 @@ calls by running the test suite.
 ```bash
 export ATLAS_MODEL_PROVIDER=ollama
 export ATLAS_MODEL=qwen3:4b-instruct     # a model your Ollama actually has
-export ATLAS_MODEL_TIMEOUT=170
+export ATLAS_MODEL_TIMEOUT=170            # 600 for a thinking model, see below
 export ATLAS_LIVE_SMOKE=1
 python -m unittest discover -s tests -p 'test_live_smoke.py'
 ```
@@ -118,6 +118,105 @@ had returned in 18. The adapter raised the named exception from box two and the
 controller stopped the run rather than falling back. It is not part of the
 table because it is not part of that measurement.
 
+## A thinking model and the timeout
+
+Measured on 2026-11-11 against a local Ollama 0.40.16 with `qwen3.5:9b`, a
+model that thinks before it answers. Same fixture and task as above. Produced
+by:
+
+```bash
+python3 scripts/thinking_timeout_measure.py docs/evidence/thinking-timeout-2026-11-11.jsonl qwen3.5:9b
+```
+
+The rows are kept at
+[`docs/evidence/thinking-timeout-2026-11-11.jsonl`](evidence/thinking-timeout-2026-11-11.jsonl).
+The counters are the provider's own, copied from its reply.
+
+| Request | Timeout (s) | Wall (s) | Generated tokens | Thinking / answer (chars) |
+|---|---|---|---|---|
+| Atlas | 900 | 172.2 | 4193 | 15441 / 1016 |
+| Atlas | 900 | 265.6 | 4155 | 15221 / 1466 |
+| Atlas | 900 | 241.9 | 3820 | 14699 / 609 |
+| Atlas, replayed with `think: false` | 900 | 900.0 | no reply | no reply |
+| Atlas, replayed with `think: false` | 900 | 3.3 | 46 | 0 / 236 |
+| Atlas, replayed with `think: false` | 900 | 19.7 | 315 | 0 / 1060 |
+| Atlas | 60 | 60.0 | `ProviderTimeout` | |
+| Atlas | 170 | 170.0 | `ProviderTimeout` | |
+
+**The time is the model's thinking.** Atlas sends `model`, `prompt`, `stream`
+and `format`, and no `think` field. The three replies took 172 to 266 seconds
+and about 4000 generated tokens each, of which the thinking was roughly ten
+times the answer by length. All three conformed to the schema. With the
+adapter's default of 60 seconds, and with the 170 seconds this page suggests
+above, the same request stopped as `tool_error` with `ProviderTimeout`.
+
+**`think: false` is not the fix it looks like.** The replayed rows are the
+payload Atlas sent with that one field added, posted outside Atlas. Two
+answered in 3 and 20 seconds with no thinking. One did not answer in 900
+seconds. Three calls are not a rate, and the cause of the one that hung was
+not investigated.
+
+**Decision: no request field.** Atlas keeps sending what it sends. For a
+thinking model, raise `ATLAS_MODEL_TIMEOUT`; the slowest reply here took 266
+seconds, so 170 is too low and 600 leaves room. A `think` field would change
+what Atlas sends to a provider, and on this evidence it trades a slow reply
+for one that sometimes does not come.
+
+Two limits on these numbers. The machine was not idle during the runs, and
+the generation rate varied between about 16 and 24 tokens per second, so the
+wall times are not a benchmark. And `tests/test_live_smoke.py` gives a run 180
+seconds of wall time, whatever the request timeout is: a reply slower than
+that cannot pass it.
+
+## `openai_compatible`, against a local endpoint
+
+Measured on 2026-11-11 through the `openai_compatible` adapter against the
+OpenAI-compatible endpoint of the same local Ollama (`/v1/chat/completions`),
+same model, fixture and task. It is a compatible endpoint, not a hosted one.
+The key was a placeholder, which that endpoint does not check. Produced by:
+
+```bash
+python3 scripts/thinking_timeout_measure.py docs/evidence/openai-compatible-smoke-2026-11-11.jsonl qwen3.5:9b \
+  --openai-compatible http://localhost:11434/v1/chat/completions
+```
+
+Rows at
+[`docs/evidence/openai-compatible-smoke-2026-11-11.jsonl`](evidence/openai-compatible-smoke-2026-11-11.jsonl).
+
+| Run | Wall (s) | Tokens | Conformed | Stop | Gaps |
+|---|---|---|---|---|---|
+| 1 | 304.2 | 4587 | no | `blocked` | `plan_targets_unread`, `malformed_findings` |
+| 2 | 476.8 | 8368 | yes | `blocked` | `plan_targets_unread`, `unsound_citations` |
+| 3 | 235.2 | 4527 | no | `blocked` | `plan_targets_unread`, `malformed_findings` |
+
+What the three runs establish:
+
+- **The request was accepted.** `response_format` with `type: json_schema`
+  and `strict: true` got a reply each time, not an HTTP error.
+- **The reply was read.** The text came from `choices[0].message.content`,
+  the served model and `system_fingerprint` from the reply, and
+  `usage.total_tokens` reached the budget.
+- **One of three conformed.** In the other two a finding had a blank
+  `reproducible_command`. The schema allows an empty string there and the
+  local check does not, so the reply was reported as `output_conformed:
+  false` with `malformed_findings`, which is a gap a next pass can repair.
+  Through Ollama's native `format` field the same model conformed three times
+  out of three in the section above.
+- **No run passed**, for the same reason as the nine above: invented or
+  unusable findings do not survive the evidence layer.
+
+The opt-in test itself was then run once with the same configuration and
+`ATLAS_MODEL_TIMEOUT=900`:
+
+```
+Ran 6 tests in 172.128s
+OK (skipped=1)
+```
+
+The skip is the Ollama class, which was not the configured provider. That
+reply came inside the test's 180 seconds and conformed. Given the three runs
+above, a repeat can fail on either count.
+
 ## What this does not prove
 
 - **Not that the next reply will conform.** A model is not a function. The same
@@ -127,8 +226,10 @@ table because it is not part of that measurement.
 - **Not that the provider is reliable.** Nine runs without a failure is not a
   rate; a separate session timed out once on a model that had just answered in
   18 seconds.
-- **Not anything about `openai_compatible`.** No such endpoint was configured
-  here, so that half is untested rather than passing.
+- **Not that a hosted `openai_compatible` provider accepts the schema.** The
+  adapter has run against one local compatible endpoint. Whether a provider
+  that validates a `strict` schema before answering accepts this one is
+  untested.
 - **Not that what the model wrote is true.** Nothing here grades content. The
   nine runs above are the demonstration: conforming output, and not one settled
   claim.
