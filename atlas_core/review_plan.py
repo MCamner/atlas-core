@@ -91,6 +91,25 @@ GATE_PARITY_PATHS: tuple[str, ...] = (
     "scripts/check-gate-parity.py",
 )
 
+#: Every exact path a deterministic producer rests a verdict on. A producer
+#: declines on a partial read, so the filesystem observer reads these up to
+#: `PRODUCER_SOURCE_MAX_LINES` instead of the default excerpt, however the path
+#: was reached: an exact pattern, a wildcard match or a re-read. An explicit
+#: line window still decides its own range.
+PRODUCER_SOURCE_PATHS: tuple[str, ...] = (
+    *GATE_PARITY_PATHS,
+    ".github/workflows/test.yml",
+    ".github/workflows/run-atlas.yml",
+    "pyproject.toml",
+    "VERSION",
+    "MANIFEST.json",
+)
+
+#: The most lines read from one producer source. A longer source is cut here,
+#: its observation says so (`line_end`, `total_lines`, `read_in_full`), and the
+#: producer declines. The per-file byte limit applies as well.
+PRODUCER_SOURCE_MAX_LINES = 400
+
 #: Ordered: the first topic whose keywords appear in the task wins. Order is by
 #: specificity, not importance — "installationsinstruktioner" is a
 #: documentation question and also contains "instruktion", so the narrower
