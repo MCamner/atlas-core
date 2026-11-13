@@ -31,6 +31,7 @@ Bygg en **fristående, evidensgrundad och begränsad agentloop**: observera → 
 | P2 / v2.0 | Stabil produktionsgräns | API/operativ driftsättning | Release-gates, migration, dokumenterad support och pilotresultat |
 | P1 / v2.1 | Granskad release av arbetet efter `v1.0.0` | Runtime på `main` är ogranskad sedan `v1.0.0` | Oberoende granskning av pinnad SHA och tagg från just den SHA:n; ingen ny runtime |
 | P2 / v2.2 | Läsfönster och live-provider | Begränsningar dokumenterade i P1.1 och P1.2 | Producenter avgör längre källor utan att gissa; `openai_compatible` prövad live |
+| P2 / v2.3 | Modellbegärd läsning, read-only | P1.2 byggde spärren och deklarationen, inte användningen | En live-modell får fram nytt bevis genom en begäran som controllern avgör; negativa tester för urval, budget, injektion och export |
 
 Versionsnummer är **mål**, inte publicerade releaser. En säkerhets- eller kontraktsbrist blockerar promotion oavsett antal ikryssade uppgifter.
 
@@ -453,6 +454,23 @@ Uppskjutet från v2.1. PR:er som ändrar runtime eller CI namnges i säkerhetsga
 - [ ] **Läsfönster för deterministiska producenter.** Låt en producent läsa hela källan som dess utslag vilar på, upp till en deklarerad och loggad gräns, i stället för att ärva planens fönster på 80/200 rader. Acceptans: CI-testkommandoparitet ger utslag på atlas-cores egen `test.yml` (136 rader); gate-pariteten läser den pinnade mq-agent-policyn i sin helhet och har negativa tester för en omdefinition eller mutation av `WORKFLOW_SCOPE`/`EXCEPTIONS` senare i filen, med decline när policyn inte kan avgöras. Först då tas undantaget från #134 och P1.1-begränsning 5 bort. En fil över gränsen ger fortfarande decline, med negativt test.
 - [ ] **`openai_compatible` live.** Kör adaptern i opt-in-smoke och spara resultatet i [`docs/live-smoke.md`](docs/live-smoke.md). Providerkompatibiliteten med schemat i strict mode är inte prövad; ett avvisat schema rättas med test.
 - [ ] **Timeouter mot lokala tänkande modeller.** Reproducera och mät timeouten mot en tänkande modell i Ollama innan något ändras. Visar mätningen att orsaken är modellens tänkande, välj mellan ett opt-in-fält i förfrågan och dokumenterat höjt `ATLAS_MODEL_TIMEOUT`.
+
+## P2 — v2.3 Modellbegärd läsning, read-only
+
+Påbörjas efter taggen i v2.1. P1.2 levererade spärren och deklarationen (`LiveModelAdapter.capabilities`, `invoke_tool`, `ToolGateway`) men ingen användning: adaptern skickar en förfrågan och läser ett svar, och läsningar begärs i dag bara av evaluatorn genom `observe_again`. Fasen ändrar vad Atlas läser på en modells begäran, så varje runtime-PR namnges i säkerhetsgaten för releasen efter v2.1, och säkerhetsmodellen i [`docs/safety-model.md`](docs/safety-model.md) uppdateras i samma PR som beteendet.
+
+- [ ] **Modellen kan begära en läsning, och controllern avgör den.** Vald form: modellen anger begäran som ett strukturerat fält i sitt svar, och controllern kör en godkänd begäran som en vanlig observationsrunda mellan två iterationer, genom samma `Observer`, `merge_observations`, `RunBudget` och eventlogg som evaluatorns `observe_again`. Provider-nativ tool calling inom ett `execute()` väljs bort: ett verktygsresultat som går tillbaka till modellen som text blir inte en `Observation`, och evaluatorn avgör påståenden bara mot observationer. Acceptans, varje punkt med negativt test:
+  - **Eget kontrakt.** Fältet finns i ett nytt output-schema-ID, inte i `atlas-model-output.v1`, och kontrolleras lokalt. Antal begäranden och fönster per svar är begränsat och deklarerat. En begäran läses aldrig ur fritext, ur ett findings-block eller ur ett svar som inte konformerade.
+  - **Avstängt som standard.** Utan en capability som värdkod har deklarerat på adaptern nekas varje begäran, och en körning utan observer eller utan `RunLimits` kör ingen. Capabilityn sätts inte ur miljön och inte ur modellens utdata.
+  - **Urvalet växer inte.** En begäran får bara gälla sökvägar inom planens mönster i körningens snapshot. Absolut sökväg, `..`, symlink ut ur roten och en sökväg utanför mönstren nekas före I/O. Kontrollen ligger i controllern: `FilesystemRepoObserver` prövar i dag att en fönstersökväg finns, inte att den ligger inom planens urval.
+  - **Ingen dold evidensväg.** Det enda som når nästa iteration är snapshotbundna `Observation`-poster som mergningen accepterade. Begäran, beslut och utfall står i eventloggen, och en nekad begäran står där med skäl. Resume återger samma beslut.
+  - **Ändligt.** Läsningarna belastar körningens `RunBudget`. En nekad begäran kostar ingen budget. En begäran som upprepas, nekas eller inte ger nya bytes ger ingen ny iteration utöver vad `no_progress` redan tillåter. En obesvarad begäran kan inte ligga bakom ett `passed`.
+  - **Repotext styr inte behörigheten.** En fixture där en README uppmanar modellen att begära en fil utanför urvalet och en fil med hemligheter: begäran nekas, och capabilities, urval och budget är oförändrade. Att modellen ignorerar texten påstås inte.
+  - **Export.** Vad en modellbegärd läsning får skicka till en hostad provider avgörs av en uttrycklig värdpolicy som prövas före läsningen, med lokalt som standard. Dagens maskering gäller det utgående körningsdokumentet, inte prompten. Rutan stängs inte med ett påstående om heltäckande skydd mot dataexport.
+  - **Sanningsenlig redovisning.** `tools_invoked` förblir `0` och `invoke_tool` förblir utan anropare, eftersom en observationsbegäran inte är ett verktygsanrop. Begärda, godkända och nekade läsningar redovisas i egna fält, och texten om `invoke_tool` som enda modellstyrda väg i `live_model.py`, `docs/api-contract.md` och `docs/safety-model.md` skiljer direkta verktygsanrop från controllerförmedlade begäranden.
+  - **Observerat resultat.** En körning med skriptad adapter i CI där iteration 1 begär en läsning och iteration 2 avgör ett påstående mot den nya observationen, samt en opt-in-körning mot en live-provider sparad i [`docs/live-smoke.md`](docs/live-smoke.md).
+
+Utanför rutan: skriv- och nätverksverktyg, automatiskt val av CI-körningar som källa och direkta verktygsanrop genom `invoke_tool`.
 
 ## Exekveringsordning — första 6 PR:er
 
